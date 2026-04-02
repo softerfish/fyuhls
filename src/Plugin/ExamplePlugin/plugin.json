@@ -1,0 +1,6 @@
+{
+    "name": "Example Header Plugin",
+    "version": "0.9",
+    "description": "A demonstration plugin that adds a highlighted notice to the top of every page.",
+    "author": "fyuhls"
+}

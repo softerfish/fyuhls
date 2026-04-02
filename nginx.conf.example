@@ -1,0 +1,68 @@
+# ============================================================
+# Nginx Configuration Snippet for fyuhls
+# ------------------------------------------------------------
+# Copy these blocks inside your main "server {}" block in your 
+# nginx configuration file (usually /etc/nginx/sites-available/default)
+# ============================================================
+
+# 1. SECURE DOWNLOADS (X-Accel-Redirect)
+# ----------------------------------------------------------
+# This tells Nginx how to send files directly from the disk.
+# It's faster and saves server memory.
+# ----------------------------------------------------------
+log_format fyuhls_download escape=json
+'{"msec":"$msec",'
+'"remote_addr":"$remote_addr",'
+'"status":"$status",'
+'"bytes_sent":"$body_bytes_sent",'
+'"request_time":"$request_time",'
+'"download_id":"$sent_http_x_fyuhls_download_id",'
+'"file_id":"$sent_http_x_fyuhls_file_id",'
+'"viewer_user_id":"$sent_http_x_fyuhls_viewer_id",'
+'"original_uri":"$sent_http_x_fyuhls_original_uri"}';
+
+location /protected_uploads/ {
+    internal; # ONLY the PHP script can see this!
+    alias /home/user/filehosting/storage/uploads/;
+    access_log /home/user/filehosting/storage/logs/nginx-download-completion.log fyuhls_download;
+
+    # belt and suspenders security: never run scripts from here
+    location ~* \.(php|phtml|sh|bash|py)$ {
+        deny all;
+    }
+}
+
+# 2. BLOCK DIRECT ACCESS TO UPLOADS
+# ----------------------------------------------------------
+# Stops people from bypassing your script and download rules.
+# ----------------------------------------------------------
+location /uploads/ {
+    deny all;
+}
+
+# 3. PHP EXECUTION
+# ----------------------------------------------------------
+# Tells Nginx which PHP version to use. Usually PHP 8.2 or 8.3-fpm.
+# ----------------------------------------------------------
+location ~ \.php$ {
+    try_files $uri =404;
+    include fastcgi_params;
+    fastcgi_pass unix:/run/php/php8.2-fpm.sock; # check your server's version!
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+
+    # safety headers
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+}
+
+# 4. HIDE PRIVATE FOLDERS & HIDDEN FILES
+# ----------------------------------------------------------
+# Stops people from looking at your code, config, or logs.
+# ----------------------------------------------------------
+location ~* ^/(config|src|storage|vendor|database|docs)/ {
+    deny all;
+}
+
+location ~ /\. {
+    deny all;
+}

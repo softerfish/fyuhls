@@ -1,0 +1,20 @@
+# Turn off PHP execution
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+
+# Deny access to everything except static assets if needed, 
+# but generally we want to block direct access since we serve via PHP proxy.
+# If using direct links (X-SendFile/X-Accel), the server handles it internally.
+# For public direct access (if configured), we might need to relax this, 
+# but for now, we lock it down to prevent PHP execution.
+
+<FilesMatch "\.(php|php7|php8|phtml|phar)$">
+    Require all denied
+</FilesMatch>

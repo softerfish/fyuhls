@@ -1,0 +1,62 @@
+# ============================================================
+# Main Apache Configuration — public/.htaccess
+# ============================================================
+
+# Follow symlinks (required for RewriteEngine)
+Options -MultiViews -Indexes +FollowSymLinks
+
+# Enable URL rewriting (required for front-controller routing)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Allow direct access to real files and directories (assets, etc.)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+
+    # Route everything else through index.php
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# ============================================================
+# Security Headers
+# ============================================================
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Content-Security-Policy "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com https://cdn.jsdelivr.net"
+</IfModule>
+
+# ============================================================
+# Block access to hidden files (.env, .git, etc.)
+# ============================================================
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# ============================================================
+# PHP execution — only allow index.php as entry point
+# (belt-and-suspenders; uploads/.htaccess also blocks PHP)
+# ============================================================
+<FilesMatch "\.php$">
+    Require all denied
+</FilesMatch>
+<Files "index.php">
+    Require all granted
+</Files>
+<Files "install.php">
+    Require all granted
+</Files>
+<Files "post_install_check.php">
+    Require all granted
+</Files>
+
+# ============================================================
+# Force HTTPS (uncomment on production)
+# ============================================================
+# <IfModule mod_rewrite.c>
+#     RewriteCond %{HTTPS} off
+#     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# </IfModule>

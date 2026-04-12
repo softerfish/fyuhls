@@ -33,12 +33,8 @@ class EncryptionService
     }
 
     /**
-     * Apply Deterministic AES-256-CBC Encryption.
-     * Unlike standard AES, this uses a fixed Initialization Vector (IV) derived
-     * via HMAC from the raw value. This guarantees the same input produces the 
-     * same exact encrypted output, allowing MySQL 'LIKE' operators and exact match
-     * lookups to continue working securely, without revealing the plaintext value.
-     * 
+     * Apply AES-256-CBC encryption with a fresh random IV for every value.
+     *
      * @throws Exception
      */
     public static function encrypt(?string $value): ?string
@@ -59,10 +55,7 @@ class EncryptionService
             return $value;
         }
 
-        // Generate a deterministic 16-byte IV from the value itself using HMAC-SHA256
-        // By tying the IV tightly to the input string + secret key, we maintain perfect predictability
-        // for MySQL searches without sacrificing the cryptographic padding strength.
-        $iv = substr(hash_hmac('sha256', $value, self::$key, true), 0, 16);
+        $iv = random_bytes(16);
 
         $ciphertext = openssl_encrypt($value, 'aes-256-cbc', self::$key, OPENSSL_RAW_DATA, $iv);
 

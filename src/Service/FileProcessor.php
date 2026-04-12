@@ -326,11 +326,12 @@ class FileProcessor {
     private function createVideoThumbnail(string $source, string $dest, string $ffmpegPath): bool {
         $dims = \App\Core\Config::get('thumbnail', ['max_width' => 320, 'max_height' => 240]);
         $ffmpegPath = trim($ffmpegPath);
-        if ($ffmpegPath === '' || !is_file($ffmpegPath) || !preg_match('/^ffmpeg(?:\.exe)?$/i', basename($ffmpegPath))) {
+        $resolvedFfmpegPath = $ffmpegPath !== '' ? realpath($ffmpegPath) : false;
+        if ($resolvedFfmpegPath === false || !is_file($resolvedFfmpegPath) || !preg_match('/^ffmpeg(?:\.exe)?$/i', basename($resolvedFfmpegPath))) {
             return false;
         }
         $scale = $dims['max_width'] . ':-1';
-        $cmd = escapeshellcmd($ffmpegPath) . " -y -ss 00:00:01 -i " . escapeshellarg($source) . " -frames:v 1 -vf scale=" . $scale . " " . escapeshellarg($dest);
+        $cmd = escapeshellarg($resolvedFfmpegPath) . " -y -ss 00:00:01 -i " . escapeshellarg($source) . " -frames:v 1 -vf scale=" . $scale . " " . escapeshellarg($dest);
         $result = @shell_exec($cmd);
         return file_exists($dest);
     }

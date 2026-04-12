@@ -46,6 +46,7 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 - Updated CSP so direct multipart uploads to configured storage providers are allowed by the browser, and improved the fallback network error text so CSP-related upload blocks are not misreported as only bucket CORS issues.
 - Fixed the public download countdown so it becomes visible correctly after captcha verification instead of staying hidden while the timer runs.
 
+
 ## Table of Contents
 - [Advanced Features (Beta)](#advanced-features-beta)
 - [What You'll Need Before Starting](#what-youll-need-before-starting)
@@ -62,7 +63,7 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 - [Security Reminders](#security-reminders)
 
 ## Advanced Features (Beta)
-- **Full-Coverage AES-256 Encryption**: 100% of sensitive user data (IPs, Emails, Filenames, Payment Details) is stored using industrial-grade deterministic encryption.
+- **Full-Coverage AES-256 Encryption**: 100% of sensitive user data (IPs, Emails, Filenames, Payment Details) is stored using AES-256 encryption with a fresh random IV per value.
 - **Multi-Server Object Storage Architecture**: Connect Local, Backblaze B2, Cloudflare R2, Wasabi, and generic S3-compatible nodes through one storage layer with setup guidance in the admin area.
 - **Direct Multipart Upload Pipeline**: Large uploads use direct-to-storage multipart sessions instead of PHP-side chunk assembly, with resumable sessions, quota reservations, and signed part URLs.
 - **Public API + Personal API Tokens**: Account-bound API tokens support multipart uploads, managed upload shortcuts, owner-scoped file metadata, and application-controlled download links.
@@ -315,6 +316,7 @@ Your PHP installation is missing the `pdo_mysql` extension. Contact your host to
 - Verify that the bucket CORS policy allows your Fyuhls origin.
 - Make sure `PUT`, `GET`, and `HEAD` are allowed.
 - Make sure `ETag` is exposed.
+- Confirm your site's CSP allows direct browser connections to the storage endpoint as well as the bucket CORS policy.
 - Confirm the endpoint, region, access key, and secret key are correct in **Admin > Config Hub > Storage**.
 
 ### API client uploads fail or cannot resume
@@ -342,8 +344,7 @@ The installer detected an existing config. To reinstall, delete `config/database
 ---
 
 ## Security Reminders
-- The installer (`public/install.php`) should not remain exposed after setup. Delete it manually if it remains.
-- Remove `public/post_install_check.php` after you finish using it. It is a setup helper and should not stay accessible on a live site.
+- The installer (`public/install.php`) and `public/post_install_check.php` are blocked after setup, but you should still delete them manually if they remain on disk.
 - Keep the project root outside the public web root whenever possible so only `public/` is web-accessible.
 - Never share your **encryption_key** found in your off-grid config. If lost, all encrypted data is permanently unrecoverable.
 - Keep your PHP version up to date for security patches.
@@ -351,4 +352,3 @@ The installer detected an existing config. To reinstall, delete `config/database
 ---
 
 *Need more help? Check the admin page guides, the fyuhls wiki, or the built-in Bug Report area with the sanitized error log export.*
-

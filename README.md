@@ -1,4 +1,4 @@
-# fyuhls v0.1: High-Performance File Hosting Platform (Beta)
+# fyuhls v0.1.1: High-Performance File Hosting Platform (Beta)
 
 > Beta notice:
 > fyuhls is still a beta release. You should expect errors, rough edges, and incomplete behavior. It is **not** intended to be treated as a fully polished or fully functional production website at this time. 

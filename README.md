@@ -1,14 +1,52 @@
-# fyuhls v0.1: High-Performance File Hosting Platform (Pre-Beta)
+# fyuhls v0.1: High-Performance File Hosting Platform (Beta)
 
-> Pre-beta notice:
-> fyuhls is still a pre-beta release. You should expect errors, rough edges, and incomplete behavior. It is **not** intended to be treated as a fully polished or fully functional production website at this time. 
+> Beta notice:
+> fyuhls is still a beta release. You should expect errors, rough edges, and incomplete behavior. It is **not** intended to be treated as a fully polished or fully functional production website at this time. 
 
 > If you find bugs or broken flows, please send them through the built-in Bug Report area using the sanitized error log export so the issue can be reviewed safely and reproduced faster. You can also e-mail logs to **fyuhls.script@gmail.com** and I will support best I can when available. Keep in mind, this is a passion project, not a full time job. 
 
 Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a modern PHP 8.2+ MVC architecture, fyuhls is aimed at operators who want a self-hosted file hosting platform with real control over storage, packages, uploads, downloads, monetization, diagnostics, and admin operations.
 
+## v0.1.1
+
+- Security
+Restricted the API download-link endpoint so it no longer issues signed public download URLs outside the normal protected browser flow. The route now requires authenticated `files.read` access and is limited to the file owner or an admin.
+Removed the public `/test` debug route from the production app surface.
+Hardened installer and post-install behavior so configured sites do not keep exposing useful installation state to normal visitors, and replaced raw setup error reflection with safer generic messages while keeping details in server logs.
+Switched CSRF verification to a session-authoritative flow instead of trusting the readable cookie token as the primary source of truth.
+Tightened CSP with nonce-based inline handling, stronger default browser protections, and removal of inline event/style allowances across the live app and setup pages.
+Added proxy-aware HTTPS and secure-cookie handling so direct-server and Cloudflare-style deployments apply transport security consistently.
+Tightened trusted proxy handling so forwarded IP headers are not accepted from broad private-network ranges by default.
+Hardened plugin path and ZIP extraction handling to better prevent unsafe extraction targets and deletion outside the intended plugin area.
+Improved upload and media-processing safety by handling temp-file failures and malformed image thumbnail inputs more defensively.
+
+- Storage and Setup
+Improved the storage server add and edit pages with clearer setup guidance for keys, endpoints, regions, and bucket CORS.
+Added Wasabi bucket loading and Fyuhls CORS automation directly to the storage server forms.
+Updated Wasabi CORS automation so it preserves existing non-Fyuhls bucket rules instead of overwriting the full bucket policy.
+
+- Frontend and CSP Cleanup
+Removed inline event handlers and source-level inline `style` attributes across the app so the stricter CSP rollout could be applied safely.
+
+- Download Page UX
+Download limit responses now render in the normal website layout with the download-page styling and ad placements instead of plain text error pages.
+Public download pages now include click-to-copy share fields above the abuse section, with page, HTML, forum, and image embed code formats where applicable.
+Daily download limit pages now distinguish between users who have already used their daily allowance and files that are too large to fit within the package's total daily bandwidth limit.
+Dashboard-style account sidebars now show the remaining daily download allowance, including `Unlimited` for packages without a daily bandwidth cap.
+Referral link displays now consistently use the non-guessable public user ID instead of falling back to numeric account IDs, and the rewards payout toolbar layout was tightened so the action button fits cleanly.
+Storage migration batches now remember the previously selected source server, destination server, and batch limit between clicks so large moves can be processed in repeated batches without re-entering the form each time.
+The admin stored-files view now distinguishes unique stored objects from deduplicated logical file entries, with a quick summary count and per-file duplicate badges based on shared storage references.
+
+- Upload Experience
+Improved upload session error responses so users now see clear package-limit, quota, and storage-capacity messages instead of only a generic upload failure.
+Replaced generic browser alert popups during upload failures with on-screen file manager notices so errors feel cleaner and less disruptive.
+Upload errors now feel much cleaner overall: users stay on the page, see the real reason, and do not get hit with the old generic browser popups anymore.
+Blocked file types are now rejected during multipart session creation, so disallowed uploads show the real file-type error instead of a misleading storage or CORS failure.
+Updated CSP so direct multipart uploads to configured storage providers are allowed by the browser, and improved the fallback network error text so CSP-related upload blocks are not misreported as only bucket CORS issues.
+Fixed the public download countdown so it becomes visible correctly after captcha verification instead of staying hidden while the timer runs.
+
 ## Table of Contents
-- [Advanced Features (Pre-Beta)](#advanced-features-pre-beta)
+- [Advanced Features (Beta)](#advanced-features-beta)
 - [What You'll Need Before Starting](#what-youll-need-before-starting)
 - [Hosting Partnerships & Testing](#hosting-partnerships--testing)
 - [Server Requirements](#server-requirements)
@@ -22,7 +60,7 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 - [Troubleshooting](#troubleshooting)
 - [Security Reminders](#security-reminders)
 
-## Advanced Features (Pre-Beta)
+## Advanced Features (Beta)
 - **Full-Coverage AES-256 Encryption**: 100% of sensitive user data (IPs, Emails, Filenames, Payment Details) is stored using industrial-grade deterministic encryption.
 - **Multi-Server Object Storage Architecture**: Connect Local, Backblaze B2, Cloudflare R2, Wasabi, and generic S3-compatible nodes through one storage layer with setup guidance in the admin area.
 - **Direct Multipart Upload Pipeline**: Large uploads use direct-to-storage multipart sessions instead of PHP-side chunk assembly, with resumable sessions, quota reservations, and signed part URLs.

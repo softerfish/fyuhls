@@ -17,28 +17,28 @@ $secTab = $_GET['sec_tab'] ?? 'identity';
 <div class="row">
     <div class="col-md-3">
         <div class="nav flex-column nav-pills border-end pe-3" id="v-pills-tab" role="tablist" aria-orientation="vertical">
-            <button class="nav-link text-start mb-2 <?= $secTab === 'identity' ? 'active' : '' ?>" onclick="window.location.href='?tab=security&sec_tab=identity'">
+            <button class="nav-link text-start mb-2 <?= $secTab === 'identity' ? 'active' : '' ?>" data-nav-url="?tab=security&sec_tab=identity">
                 <i class="bi bi-shield-check me-2"></i> Identity & VPN
             </button>
-            <button class="nav-link text-start mb-2 <?= $secTab === 'keys' ? 'active' : '' ?>" onclick="window.location.href='?tab=security&sec_tab=keys'">
+            <button class="nav-link text-start mb-2 <?= $secTab === 'keys' ? 'active' : '' ?>" data-nav-url="?tab=security&sec_tab=keys">
                 <i class="bi bi-key me-2"></i> Encryption Keys
                 <?php if (!empty($securityNoticeCounts['keys'])): ?>
                     <span class="badge bg-warning text-dark float-end"><?= (int)$securityNoticeCounts['keys'] ?></span>
                 <?php endif; ?>
             </button>
-            <button class="nav-link text-start mb-2 <?= $secTab === 'captcha' ? 'active' : '' ?>" onclick="window.location.href='?tab=security&sec_tab=captcha'">
+            <button class="nav-link text-start mb-2 <?= $secTab === 'captcha' ? 'active' : '' ?>" data-nav-url="?tab=security&sec_tab=captcha">
                 <i class="bi bi-robot me-2"></i> Captcha
             </button>
-            <button class="nav-link text-start mb-2 <?= $secTab === 'cloudflare' ? 'active' : '' ?>" onclick="window.location.href='?tab=security&sec_tab=cloudflare'">
+            <button class="nav-link text-start mb-2 <?= $secTab === 'cloudflare' ? 'active' : '' ?>" data-nav-url="?tab=security&sec_tab=cloudflare">
                 <i class="bi bi-cloud-check me-2"></i> Cloudflare
             </button>
-            <button class="nav-link text-start mb-2 <?= $secTab === 'migration' ? 'active' : '' ?>" onclick="window.location.href='?tab=security&sec_tab=migration'">
+            <button class="nav-link text-start mb-2 <?= $secTab === 'migration' ? 'active' : '' ?>" data-nav-url="?tab=security&sec_tab=migration">
                 <i class="bi bi-database-lock me-2"></i> Migration
                 <?php if (!empty($securityNoticeCounts['migration'])): ?>
                     <span class="badge bg-warning text-dark float-end"><?= (int)$securityNoticeCounts['migration'] ?></span>
                 <?php endif; ?>
             </button>
-            <button class="nav-link text-start mb-2 <?= $secTab === 'health' ? 'active' : '' ?>" onclick="window.location.href='?tab=security&sec_tab=health'">
+            <button class="nav-link text-start mb-2 <?= $secTab === 'health' ? 'active' : '' ?>" data-nav-url="?tab=security&sec_tab=health">
                 <i class="bi bi-heart-pulse me-2"></i> Database Health
                 <?php if (!empty($securityNoticeCounts['health'])): ?>
                     <span class="badge bg-warning text-dark float-end"><?= (int)$securityNoticeCounts['health'] ?></span>
@@ -81,8 +81,8 @@ $secTab = $_GET['sec_tab'] ?? 'identity';
                                     data-actual="<?= htmlspecialchars($generatedEnterpriseKey) ?>"
                                     data-visible="0"
                                 >
-                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleGeneratedKey('newSecureKey', this)">Show</button>
-                                <button class="btn btn-outline-dark btn-sm" onclick="copyToClipboard('newSecureKey')">Copy</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" data-security-action="toggle-generated-key" data-security-target="newSecureKey">Show</button>
+                                <button type="button" class="btn btn-outline-dark btn-sm" data-security-action="copy-to-clipboard" data-security-target="newSecureKey">Copy</button>
                             </div>
                             <small class="text-danger mt-2 d-block">
                                 <i class="bi bi-shield-slash me-1"></i> <strong>WARNING:</strong> Changing your encryption key without a full re-encryption pass will make existing encrypted data unreadable.
@@ -122,7 +122,7 @@ $secTab = $_GET['sec_tab'] ?? 'identity';
                         <div class="input-group">
                             <input type="<?= !empty($demoAdmin) ? 'text' : 'password' ?>" class="form-control" id="proxycheckApiKey" name="proxycheck_api_key" value="<?= htmlspecialchars($proxycheckApiKey) ?>" placeholder="Your API Key" <?= !empty($demoAdmin) ? 'readonly' : '' ?>>
                             <?php if (empty($demoAdmin)): ?>
-                                <button type="button" class="btn btn-outline-secondary" onclick="toggleSensitiveInput('proxycheckApiKey', this)">Show</button>
+                                <button type="button" class="btn btn-outline-secondary" data-security-action="toggle-sensitive-input" data-security-target="proxycheckApiKey">Show</button>
                             <?php endif; ?>
                         </div>
                         <small class="text-muted">Optional paid integration. Required for Enforcement mode and for Intelligence mode lookups.</small>
@@ -166,7 +166,7 @@ $secTab = $_GET['sec_tab'] ?? 'identity';
                                 <label class="form-check-label fw-bold" for="twoFactorEnabled">Enable 2FA</label>
                             </div>
                             <label class="form-label fw-bold">Enforcement Start Date</label>
-                            <input type="date" class="form-control" style="max-width: 300px;" name="2fa_enforce_date" value="<?= htmlspecialchars($twoFactorEnforceDate ?? '') ?>">
+                            <input type="date" class="security-two-factor-date form-control" name="2fa_enforce_date" value="<?= htmlspecialchars($twoFactorEnforceDate ?? '') ?>">
                             <small class="text-muted d-block mt-2">Leave blank to keep 2FA optional. If set, users without 2FA will be forced to set it up after this date.</small>
                         </div>
                     </div>
@@ -352,4 +352,38 @@ function toggleSensitiveInput(inputId, button) {
     input.setAttribute('type', isPassword ? 'text' : 'password');
     button.textContent = isPassword ? 'Hide' : 'Show';
 }
+
+function copyToClipboard(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) {
+        return;
+    }
+
+    navigator.clipboard.writeText(input.value || '').then(function() {
+        alert('Copied to clipboard.');
+    }).catch(function() {
+        alert('Unable to copy to clipboard.');
+    });
+}
+
+document.addEventListener('click', function(event) {
+    const actionButton = event.target.closest('[data-security-action]');
+    if (!actionButton) {
+        return;
+    }
+
+    const action = actionButton.getAttribute('data-security-action');
+    const targetId = actionButton.getAttribute('data-security-target') || '';
+    if (action === 'toggle-generated-key') {
+        toggleGeneratedKey(targetId, actionButton);
+    } else if (action === 'copy-to-clipboard') {
+        copyToClipboard(targetId);
+    } else if (action === 'toggle-sensitive-input') {
+        toggleSensitiveInput(targetId, actionButton);
+    }
+});
 </script>
+
+<style>
+.security-two-factor-date{max-width:300px}
+</style>

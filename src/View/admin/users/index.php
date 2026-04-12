@@ -1,24 +1,74 @@
 <?php include __DIR__ . '/../header.php'; ?>
 
+<style>
+    .users-alert { margin-bottom: 1.5rem; }
+    .users-card-header-note {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+    }
+    .users-demo-note { margin-bottom: 1rem; }
+    .users-list-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .users-search-form {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .users-search-input { width: 240px; }
+    .users-card-body-flat { padding: 0; }
+    .users-empty {
+        color: var(--text-muted);
+        text-align: center;
+        padding: 2rem;
+    }
+    .users-id,
+    .users-joined {
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+    }
+    .users-email { font-size: 0.875rem; }
+    .users-role-admin {
+        color: #2563eb;
+        font-weight: 600;
+    }
+    .users-role-user { color: var(--text-muted); }
+    .users-status-active { color: #10b981; }
+    .users-status-banned { color: #ef4444; }
+    .users-status-other { color: #f59e0b; }
+    .users-actions {
+        display: flex;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .users-actions-form {
+        display: flex;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+    }
+</style>
+
 <div class="page-header">
     <h1>User Management</h1>
 </div>
 
 <?php if (!empty($error)): ?>
-    <div class="alert alert-danger" style="margin-bottom: 1.5rem;"><?= htmlspecialchars($error) ?></div>
+    <div class="alert alert-danger users-alert"><?= htmlspecialchars($error) ?></div>
 <?php endif; ?>
 <?php if (!empty($success)): ?>
-    <div class="alert alert-success" style="margin-bottom: 1.5rem;"><?= htmlspecialchars($success) ?></div>
+    <div class="alert alert-success users-alert"><?= htmlspecialchars($success) ?></div>
 <?php endif; ?>
 
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Create Account</span>
-        <span style="color: var(--text-muted); font-size: 0.875rem;">Create a standard or admin account without leaving the Users page.</span>
+        <span class="users-card-header-note">Create a standard or admin account without leaving the Users page.</span>
     </div>
     <div class="card-body">
         <?php if (!empty($demoMode)): ?>
-            <div class="alert alert-info" style="margin-bottom: 1rem;">Demo mode is active. You can mark one active admin account as the demo admin. That account keeps sensitive items hidden, while other admins can still reveal protected fields when needed.</div>
+            <div class="alert alert-info users-demo-note">Demo mode is active. You can mark one active admin account as the demo admin. That account keeps sensitive items hidden, while other admins can still reveal protected fields when needed.</div>
         <?php endif; ?>
         <form method="POST" action="/admin/users/create">
             <?= \App\Core\Csrf::field() ?>
@@ -73,16 +123,16 @@
 </div>
 
 <div class="card">
-    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="card-header users-list-header">
         <span>users</span>
-        <form method="GET" style="display: flex; gap: 0.5rem;">
-            <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="partial username, email, or ID..." style="width: 240px;">
+        <form method="GET" class="users-search-form">
+            <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="partial username, email, or ID..." class="users-search-input">
             <button type="submit" class="btn btn-primary">search</button>
         </form>
     </div>
-    <div class="card-body" style="padding: 0;">
+    <div class="card-body users-card-body-flat">
         <?php if (empty($users)): ?>
-            <p style="color: var(--text-muted); text-align: center; padding: 2rem;">no users found.</p>
+            <p class="users-empty">no users found.</p>
         <?php else: ?>
             <table class="table">
                 <thead>
@@ -99,33 +149,33 @@
                 <tbody>
                     <?php foreach ($users as $user): ?>
                         <tr>
-                            <td style="color: var(--text-muted); font-size: 0.8125rem;">#<?= $user['id'] ?></td>
+                            <td class="users-id">#<?= $user['id'] ?></td>
                             <td><strong><?= htmlspecialchars($user['username']) ?></strong></td>
-                            <td style="font-size: 0.875rem;"><?= htmlspecialchars($user['email']) ?></td>
+                            <td class="users-email"><?= htmlspecialchars($user['email']) ?></td>
                             <td>
                                 <?php if ($user['role'] === 'admin'): ?>
-                                    <span style="color: #2563eb; font-weight: 600;">admin</span>
+                                    <span class="users-role-admin">admin</span>
                                     <?php if (!empty($demoMode) && (int)($demoAdminUserId ?? 0) === (int)$user['id']): ?>
                                         <span class="badge bg-warning text-dark ms-2">demo admin</span>
                                     <?php endif; ?>
                                 <?php else: ?>
-                                    <span style="color: var(--text-muted);">user</span>
+                                    <span class="users-role-user">user</span>
                                 <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($user['status'] === 'active'): ?>
-                                    <span style="color: #10b981;">active</span>
+                                    <span class="users-status-active">active</span>
                                 <?php elseif ($user['status'] === 'banned'): ?>
-                                    <span style="color: #ef4444;">banned</span>
+                                    <span class="users-status-banned">banned</span>
                                 <?php else: ?>
-                                    <span style="color: #f59e0b;"><?= htmlspecialchars($user['status']) ?></span>
+                                    <span class="users-status-other"><?= htmlspecialchars($user['status']) ?></span>
                                 <?php endif; ?>
                             </td>
-                            <td style="font-size: 0.8125rem; color: var(--text-muted);"><?= date('M j, Y', strtotime($user['created_at'])) ?></td>
+                            <td class="users-joined"><?= date('M j, Y', strtotime($user['created_at'])) ?></td>
                             <td>
-                                <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; align-items: center;">
+                                <div class="users-actions">
                                     <a href="/admin/users/edit/<?= $user['id'] ?>" class="btn btn-sm btn-secondary">edit</a>
-                                    <form method="POST" action="/admin/users/action" style="display: flex; gap: 0.25rem; flex-wrap: wrap;" onsubmit="return confirm('are you sure?')">
+                                    <form method="POST" action="/admin/users/action" class="users-actions-form" data-confirm-message="are you sure?">
                                         <?= \App\Core\Csrf::field() ?>
                                         <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
                                         <?php if ($user['status'] !== 'banned'): ?>

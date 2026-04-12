@@ -4,7 +4,7 @@
     <div class="card-header">Contact Messages</div>
     <div class="card-body">
         <?php if (empty($messages)): ?>
-            <p style="text-align: center; color: #64748b; padding: 2rem;">No contact messages yet.</p>
+            <p class="contacts-empty-state">No contact messages yet.</p>
         <?php else: ?>
             <table>
                 <thead>
@@ -25,9 +25,9 @@
                                 <small><?= htmlspecialchars($msg['email']) ?></small>
                             </td>
                             <td><?= htmlspecialchars($msg['subject']) ?></td>
-                            <td><span class="badge" style="background: #e2e8f0; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem;"><?= $msg['status'] ?></span></td>
+                            <td><span class="contacts-status-badge badge"><?= $msg['status'] ?></span></td>
                             <td>
-                                <button class="btn btn-sm" onclick="alert('<?= addslashes(htmlspecialchars($msg['message'])) ?>')">View Message</button>
+                                <button class="btn btn-sm" type="button" data-alert-message="<?= addslashes(htmlspecialchars($msg['message'])) ?>">View Message</button>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -36,5 +36,10 @@
         <?php endif; ?>
     </div>
 </div>
+
+<style>
+.contacts-empty-state{text-align:center;color:#64748b;padding:2rem}
+.contacts-status-badge{background:#e2e8f0;padding:.25rem .5rem;border-radius:4px;font-size:.75rem}
+</style>
 
 <?php include 'footer.php'; ?>

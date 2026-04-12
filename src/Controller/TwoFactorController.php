@@ -20,6 +20,12 @@ class TwoFactorController
         $this->totp = new TotpService();
     }
 
+    private function isHttpsRequest(): bool
+    {
+        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+    }
+
     public function showSetup()
     {
         if (!FeatureService::twoFactorEnabled()) {
@@ -206,12 +212,10 @@ class TwoFactorController
         $expiry = date('Y-m-d H:i:s', time() + (30 * 86400));
         $db = Database::getInstance()->getConnection();
         $db->prepare("INSERT INTO user_two_factor_devices (user_id, trust_token, expires_at) VALUES (?, ?, ?)")->execute([$userId, $token, $expiry]);
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
         setcookie('2fa_trust_' . $userId, $token, [
             'expires' => time() + (30 * 86400),
             'path' => '/',
-            'secure' => $isHttps,
+            'secure' => $this->isHttpsRequest(),
             'httponly' => true,
             'samesite' => 'Lax',
         ]);

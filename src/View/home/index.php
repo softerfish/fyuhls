@@ -1,7 +1,30 @@
 <?php
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $title = $pageTitle ?? "Dashboard - {$siteName}";
-$extraHead = '<link rel="stylesheet" href="/assets/css/filemanager.css?v=' . time() . '">';
+$extraHead = '
+<link rel="stylesheet" href="/assets/css/filemanager.css?v=' . time() . '">
+<style>
+    .dashboard-shell { margin-top: 1rem; }
+    .dashboard-plan-card { text-align: center; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); }
+    .dashboard-plan-current { margin-bottom: 0.25rem; font-size: 0.875rem; color: var(--text-color); font-weight: 600; }
+    .dashboard-plan-name { color: var(--primary-color); }
+    .dashboard-plan-expiry { font-size: 0.75rem; color: var(--text-muted); }
+    .dashboard-plan-limit { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem; }
+    .dashboard-plan-expiry--tight { margin-bottom: 0.5rem; }
+    .dashboard-plan-expiry--wide { margin-bottom: 1.25rem; }
+    .dashboard-plan-button { width: auto; padding: 0.5rem 1.5rem; }
+    .dashboard-account-title { margin-top: 0; }
+    .dashboard-nav { list-style: none; padding: 0.5rem 0; margin: 0; }
+    .dashboard-trash-item { padding: 0; display: flex; justify-content: space-between; align-items: center; min-height: 40px; }
+    .dashboard-trash-link { flex: 1; padding: 0.6rem 0.75rem; display: block; }
+    .dashboard-toolbar-controls { display: flex !important; align-items: center !important; gap: 12px !important; flex-wrap: nowrap !important; width: auto !important; min-width: 280px !important; justify-content: flex-end !important; position: relative !important; z-index: 10 !important; }
+    .dashboard-search-box { width: 180px !important; flex-shrink: 0 !important; position: relative !important; }
+    .dashboard-search-input { width: 100% !important; box-sizing: border-box !important; }
+    .dashboard-view-toggle { width: 80px !important; height: 38px !important; display: flex !important; align-items: center !important; justify-content: center !important; flex-shrink: 0 !important; background: #f1f5f9 !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; font-size: 0.8rem !important; cursor: pointer !important; position: relative !important; z-index: 20 !important; }
+    .dashboard-date-hidden,
+    .dashboard-menu-hidden { display: none; }
+    .dashboard-hidden { display: none; }
+</style>';
 include __DIR__ . '/header.php';
 
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
@@ -17,11 +40,11 @@ $uploadLimitText = $effectiveUploadLimit > 0
     : 'Maximum upload size depends on your account and storage policy';
 ?>
 
-<div class="fm-container<?= $guestMode ? ' guest-upload-shell' : '' ?>" style="margin-top: 1rem;">
+<div class="fm-container dashboard-shell<?= $guestMode ? ' guest-upload-shell' : '' ?>">
     <?php if (!$guestMode): ?>
     <div class="fm-sidebar">
         <div class="sidebar-section">
-            <div style="text-align: center; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-color);">
+            <div class="dashboard-plan-card">
                 <?php
                 $userId = $currentUserId;
                 $pkgNameStr = 'Free Plan';
@@ -43,31 +66,36 @@ $uploadLimitText = $effectiveUploadLimit > 0
                 }
                 ?>
                 <?php $isPaidPlan = (\App\Core\Auth::isAdmin() || strtolower((string)($userPkg['level_type'] ?? 'free')) === 'paid'); ?>
-                <div style="margin-bottom: 0.25rem; font-size: 0.875rem; color: var(--text-color); font-weight: 600;">
-                    Current Plan: <span style="color: var(--primary-color);"><?= htmlspecialchars($pkgNameStr) ?></span>
+                <div class="dashboard-plan-current">
+                    Current Plan: <span class="dashboard-plan-name"><?= htmlspecialchars($pkgNameStr) ?></span>
                 </div>
-                <div style="margin-bottom: <?= $isPaidPlan ? '0.5rem' : '1.25rem' ?>; font-size: 0.75rem; color: var(--text-muted);">
+                <div class="dashboard-plan-expiry <?= $isPaidPlan ? 'dashboard-plan-expiry--tight' : 'dashboard-plan-expiry--wide' ?>">
                     <?= htmlspecialchars($expiryStr) ?>
                 </div>
+                <?php if (!empty($dailyDownloadLimitSummary['label']) && array_key_exists('value', $dailyDownloadLimitSummary)): ?>
+                    <div class="dashboard-plan-limit">
+                        <?= htmlspecialchars($dailyDownloadLimitSummary['label']) ?>: <?= htmlspecialchars($dailyDownloadLimitSummary['value']) ?>
+                    </div>
+                <?php endif; ?>
                 <?php if (!$isPaidPlan): ?>
-                    <button class="btn btn-warning" onclick="location.href='/#pricing'" style="width: auto; padding: 0.5rem 1.5rem;">View Plans</button>
+                    <button class="btn btn-warning dashboard-plan-button" data-nav-url="/#pricing">View Plans</button>
                 <?php endif; ?>
             </div>
-            <h3 style="margin-top: 0;">Account</h3>
+            <h3 class="dashboard-account-title">Account</h3>
             <!-- Antigravity-Sync-Check-1.0 -->
-            <ul style="list-style: none; padding: 0.5rem 0; margin: 0;">
-                <li onclick="location.href='/'" class="<?= (!isset($isTrash) || !$isTrash) && !str_contains($requestUri, '/settings') && !str_contains($requestUri, '/rewards') && !str_contains($requestUri, '/affiliate') && !str_contains($requestUri, '/recent') && !str_contains($requestUri, '/shared') ? 'active' : '' ?>">All Files</li>
+            <ul class="dashboard-nav">
+                <li data-nav-url="/" class="<?= (!isset($isTrash) || !$isTrash) && !str_contains($requestUri, '/settings') && !str_contains($requestUri, '/rewards') && !str_contains($requestUri, '/affiliate') && !str_contains($requestUri, '/recent') && !str_contains($requestUri, '/shared') ? 'active' : '' ?>">All Files</li>
                 <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
-                    <li onclick="location.href='/rewards'" class="<?= str_contains($requestUri, '/rewards') ? 'active' : '' ?>">My Rewards</li>
+                    <li data-nav-url="/rewards" class="<?= str_contains($requestUri, '/rewards') ? 'active' : '' ?>">My Rewards</li>
                     <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
-                        <li onclick="location.href='/affiliate'" class="<?= str_contains($requestUri, '/affiliate') ? 'active' : '' ?>">Affiliate</li>
+                        <li data-nav-url="/affiliate" class="<?= str_contains($requestUri, '/affiliate') ? 'active' : '' ?>">Affiliate</li>
                     <?php endif; ?>
                 <?php endif; ?>
-                <li onclick="location.href='/settings'" class="<?= str_contains($requestUri, '/settings') ? 'active' : '' ?>">Settings</li>
-                <li onclick="location.href='/recent'" class="<?= str_contains($requestUri, '/recent') ? 'active' : '' ?>">Recent</li>
-                <li onclick="location.href='/shared'" class="<?= str_contains($requestUri, '/shared') ? 'active' : '' ?>">Shared</li>
-                <li class="<?= (isset($isTrash) && $isTrash) ? 'active' : '' ?> sidebar-trash-item" style="padding: 0; display: flex; justify-content: space-between; align-items: center; min-height: 40px;">
-                    <span onclick="location.href='/trash'" style="flex: 1; padding: 0.6rem 0.75rem; display: block;">Trash</span>
+                <li data-nav-url="/settings" class="<?= str_contains($requestUri, '/settings') ? 'active' : '' ?>">Settings</li>
+                <li data-nav-url="/recent" class="<?= str_contains($requestUri, '/recent') ? 'active' : '' ?>">Recent</li>
+                <li data-nav-url="/shared" class="<?= str_contains($requestUri, '/shared') ? 'active' : '' ?>">Shared</li>
+                <li class="<?= (isset($isTrash) && $isTrash) ? 'active' : '' ?> sidebar-trash-item dashboard-trash-item">
+                    <span data-nav-url="/trash" class="dashboard-trash-link">Trash</span>
                 </li>
             </ul>
         </div>
@@ -109,16 +137,16 @@ $uploadLimitText = $effectiveUploadLimit > 0
                 </div>
             </div>
 
-            <div class="toolbar-right"<?= $guestMode ? ' style="display:none;"' : '' ?>>
-                <div class="toolbar-controls" style="display: flex !important; align-items: center !important; gap: 12px !important; flex-wrap: nowrap !important; width: auto !important; min-width: 280px !important; justify-content: flex-end !important; position: relative !important; z-index: 10 !important;">
-                    <div class="search-box" style="width: 180px !important; flex-shrink: 0 !important; position: relative !important;">
+            <div class="toolbar-right<?= $guestMode ? ' dashboard-hidden' : '' ?>">
+                <div class="toolbar-controls dashboard-toolbar-controls">
+                    <div class="search-box dashboard-search-box">
                         <span class="search-icon" aria-hidden="true">&#128269;</span>
-                        <input type="text" id="fmSearch" placeholder="Search files..." style="width: 100% !important; box-sizing: border-box !important;">
+                        <input type="text" id="fmSearch" placeholder="Search files..." class="dashboard-search-input">
                     </div>
-                    <button class="btn" id="viewToggle" title="Toggle Grid/List" style="width: 80px !important; height: 38px !important; display: flex !important; align-items: center !important; justify-content: center !important; flex-shrink: 0 !important; background: #f1f5f9 !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; font-size: 0.8rem !important; cursor: pointer !important; position: relative !important; z-index: 20 !important;">Grid</button>
+                    <button class="btn dashboard-view-toggle" id="viewToggle" title="Toggle Grid/List">Grid</button>
                 </div>
                 <?php if ($currentFolder): ?>
-                    <button class="btn btn-white" onclick="location.href='<?= $currentFolder['parent_id'] ? '/folder/' . $currentFolder['parent_id'] : '/' ?>'">Up One Level</button>
+                    <button class="btn btn-white" data-nav-url="<?= $currentFolder['parent_id'] ? '/folder/' . $currentFolder['parent_id'] : '/' ?>">Up One Level</button>
                 <?php endif; ?>
             </div>
         </div>
@@ -145,11 +173,11 @@ $uploadLimitText = $effectiveUploadLimit > 0
                 <p>Drag & Drop files here or <span>browse</span></p>
                 <small><?= htmlspecialchars($uploadLimitText) ?></small>
             </div>
-            <input type="file" id="fileInput" multiple style="display: none;">
+            <input type="file" id="fileInput" multiple class="dashboard-hidden">
         </div>
         <?php endif; ?>
 
-        <div class="fm-filter-bar"<?= $guestMode ? ' style="display:none;"' : '' ?>>
+        <div class="fm-filter-bar<?= $guestMode ? ' dashboard-hidden' : '' ?>">
             <div class="fm-filter-group">
                 <label class="fm-filter">
                     <span>Type</span>
@@ -253,7 +281,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
                                     echo implode(' &middot; ', $stats) ?: 'Empty';
                                     ?>
                                 </span>
-                                <span class="file-date" style="display:none;"><?= date('Y-m-d H:i:s', strtotime($folder['created_at'])) ?></span>
+                                <span class="file-date dashboard-date-hidden"><?= date('Y-m-d H:i:s', strtotime($folder['created_at'])) ?></span>
                             </div>
                         </div>
                     </div>
@@ -280,7 +308,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
                                 <span class="trigger-icon" aria-hidden="true">&#9662;</span>
                             </div>
                         </div>
-                        <div class="file-preview" onclick="window.open('/file/<?= $file['short_id'] ?>', '_blank')">
+                        <div class="file-preview" data-nav-url="/file/<?= $file['short_id'] ?>" data-nav-target="_blank">
                             <?php
                             $thumbUrl = null;
                             if (strpos($file['mime_type'], 'image/') === 0 || strpos($file['mime_type'], 'video/') === 0) {
@@ -302,7 +330,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
                             </div>
                             <div class="file-meta">
                                 <span class="file-size-raw"><?= \App\Service\FileProcessor::formatSize($file['file_size']) ?></span>
-                                <span class="file-date" style="display:none;"><?= date('Y-m-d H:i:s', strtotime($file['created_at'])) ?></span>
+                                <span class="file-date dashboard-date-hidden"><?= date('Y-m-d H:i:s', strtotime($file['created_at'])) ?></span>
                             </div>
                         </div>
                     </div>
@@ -323,7 +351,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
     </div>
 </div>
 
-<div id="itemDropdown" class="context-menu item-dropdown" style="display:none;">
+<div id="itemDropdown" class="context-menu item-dropdown dashboard-menu-hidden">
     <ul>
         <li id="dropDownload"><span class="icon" aria-hidden="true">&#11015;</span> Download</li>
         <li id="dropShare"><span class="icon" aria-hidden="true">&#128279;</span> Share</li>
@@ -335,7 +363,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
     </ul>
 </div>
 
-<div id="sidebarContextMenu" class="context-menu" style="display:none;">
+<div id="sidebarContextMenu" class="context-menu dashboard-menu-hidden">
     <ul>
         <li id="ctxEmptyTrash" class="text-danger"><span class="icon" aria-hidden="true">&#128465;</span> Empty Trash</li>
     </ul>

@@ -79,10 +79,10 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
 </div>
 
 <div class="row g-3 mb-4">
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="small text-muted mb-1 text-uppercase fw-bold" style="font-size:0.65rem;">Total Users</div><div class="h4 mb-0 fw-bold"><?= $count($stats['total_users'] ?? 0) ?></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="small text-muted mb-1 text-uppercase fw-bold" style="font-size:0.65rem;">Total Files</div><div class="h4 mb-0 fw-bold"><?= $count($stats['total_files'] ?? 0) ?></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="small text-muted mb-1 text-uppercase fw-bold" style="font-size:0.65rem;">Storage Used</div><div class="h4 mb-0 fw-bold"><?= $size($stats['total_storage_bytes'] ?? 0) ?></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="small text-muted mb-1 text-uppercase fw-bold" style="font-size:0.65rem;">Cache Status</div><div class="h4 mb-0 fw-bold"><span class="badge <?= $isLive ? 'bg-warning text-dark' : 'bg-success' ?> rounded-pill" style="font-size:0.7rem;"><?= $isLive ? 'LIVE (SLOW)' : 'OPTIMIZED' ?></span></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Total Users</div><div class="h4 mb-0 fw-bold"><?= $count($stats['total_users'] ?? 0) ?></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Total Files</div><div class="h4 mb-0 fw-bold"><?= $count($stats['total_files'] ?? 0) ?></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Storage Used</div><div class="h4 mb-0 fw-bold"><?= $size($stats['total_storage_bytes'] ?? 0) ?></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Cache Status</div><div class="h4 mb-0 fw-bold"><span class="dashboard-summary-badge badge <?= $isLive ? 'bg-warning text-dark' : 'bg-success' ?> rounded-pill"><?= $isLive ? 'LIVE (SLOW)' : 'OPTIMIZED' ?></span></div></div></div>
 </div>
 
 <div class="alert alert-light border shadow-sm mb-4"><strong>Dashboard Layout:</strong> drag any widget to reorder it. Use the arrow button to collapse it down to the title bar. Your layout is saved in this browser.</div>
@@ -229,7 +229,7 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
     <?php dashboardWidgetEnd(); ?>
 
     <?php dashboardWidgetStart('growth_chart', 'Platform Growth', 'Uploads and downloads over the last 30 days', 'span-8'); ?>
-        <canvas id="growthChart" style="max-height:320px;"></canvas>
+        <canvas id="growthChart" class="dashboard-growth-chart"></canvas>
     <?php dashboardWidgetEnd(); ?>
 
     <?php dashboardWidgetStart('host_health', 'Host System Health', 'Disk, CPU, RAM, and runtime details'); ?>
@@ -243,15 +243,15 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
     <?php dashboardWidgetEnd(); ?>
 
     <?php dashboardWidgetStart('recent_activity', 'Recent User Activity', 'Latest actions across the site', 'span-12'); ?>
-        <div class="table-responsive" style="max-height:420px;">
-            <table class="table table-hover align-middle mb-0" style="font-size:0.85rem;">
+        <div class="dashboard-activity-table table-responsive">
+            <table class="dashboard-activity-text table table-hover align-middle mb-0">
                 <thead class="bg-light sticky-top"><tr><th class="ps-4 py-3 border-0">Time</th><th class="border-0">User</th><th class="border-0">Action</th><th class="pe-4 border-0">Details</th></tr></thead>
                 <tbody>
                     <?php foreach (($widgets['recent_activity'] ?? []) as $log): ?>
                         <tr>
                             <td class="ps-4 text-muted small"><?= htmlspecialchars($timeText($log['created_at'] ?? null)) ?></td>
                             <td class="fw-bold"><?= htmlspecialchars($log['display_name'] ?? 'guest') ?></td>
-                            <td><span class="badge bg-light text-dark border fw-normal" style="font-size:0.65rem;"><?= htmlspecialchars(strtoupper((string)($log['activity_type'] ?? 'unknown'))) ?></span></td>
+                            <td><span class="dashboard-activity-badge badge bg-light text-dark border fw-normal"><?= htmlspecialchars(strtoupper((string)($log['activity_type'] ?? 'unknown'))) ?></span></td>
                             <td class="pe-4 text-muted small"><?= htmlspecialchars((string)($log['description'] ?? '')) ?></td>
                         </tr>
                     <?php endforeach; ?>
@@ -286,6 +286,12 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
 .dashboard-widget-links{display:flex;flex-wrap:wrap;gap:.65rem}
 .dashboard-widget-links a{font-size:.78rem;font-weight:600;color:var(--bs-primary);text-decoration:none}
 .dashboard-widget-links a:hover{text-decoration:underline}
+.dashboard-summary-label{font-size:.65rem}
+.dashboard-summary-badge{font-size:.7rem}
+.dashboard-growth-chart{max-height:320px}
+.dashboard-activity-table{max-height:420px}
+.dashboard-activity-text{font-size:.85rem}
+.dashboard-activity-badge{font-size:.65rem}
 .mini-list{display:grid;gap:.55rem}
 .mini-list-row{display:flex;justify-content:space-between;gap:.85rem;align-items:center;font-size:.79rem;border-bottom:1px solid #eef2f7;padding-bottom:.45rem}
 .mini-list-row:last-child{border-bottom:0;padding-bottom:0}

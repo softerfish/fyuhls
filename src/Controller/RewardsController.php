@@ -9,6 +9,7 @@ use App\Core\View;
 use App\Model\Setting;
 use App\Model\User;
 use App\Service\FeatureService;
+use App\Service\PackageAllowanceService;
 
 class RewardsController
 {
@@ -37,6 +38,7 @@ class RewardsController
             'mixedPpdPercent' => Setting::get('mixed_ppd_percent', '30', 'rewards'),
             'mixedPpsPercent' => Setting::get('mixed_pps_percent', '30', 'rewards'),
             'user' => $user,
+            'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary(Auth::id() ? (int)Auth::id() : null, Auth::id() ? (\App\Model\Package::getUserPackage((int)Auth::id()) ?: []) : []),
         ]);
     }
 
@@ -112,6 +114,7 @@ class RewardsController
             'pendingRewards' => $pendingRewards,
             'recentEarnings' => $recentEarnings,
             'analytics' => $analytics,
+            'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary((int)$userId, \App\Model\Package::getUserPackage((int)$userId) ?: []),
         ]);
     }
 

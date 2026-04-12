@@ -199,7 +199,7 @@
                                                 </ul>
                                             <?php endif; ?>
                                         </td>
-                                        <td style="min-width: 230px;">
+                                        <td class="rewards-fraud-review-cell">
                                             <form method="POST" action="/admin/rewards-fraud/review">
                                                 <?= \App\Core\Csrf::field() ?>
                                                 <input type="hidden" name="earning_id" value="<?= (int)$row['id'] ?>">
@@ -292,5 +292,9 @@
         </div>
     </div>
 </div>
+
+<style>
+.rewards-fraud-review-cell{min-width:230px}
+</style>
 
 <?php include __DIR__ . '/footer.php'; ?>

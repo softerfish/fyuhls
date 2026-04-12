@@ -19,7 +19,98 @@ class FileController
     private const MAX_FILENAME_LENGTH = 255;
     private static bool $downloadBandwidthTableReady = false;
 
-    private function renderDownloadStatePage(string $titleText, string $heading, string $message, int $statusCode = 200): void
+    private function buildPublicShareFields(array $file): array
+    {
+        if (empty($file['is_public']) || empty($file['short_id'])) {
+            return [];
+        }
+
+        $baseUrl = rtrim(\App\Service\SeoService::trustedBaseUrl(), '/');
+        $pageUrl = $baseUrl . '/file/' . rawurlencode((string)$file['short_id']);
+        $safeFilename = htmlspecialchars((string)($file['filename'] ?? ''), ENT_QUOTES, 'UTF-8');
+        $pageUrlHtml = htmlspecialchars($pageUrl, ENT_QUOTES, 'UTF-8');
+        $shareFields = [
+            [
+                'label' => 'Page Link',
+                'value' => $pageUrl,
+            ],
+            [
+                'label' => 'HTML Code',
+                'value' => '<a href="' . $pageUrlHtml . '" target="_blank" rel="noopener">' . $safeFilename . '</a>',
+            ],
+            [
+                'label' => 'Forum Code',
+                'value' => '[url=' . $pageUrl . ']' . (string)($file['filename'] ?? '') . '[/url]',
+            ],
+        ];
+
+        $thumbnailUrl = null;
+        $isImageFile = str_starts_with($this->resolveDisplayMimeType($file), 'image/');
+        if ($isImageFile && !empty($file['file_hash']) && !empty($file['storage_path'])) {
+            $pathParts = explode('/', trim((string)$file['storage_path'], '/'));
+            if (count($pathParts) >= 3) {
+                $thumbnailUrl = $baseUrl . '/thumbnail/' . rawurlencode($pathParts[0]) . '/' . rawurlencode($pathParts[1]) . '/' . rawurlencode((string)$file['file_hash']) . '.jpg';
+            }
+        }
+
+        if ($thumbnailUrl !== null) {
+            $thumbHtml = htmlspecialchars($thumbnailUrl, ENT_QUOTES, 'UTF-8');
+            $shareFields[] = [
+                'label' => 'Embed HTML Code',
+                'value' => '<a href="' . $pageUrlHtml . '" target="_blank" rel="noopener"><img src="' . $thumbHtml . '" alt="' . $safeFilename . '"></a>',
+            ];
+            $shareFields[] = [
+                'label' => 'Embed Forum Code',
+                'value' => '[url=' . $pageUrl . '][img]' . $thumbnailUrl . '[/img][/url]',
+            ];
+        }
+
+        return $shareFields;
+    }
+
+    private function renderDownloadSharePanel(array $shareFields): void
+    {
+        if (empty($shareFields)) {
+            return;
+        }
+
+        $primaryField = $shareFields[0];
+        $extraFields = array_slice($shareFields, 1);
+        $panelId = 'downloadSharePanel' . substr(md5(json_encode($shareFields)), 0, 8);
+        $extraId = $panelId . 'Extra';
+        $primaryInputId = $panelId . 'Primary';
+
+        echo '<div class="download-share-panel">';
+        echo '<h2 class="download-share-heading">Share This File</h2>';
+        echo '<div class="download-share-row download-share-row--primary">';
+        echo '<label class="download-share-label" for="' . $primaryInputId . '">' . htmlspecialchars($primaryField['label']) . '</label>';
+        echo '<div class="download-share-control">';
+        echo '<input type="text" readonly class="download-share-input" id="' . $primaryInputId . '" value="' . htmlspecialchars($primaryField['value'], ENT_QUOTES, 'UTF-8') . '">';
+        echo '<button type="button" class="download-share-copy" data-copy-target="' . $primaryInputId . '">Copy</button>';
+        echo '</div>';
+        echo '</div>';
+
+        if (!empty($extraFields)) {
+            echo '<button type="button" class="download-share-toggle" data-share-toggle="' . $extraId . '" aria-expanded="false">';
+            echo 'More share options';
+            echo '</button>';
+            echo '<div class="download-share-extra" id="' . $extraId . '" hidden>';
+            foreach ($extraFields as $index => $field) {
+                $inputId = $panelId . 'Field' . $index;
+                echo '<div class="download-share-row">';
+                echo '<label class="download-share-label" for="' . $inputId . '">' . htmlspecialchars($field['label']) . '</label>';
+                echo '<div class="download-share-control">';
+                echo '<input type="text" readonly class="download-share-input" id="' . $inputId . '" value="' . htmlspecialchars($field['value'], ENT_QUOTES, 'UTF-8') . '">';
+                echo '<button type="button" class="download-share-copy" data-copy-target="' . $inputId . '">Copy</button>';
+                echo '</div>';
+                echo '</div>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+
+    private function renderDownloadStatePage(string $titleText, string $heading, string $message, int $statusCode = 200, ?array $package = null, ?array $file = null, array $shareFields = []): void
     {
         http_response_code($statusCode);
 
@@ -29,14 +120,110 @@ class FileController
 
         require_once dirname(__DIR__, 1) . '/View/home/header.php';
 
-        echo '<div style="display:flex; justify-content:center; align-items:center; flex:1; padding:2rem; gap:2rem; max-width:1400px; margin:0 auto; width:100%;">';
-        echo '<div style="flex:1 1 auto; max-width:560px; min-width:0; width:100%;">';
-        echo '<div style="background:white; border-radius:12px; box-shadow:0 4px 24px rgba(0,0,0,0.08); padding:2.5rem; width:100%; box-sizing:border-box; text-align:center;">';
-        echo '<h1 style="font-size:1.5rem; font-weight:700; margin:0 0 0.75rem;">' . htmlspecialchars($heading) . '</h1>';
-        echo '<p style="color:#64748b; font-size:0.95rem; margin:0; line-height:1.7;">' . htmlspecialchars($message) . '</p>';
+        $showAds = (bool)($package['show_ads'] ?? false);
+        $adLeft = $showAds ? Setting::get('ad_download_left', '') : '';
+        $adRight = $showAds ? Setting::get('ad_download_right', '') : '';
+        $adTop = $showAds ? Setting::get('ad_download_top', '') : '';
+        $adBottom = $showAds ? Setting::get('ad_download_bottom', '') : '';
+
+        echo '<style>
+            .download-page-shell{display:flex;justify-content:center;align-items:center;flex:1;padding:2rem;gap:2rem;max-width:1400px;margin:0 auto;width:100%}
+            .download-page-sidebar{flex:0 0 300px;max-width:300px;display:none;align-self:center}
+            .download-page-sidebar-card{background:#f1f5f9;padding:1rem;border-radius:8px;text-align:center;overflow-wrap:anywhere;word-break:break-all}
+            .download-page-center{flex:1 1 auto;max-width:560px;min-width:0;width:100%}
+            .download-page-card{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:2.5rem;width:100%;box-sizing:border-box}
+            .download-page-top-ad,.download-page-bottom-ad{background:#f1f5f9;padding:.75rem;text-align:center;border-radius:8px;overflow-wrap:anywhere;word-break:break-all}
+            .download-page-top-ad{margin-bottom:1.5rem}
+            .download-page-bottom-ad{margin-top:1.5rem}
+            .download-page-title{font-size:1.25rem;font-weight:700;margin:0 0 .25rem;overflow-wrap:anywhere;word-break:break-all}
+            .download-page-meta{color:#64748b;font-size:.875rem;margin:0 0 2rem}
+            .download-state-copy{color:#64748b;font-size:.95rem;margin:0;line-height:1.7;text-align:center}
+            .download-share-panel{margin-top:1.5rem;padding:1rem;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}
+            .download-share-heading{font-size:1rem;font-weight:700;color:#0f172a;margin:0 0 .75rem}
+            .download-share-row{margin-bottom:.875rem}
+            .download-share-row:last-child{margin-bottom:0}
+            .download-share-label{display:block;font-size:.85rem;font-weight:600;color:#334155;margin-bottom:.4rem}
+            .download-share-control{display:flex;gap:.5rem;align-items:stretch}
+            .download-share-input{flex:1;min-width:0;padding:.75rem .875rem;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font-size:.88rem}
+            .download-share-copy{padding:.75rem 1rem;border:0;border-radius:8px;background:#e2e8f0;color:#0f172a;font-weight:600;cursor:pointer;white-space:nowrap}
+            .download-share-copy:hover{background:#cbd5e1}
+            .download-share-toggle{margin-top:.25rem;padding:0;background:none;border:0;color:#2563eb;font-size:.875rem;font-weight:600;cursor:pointer}
+            .download-share-toggle:hover{text-decoration:underline}
+            .download-share-extra{margin-top:.875rem;padding-top:.875rem;border-top:1px solid #e2e8f0}
+            @media (min-width: 1100px){.download-page-sidebar{display:block}}
+            @media (max-width: 640px){.download-share-control{flex-direction:column}.download-share-copy{width:100%}}
+        </style>';
+
+        echo '<div class="download-page-shell">';
+
+        if ($adLeft !== '') {
+            echo '<div class="download-page-sidebar">';
+            echo '<div class="download-page-sidebar-card">' . $adLeft . '</div>';
+            echo '</div>';
+        }
+
+        echo '<div class="download-page-center">';
+        if ($adTop !== '') {
+            echo '<div class="download-page-top-ad">' . $adTop . '</div>';
+        }
+        echo '<div class="download-page-card">';
+        if ($file !== null) {
+            echo '<h1 class="download-page-title">' . htmlspecialchars((string)($file['filename'] ?? $heading)) . '</h1>';
+            echo '<p class="download-page-meta">' . round(((int)($file['file_size'] ?? 0)) / 1024 / 1024, 2) . ' MB</p>';
+        } else {
+            echo '<h1 class="download-page-title">' . htmlspecialchars($heading) . '</h1>';
+        }
+        echo '<p class="download-state-copy">' . htmlspecialchars($message) . '</p>';
+        $this->renderDownloadSharePanel($shareFields);
         echo '</div>';
+        if ($adBottom !== '') {
+            echo '<div class="download-page-bottom-ad">' . $adBottom . '</div>';
+        }
         echo '</div>';
+
+        if ($adRight !== '') {
+            echo '<div class="download-page-sidebar">';
+            echo '<div class="download-page-sidebar-card">' . $adRight . '</div>';
+            echo '</div>';
+        }
+
         echo '</div>';
+
+        if (!empty($shareFields)) {
+            echo '<script>
+document.querySelectorAll("[data-copy-target]").forEach(function(button) {
+    button.addEventListener("click", async function() {
+        const target = document.getElementById(button.getAttribute("data-copy-target"));
+        if (!target) {
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(target.value);
+            const original = button.textContent;
+            button.textContent = "Copied";
+            setTimeout(function() {
+                button.textContent = original;
+            }, 1400);
+        } catch (err) {
+            target.focus();
+            target.select();
+        }
+    });
+});
+document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
+    button.addEventListener("click", function() {
+        const target = document.getElementById(button.getAttribute("data-share-toggle"));
+        if (!target) {
+            return;
+        }
+        const expanded = button.getAttribute("aria-expanded") === "true";
+        target.hidden = expanded;
+        button.setAttribute("aria-expanded", expanded ? "false" : "true");
+        button.textContent = expanded ? "More share options" : "Fewer share options";
+    });
+});
+</script>';
+        }
 
         require_once dirname(__DIR__, 1) . '/View/home/footer.php';
     }
@@ -230,8 +417,20 @@ class FileController
         $usedToday = (int)$stmt->fetchColumn();
 
         if (($usedToday + $fileSize) > $dailyLimit) {
-            http_response_code(429);
-            die('Daily download bandwidth limit reached for your package. Please try again later.');
+            $message = $fileSize > $dailyLimit
+                ? 'This file is larger than your package\'s total daily download bandwidth allowance.'
+                : 'You have reached your daily download bandwidth limit for this package. Please try again later.';
+
+            $this->renderDownloadStatePage(
+                'Download Limit Reached - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Download Limit Reached',
+                $message,
+                429,
+                $package,
+                $file,
+                $this->buildPublicShareFields($file)
+            );
+            exit;
         }
 
         $stmt = $db->prepare("
@@ -284,7 +483,7 @@ class FileController
         return max(0, (int)($package['concurrent_downloads'] ?? 0)) > 0;
     }
 
-    private function enforceConcurrentDownloadLimit(array $package): void
+    private function enforceConcurrentDownloadLimit(array $package, array $file): void
     {
         if (!Auth::check()) {
             return;
@@ -307,8 +506,16 @@ class FileController
         $activeCount = (int)$stmt->fetchColumn();
 
         if ($activeCount >= $limit) {
-            http_response_code(429);
-            die("You have reached your concurrent download limit for this package. Please wait for an active download to finish before starting another.");
+            $this->renderDownloadStatePage(
+                'Concurrent Download Limit Reached - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Concurrent Download Limit Reached',
+                'You have reached your concurrent download limit for this package. Please wait for an active download to finish before starting another.',
+                429,
+                $package,
+                $file,
+                $this->buildPublicShareFields($file)
+            );
+            exit;
         }
     }
 
@@ -525,6 +732,13 @@ class FileController
         // Use cURL for better security (prevents file:// or other wrapper escapes)
         $ch = curl_init($url);
         $fp = fopen($tempPath, 'wb');
+        if ($ch === false || $fp === false) {
+            if (is_resource($fp)) {
+                fclose($fp);
+            }
+            @unlink($tempPath);
+            die(json_encode(['error' => 'Could not prepare the remote upload on this server.']));
+        }
         $resolvedHost = str_contains($host, ':') ? '[' . $host . ']' : $host;
         $port = (int)(parse_url($url, PHP_URL_PORT) ?: ($scheme === 'https' ? 443 : 80));
         $resolveEntries = array_map(static fn(string $ip): string => $resolvedHost . ':' . $port . ':' . $ip, $approvedIps);
@@ -902,6 +1116,7 @@ class FileController
         $streamSessionId = null;
         $streamUrl = null;
         $streamCsrf = Csrf::generate();
+        $shareFields = $this->buildPublicShareFields($file);
         if ($streamingEligible && !$captchaDownload && $waitTime <= 0) {
             $streamSession = $fraud->createDownloadSession($file, Auth::id() ? (int)Auth::id() : null, [], 'stream');
             $streamSessionId = $streamSession['public_id'] ?? null;
@@ -913,33 +1128,78 @@ class FileController
         // start rendering the page
         require_once dirname(__DIR__, 1) . '/View/home/header.php';
 
+        echo '<style>
+            .download-page-shell{display:flex;justify-content:center;align-items:center;flex:1;padding:2rem;gap:2rem;max-width:1400px;margin:0 auto;width:100%}
+            .download-page-sidebar{flex:0 0 300px;max-width:300px;display:none;align-self:center}
+            .download-page-sidebar-card{background:#f1f5f9;padding:1rem;border-radius:8px;text-align:center;overflow-wrap:anywhere;word-break:break-all}
+            .download-page-center{flex:1 1 auto;max-width:560px;min-width:0;width:100%}
+            .download-page-card{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:2.5rem;width:100%;box-sizing:border-box}
+            .download-page-top-ad{background:#f1f5f9;padding:.75rem;text-align:center;border-radius:8px;margin-bottom:1.5rem;overflow-wrap:anywhere;word-break:break-all}
+            .download-page-title{font-size:1.25rem;font-weight:700;margin:0 0 .25rem;overflow-wrap:anywhere;word-break:break-all}
+            .download-page-meta{color:#64748b;font-size:.875rem;margin:0 0 2rem}
+            .download-stream-card{margin:0 0 1.5rem;padding:1rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px}
+            .download-stream-title{font-weight:700;color:#1d4ed8;margin-bottom:.5rem}
+            .download-stream-copy{margin:0 0 .75rem;color:#334155;font-size:.9rem}
+            .download-stream-video{width:100%;max-height:420px;border-radius:10px;background:#000}
+            .download-stream-status{margin-top:.65rem;font-size:.85rem;color:#475569}
+            .download-stream-disabled{margin:0 0 1.5rem;padding:1rem;background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;color:#475569;font-size:.9rem}
+            .download-captcha-wrap{margin-bottom:1.5rem}
+            .download-captcha-copy{font-size:.875rem;color:#475569;margin:0 0 .75rem}
+            .download-timer-wrap{display:none;margin-bottom:1.5rem}
+            .download-timer-copy{color:#475569;font-size:.9375rem;margin-bottom:1rem}
+            .download-primary-button{width:100%;padding:.875rem;background:var(--primary-color,#2563eb);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:not-allowed;opacity:.5;transition:opacity .2s}
+            .download-primary-button--auto-width{width:auto}
+            .download-primary-button--enabled{cursor:pointer;opacity:1}
+            .download-overlay-wrap{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center}
+            .download-overlay-card{position:relative;max-width:90%;max-height:90%;background:#fff;padding:2rem;border-radius:12px;overflow:auto}
+            .download-overlay-close{position:absolute;top:10px;right:10px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;font-weight:700}
+            .download-overlay-body{overflow-wrap:anywhere;word-break:break-all}
+            .download-page-bottom-ad{background:#f1f5f9;padding:.75rem;text-align:center;border-radius:8px;margin-top:1.5rem;overflow-wrap:anywhere;word-break:break-all}
+            .download-share-panel{margin-top:1.5rem;padding:1rem;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}
+            .download-share-heading{font-size:1rem;font-weight:700;color:#0f172a;margin:0 0 .75rem}
+            .download-share-row{margin-bottom:.875rem}
+            .download-share-row:last-child{margin-bottom:0}
+            .download-share-label{display:block;font-size:.85rem;font-weight:600;color:#334155;margin-bottom:.4rem}
+            .download-share-control{display:flex;gap:.5rem;align-items:stretch}
+            .download-share-input{flex:1;min-width:0;padding:.75rem .875rem;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font-size:.88rem}
+            .download-share-copy{padding:.75rem 1rem;border:0;border-radius:8px;background:#e2e8f0;color:#0f172a;font-weight:600;cursor:pointer;white-space:nowrap}
+            .download-share-copy:hover{background:#cbd5e1}
+            .download-share-toggle{margin-top:.25rem;padding:0;background:none;border:0;color:#2563eb;font-size:.875rem;font-weight:600;cursor:pointer}
+            .download-share-toggle:hover{text-decoration:underline}
+            .download-share-extra{margin-top:.875rem;padding-top:.875rem;border-top:1px solid #e2e8f0}
+            .download-abuse-trigger-wrap{margin-top:1rem;text-align:left}
+            .download-abuse-trigger{background:none;border:none;color:#94a3b8;cursor:pointer;font-size:.8125rem;font-weight:500;transition:color .2s}
+            .download-abuse-status{display:none;margin-top:1rem}
+            @media (max-width: 640px){.download-share-control{flex-direction:column}.download-share-copy{width:100%}}
+        </style>';
+
         $adLeft = $package['show_ads'] ? Setting::get('ad_download_left', '') : '';
         $adRight = $package['show_ads'] ? Setting::get('ad_download_right', '') : '';
         $adOverlay = $package['show_ads'] ? Setting::get('ad_download_overlay', '') : '';
 
         // Overlay Ad
         if ($adOverlay) {
-            echo '<div id="adOverlayWrap" style="position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center;">';
-            echo '<div style="position:relative; max-width:90%; max-height:90%; background:white; padding:2rem; border-radius:12px; overflow:auto;">';
-            echo '<button onclick="document.getElementById(\'adOverlayWrap\').style.display=\'none\';" style="position:absolute; top:10px; right:10px; background:#ef4444; color:white; border:none; border-radius:50%; width:30px; height:30px; cursor:pointer; font-weight:bold;">&times;</button>';
-            echo '<div style="overflow-wrap:anywhere; word-break:break-all;">' . $adOverlay . '</div>';
+            echo '<div id="adOverlayWrap" class="download-overlay-wrap">';
+            echo '<div class="download-overlay-card">';
+            echo '<button type="button" id="closeAdOverlayBtn" class="download-overlay-close">&times;</button>';
+            echo '<div class="download-overlay-body">' . $adOverlay . '</div>';
             echo '</div></div>';
         }
 
         // Main 3-column Layout Wrapper
         // Changed align-items from flex-start to center to push sidebars down to the middle
-        echo '<div style="display:flex; justify-content:center; align-items:center; flex:1; padding:2rem; gap:2rem; max-width:1400px; margin:0 auto; width:100%;">';
+        echo '<div class="download-page-shell">';
 
         // Left Ad Column (hidden on mobile)
         if ($adLeft) {
-            echo '<div class="download-ad-sidebar" style="flex:0 0 300px; max-width:300px; display:none; align-self:center;">';
-            echo '<div style="background:#f1f5f9; padding:1rem; border-radius:8px; text-align:center; overflow-wrap:anywhere; word-break:break-all;">' . $adLeft . '</div>';
+            echo '<div class="download-ad-sidebar download-page-sidebar">';
+            echo '<div class="download-page-sidebar-card">' . $adLeft . '</div>';
             echo '</div>';
         }
 
         // Center Download Card
-        echo '<div style="flex:1 1 auto; max-width:560px; min-width:0; width:100%;">'; // Added min-width:0 to allow shrinking without blowing out flex layout
-        echo '<div style="background:white; border-radius:12px; box-shadow:0 4px 24px rgba(0,0,0,0.08); padding:2.5rem; width:100%; box-sizing:border-box;">';
+        echo '<div class="download-page-center">'; // Added min-width:0 to allow shrinking without blowing out flex layout
+        echo '<div class="download-page-card">';
 
         // anti-adblock
         if ($package['block_adblock'] ?? 0) {
@@ -948,25 +1208,25 @@ class FileController
 
         // ad top
         if ($package['show_ads']) {
-            echo '<div style="background:#f1f5f9; padding:0.75rem; text-align:center; border-radius:8px; margin-bottom:1.5rem; overflow-wrap:anywhere; word-break:break-all;">';
+            echo '<div class="download-page-top-ad">';
             echo Setting::get('ad_download_top', '<!-- Ad Space Top -->');
             echo '</div>';
         }
 
-        echo '<h1 style="font-size:1.25rem; font-weight:700; margin:0 0 0.25rem; overflow-wrap:anywhere; word-break:break-all;">' . htmlspecialchars($file['filename']) . '</h1>';
-        echo '<p style="color:#64748b; font-size:0.875rem; margin:0 0 2rem;">' . round($file['file_size'] / 1024 / 1024, 2) . ' MB</p>';
+        echo '<h1 class="download-page-title">' . htmlspecialchars($file['filename']) . '</h1>';
+        echo '<p class="download-page-meta">' . round($file['file_size'] / 1024 / 1024, 2) . ' MB</p>';
 
         if ($streamUrl !== null) {
-            echo '<div style="margin:0 0 1.5rem; padding:1rem; background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px;">';
-            echo '<div style="font-weight:700; color:#1d4ed8; margin-bottom:0.5rem;">Streaming Preview Enabled</div>';
-            echo '<p style="margin:0 0 0.75rem; color:#334155; font-size:0.9rem;">This video can be streamed directly in the browser. Reward credit only counts after the configured watch thresholds are met.</p>';
-            echo '<video id="rewardStreamPlayer" controls preload="metadata" style="width:100%; max-height:420px; border-radius:10px; background:#000;">';
+            echo '<div class="download-stream-card">';
+            echo '<div class="download-stream-title">Streaming Preview Enabled</div>';
+            echo '<p class="download-stream-copy">This video can be streamed directly in the browser. Reward credit only counts after the configured watch thresholds are met.</p>';
+            echo '<video id="rewardStreamPlayer" class="download-stream-video" controls preload="metadata">';
             echo '<source src="' . htmlspecialchars($streamUrl) . '" type="' . htmlspecialchars($this->resolveDisplayMimeType($file)) . '">';
             echo '</video>';
-            echo '<div id="rewardStreamStatus" style="margin-top:0.65rem; font-size:0.85rem; color:#475569;">Playback progress is being tracked for fraud protection.</div>';
+            echo '<div id="rewardStreamStatus" class="download-stream-status">Playback progress is being tracked for fraud protection.</div>';
             echo '</div>';
         } elseif ($streamingEligible) {
-            echo '<div style="margin:0 0 1.5rem; padding:1rem; background:#f8fafc; border:1px solid #cbd5e1; border-radius:12px; color:#475569; font-size:0.9rem;">Streaming support is enabled for this video, but the browser player is hidden when countdown or captcha gates are active. The standard download flow below still works.</div>';
+            echo '<div class="download-stream-disabled">Streaming support is enabled for this video, but the browser player is hidden when countdown or captcha gates are active. The standard download flow below still works.</div>';
         }
 
         // the download form
@@ -979,20 +1239,20 @@ class FileController
 
         if ($captchaDownload && $captchaSiteKey) {
             // Captcha section - must be solved before countdown starts
-            echo '<div id="captchaWrap" style="margin-bottom:1.5rem;">';
-            echo '<p style="font-size:0.875rem; color:#475569; margin:0 0 0.75rem;">Please complete the check below to continue.</p>';
+            echo '<div id="captchaWrap" class="download-captcha-wrap">';
+            echo '<p class="download-captcha-copy">Please complete the check below to continue.</p>';
             echo '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>';
             echo '<div class="cf-turnstile" data-sitekey="' . htmlspecialchars($captchaSiteKey) . '" data-callback="onCaptchaSolved"></div>';
             echo '</div>';
 
             if ($waitTime > 0) {
                 // Countdown - hidden until captcha solved
-                echo '<div id="timerWrap" style="display:none; margin-bottom:1.5rem;">';
-                echo '<p style="color:#475569; font-size:0.9375rem;" id="timerMsg">Please wait <strong id="count">' . $waitTime . '</strong> seconds...</p>';
+                echo '<div id="timerWrap" class="download-timer-wrap">';
+                echo '<p class="download-timer-copy" id="timerMsg">Please wait <strong id="count">' . $waitTime . '</strong> seconds...</p>';
                 echo '</div>';
             }
 
-            echo '<button type="submit" id="dlBtn" disabled style="width:100%; padding:0.875rem; background:var(--primary-color,#2563eb); color:white; border:none; border-radius:8px; font-size:1rem; font-weight:600; cursor:not-allowed; opacity:0.5; transition:opacity 0.2s;">Download Now</button>';
+            echo '<button type="submit" id="dlBtn" class="download-primary-button" disabled>Download Now</button>';
 
             echo '<script>
 var waitTime = ' . $waitTime . ';
@@ -1001,7 +1261,7 @@ function onCaptchaSolved(token) {
     captchaDone = true;
     if (waitTime > 0) {
         document.getElementById("captchaWrap").querySelector("p").textContent = "Captcha verified!";
-        document.getElementById("timerWrap").style.display = "";
+        document.getElementById("timerWrap").style.display = "block";
         startCountdown();
     } else {
         enableBtn();
@@ -1023,16 +1283,15 @@ function startCountdown() {
 function enableBtn() {
     var btn = document.getElementById("dlBtn");
     btn.disabled = false;
-    btn.style.cursor = "pointer";
-    btn.style.opacity = "1";
+    btn.classList.add("download-primary-button--enabled");
 }
 </script>';
 
         } else {
             // No captcha - just show countdown or immediately active button
             if ($waitTime > 0) {
-                echo '<p style="color:#475569; font-size:0.9375rem; margin-bottom:1rem;" id="timerMsg">Please wait <strong id="count">' . $waitTime . '</strong> seconds...</p>';
-                echo '<button type="submit" id="dlBtn" class="btn btn-block" disabled style="padding:0.875rem; font-size:1rem; cursor:not-allowed; opacity:0.5; transition:opacity 0.2s;">Download Now</button>';
+                echo '<p class="download-timer-copy" id="timerMsg">Please wait <strong id="count">' . $waitTime . '</strong> seconds...</p>';
+                echo '<button type="submit" id="dlBtn" class="download-primary-button download-primary-button--auto-width btn btn-block" disabled>Download Now</button>';
                 echo '<script>
 var count = ' . $waitTime . ';
 var el = document.getElementById("count");
@@ -1044,13 +1303,12 @@ var timer = setInterval(function() {
         document.getElementById("timerMsg").textContent = "Ready!";
         var btn = document.getElementById("dlBtn");
         btn.disabled = false;
-        btn.style.cursor = "pointer";
-        btn.style.opacity = "1";
+        btn.classList.add("download-primary-button--enabled");
     }
 }, 1000);
 </script>';
             } else {
-                echo '<button type="submit" class="btn btn-block" style="padding:0.875rem; font-size:1rem;">Download Now</button>';
+                echo '<button type="submit" class="download-primary-button download-primary-button--enabled download-primary-button--auto-width btn btn-block">Download Now</button>';
             }
         }
 
@@ -1059,28 +1317,30 @@ var timer = setInterval(function() {
 
         // ad bottom
         if ($package['show_ads']) {
-            echo '<div style="background:#f1f5f9; padding:0.75rem; text-align:center; border-radius:8px; margin-top:1.5rem; overflow-wrap:anywhere; word-break:break-all;">';
+            echo '<div class="download-page-bottom-ad">';
             echo Setting::get('ad_download_bottom', '<!-- Ad Space Bottom -->');
             echo '</div>';
         }
+
+        $this->renderDownloadSharePanel($shareFields);
 
         // abuse reporting
         if (Setting::get('enable_abuse_reports', '1') === '1') {
             $reportCaptchaEnabled = Setting::get('captcha_report_file', '0') === '1';
             $reportCaptchaSiteKey = Setting::get('captcha_site_key', Config::get('turnstile.site_key'));
-            echo '<div style="margin-top:1rem; text-align:left;">';
-            echo '<button onclick="toggleAbuseModal(true)" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:0.8125rem; font-weight:500; transition:color 0.2s;" onmouseover="this.style.color=\'#64748b\'" onmouseout="this.style.color=\'#94a3b8\'">Report Abuse</button>';
+            echo '<div class="download-abuse-trigger-wrap">';
+            echo '<button type="button" id="openAbuseModalBtn" class="download-abuse-trigger">Report Abuse</button>';
             echo '</div>';
             
             // The Modal
             echo '
-            <div id="abuseModal" class="modal-overlay" onclick="if(event.target === this) toggleAbuseModal(false)">
+            <div id="abuseModal" class="modal-overlay">
                 <div class="modal-container">
                     <div class="modal-header">
                         <h3>Report Abuse</h3>
-                        <button class="modal-close" onclick="toggleAbuseModal(false)">&times;</button>
+                        <button type="button" class="modal-close" id="closeAbuseModalBtn">&times;</button>
                     </div>
-                    <form id="abuseForm" onsubmit="submitAbuse(event)">
+                    <form id="abuseForm">
                         <input type="hidden" name="file_id" value="' . $file['id'] . '">
                         ' . Csrf::field() . '
                         <div class="modal-body">
@@ -1101,10 +1361,10 @@ var timer = setInterval(function() {
                             ' . (($reportCaptchaEnabled && $reportCaptchaSiteKey)
                                 ? '<div class="form-group"><label class="d-block">Spam Protection</label><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script><div class="cf-turnstile" data-sitekey="' . htmlspecialchars($reportCaptchaSiteKey) . '"></div></div>'
                                 : '') . '
-                            <div id="abuseStatus" style="display:none; margin-top:1rem;"></div>
+                            <div id="abuseStatus" class="download-abuse-status"></div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" onclick="toggleAbuseModal(false)">Cancel</button>
+                            <button type="button" class="btn btn-secondary" id="cancelAbuseModalBtn">Cancel</button>
                             <button type="submit" class="btn btn-primary" id="abuseSubmitBtn">Submit Report</button>
                         </div>
                     </form>
@@ -1152,7 +1412,91 @@ var timer = setInterval(function() {
                     btn.disabled = false;
                 });
             }
-            </script>';
+
+            const closeAdOverlayBtn = document.getElementById("closeAdOverlayBtn");
+            if (closeAdOverlayBtn) {
+                closeAdOverlayBtn.addEventListener("click", function() {
+                    const overlay = document.getElementById("adOverlayWrap");
+                    if (overlay) {
+                        overlay.style.display = "none";
+                    }
+                });
+            }
+
+            const openAbuseModalBtn = document.getElementById("openAbuseModalBtn");
+            if (openAbuseModalBtn) {
+                openAbuseModalBtn.addEventListener("click", function() {
+                    toggleAbuseModal(true);
+                });
+                openAbuseModalBtn.addEventListener("mouseenter", function() {
+                    openAbuseModalBtn.style.color = "#64748b";
+                });
+                openAbuseModalBtn.addEventListener("mouseleave", function() {
+                    openAbuseModalBtn.style.color = "#94a3b8";
+                });
+            }
+
+            const abuseModal = document.getElementById("abuseModal");
+            if (abuseModal) {
+                abuseModal.addEventListener("click", function(event) {
+                    if (event.target === abuseModal) {
+                        toggleAbuseModal(false);
+                    }
+                });
+            }
+
+            const abuseForm = document.getElementById("abuseForm");
+            if (abuseForm) {
+                abuseForm.addEventListener("submit", submitAbuse);
+            }
+
+            const closeAbuseModalBtn = document.getElementById("closeAbuseModalBtn");
+            if (closeAbuseModalBtn) {
+                closeAbuseModalBtn.addEventListener("click", function() {
+                    toggleAbuseModal(false);
+                });
+            }
+
+            const cancelAbuseModalBtn = document.getElementById("cancelAbuseModalBtn");
+            if (cancelAbuseModalBtn) {
+                cancelAbuseModalBtn.addEventListener("click", function() {
+                    toggleAbuseModal(false);
+                });
+            }
+
+document.querySelectorAll("[data-copy-target]").forEach(function(button) {
+    button.addEventListener("click", async function() {
+        const target = document.getElementById(button.getAttribute("data-copy-target"));
+                    if (!target) {
+                        return;
+                    }
+
+                    try {
+                        await navigator.clipboard.writeText(target.value);
+                        const original = button.textContent;
+                        button.textContent = "Copied";
+                        setTimeout(function() {
+                            button.textContent = original;
+                        }, 1400);
+                    } catch (err) {
+                        target.focus();
+            target.select();
+        }
+    });
+});
+document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
+    button.addEventListener("click", function() {
+        const target = document.getElementById(button.getAttribute("data-share-toggle"));
+        if (!target) {
+            return;
+        }
+        const expanded = button.getAttribute("aria-expanded") === "true";
+        target.hidden = expanded;
+        button.setAttribute("aria-expanded", expanded ? "false" : "true");
+        button.textContent = expanded ? "More share options" : "Fewer share options";
+    });
+});
+</script>';
         }
 
         echo '</div>'; // end inner card
@@ -1160,8 +1504,8 @@ var timer = setInterval(function() {
 
         // Right Ad Column (hidden on mobile)
         if ($adRight) {
-            echo '<div class="download-ad-sidebar" style="flex:0 0 300px; max-width:300px; display:none; align-self:center;">';
-            echo '<div style="background:#f1f5f9; padding:1rem; border-radius:8px; text-align:center; overflow-wrap:anywhere; word-break:break-all;">' . $adRight . '</div>';
+            echo '<div class="download-ad-sidebar download-page-sidebar">';
+            echo '<div class="download-page-sidebar-card">' . $adRight . '</div>';
             echo '</div>';
         }
 
@@ -1608,7 +1952,7 @@ var timer = setInterval(function() {
             && !empty($file['user_id'])
             && \App\Service\FeatureService::rewardsEnabled();
         if ($shouldTrackConnections) {
-            $this->enforceConcurrentDownloadLimit($package);
+            $this->enforceConcurrentDownloadLimit($package, $file);
         }
         $activeDownloadContext = [];
         if ($shouldTrackConnections || $needsNginxPayoutState) {

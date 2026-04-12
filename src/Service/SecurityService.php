@@ -135,16 +135,24 @@ class SecurityService {
 <style>
     #ad-block-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:9999; color:white; text-align:center; padding-top:20%; }
     #ad-block-modal h2 { font-size: 2rem; margin-bottom: 1rem; color: #ef4444; }
+    #ad-block-reload-btn { padding:10px 20px; background:#2563eb; color:white; border-radius:4px; cursor:pointer; margin-top:20px; }
     body.ad-blocked { overflow: hidden; }
 </style>
 <div id="ad-block-modal">
     <h2>Adblock Detected!</h2>
     <p>Please disable your ad blocker to download this file.</p>
     <p>We rely on ads to keep this service free.</p>
-    <button onclick="location.reload()" style="padding:10px 20px; background:#2563eb; color:white; border-radius:4px; cursor:pointer; margin-top:20px;">I've Disabled It</button>
+    <button id="ad-block-reload-btn" type="button">I've Disabled It</button>
 </div>
 <script>
-    window.onload = function() {
+    const reloadButton = document.getElementById('ad-block-reload-btn');
+    if (reloadButton) {
+        reloadButton.addEventListener('click', function() {
+            window.location.reload();
+        });
+    }
+
+    window.addEventListener('load', function() {
         const testAd = document.createElement('div');
         testAd.innerHTML = '&nbsp;';
         testAd.className = 'adsbox';
@@ -159,7 +167,7 @@ class SecurityService {
             }
             testAd.remove();
         }, 100);
-    };
+    });
 </script>
 JS;
     }
@@ -222,9 +230,9 @@ JS;
      * Check if an IP belongs to a trusted proxy range (DB-backed)
      */
     private static function isTrustedProxy(string $ip): bool {
-        // Always trust local ranges
-        $localRanges = ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '::1/128', 'fc00::/7'];
-        foreach ($localRanges as $range) {
+        // Only trust loopback proxies by default. Other private proxies must be explicitly configured.
+        $loopbackRanges = ['127.0.0.0/8', '::1/128'];
+        foreach ($loopbackRanges as $range) {
             if (self::ipInCidr($ip, $range)) return true;
         }
 

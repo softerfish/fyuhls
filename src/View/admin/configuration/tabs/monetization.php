@@ -145,7 +145,7 @@ $rewardsActive = true;
 
             <div class="mb-4">
                 <label class="form-label fw-bold">Rewards Retention (Days)</label>
-                <input type="number" class="form-control" style="max-width: 220px;" name="rewards_retention_days" value="<?= htmlspecialchars($retentionDays ?? '7') ?>" min="1" max="365">
+                <input type="number" class="monetization-retention-input form-control" name="rewards_retention_days" value="<?= htmlspecialchars($retentionDays ?? '7') ?>" min="1" max="365">
             </div>
 
             <div class="alert alert-info">
@@ -330,13 +330,13 @@ $rewardsActive = true;
                                     <input type="text" class="form-control form-control-sm" name="tiers[<?= $tier['id'] ?>][countries]" value="<?= htmlspecialchars($tier['countries'] ?? '') ?>" placeholder="US, GB, CA">
                                 </td>
                                 <td>
-                                    <div class="input-group input-group-sm" style="width: 120px;">
+                                    <div class="monetization-tier-rate input-group input-group-sm">
                                         <span class="input-group-text">$</span>
                                         <input type="number" step="0.01" class="form-control" name="tiers[<?= $tier['id'] ?>][rate]" value="<?= $tier['rate_per_1000'] ?>" required>
                                     </div>
                                 </td>
                                 <td class="text-end">
-                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteTier(<?= $tier['id'] ?>)">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" data-delete-tier-id="<?= (int)$tier['id'] ?>">
                                         <i class="bi bi-trash"></i>
                                     </button>
                                 </td>
@@ -386,7 +386,7 @@ $rewardsActive = true;
     </div>
 </div>
 
-<form id="deleteTierForm" method="POST" action="/admin/configuration/save" style="display: none;">
+<form id="deleteTierForm" method="POST" action="/admin/configuration/save" class="monetization-delete-tier-form">
     <?= \App\Core\Csrf::field() ?>
     <input type="hidden" name="section" value="monetization">
     <input type="hidden" name="monetization_action" value="delete_tier">
@@ -400,6 +400,18 @@ function deleteTier(id) {
         document.getElementById('deleteTierForm').submit();
     }
 }
+
+document.addEventListener('click', function(event) {
+    const deleteButton = event.target.closest('[data-delete-tier-id]');
+    if (!deleteButton) {
+        return;
+    }
+
+    const tierId = deleteButton.getAttribute('data-delete-tier-id');
+    if (tierId) {
+        deleteTier(tierId);
+    }
+});
 </script>
 
 <style>
@@ -429,4 +441,7 @@ function deleteTier(id) {
     font-weight: 800;
     letter-spacing: -0.02em;
 }
+.monetization-retention-input { max-width: 220px; }
+.monetization-tier-rate { width: 120px; }
+.monetization-delete-tier-form { display: none; }
 </style>

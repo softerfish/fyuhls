@@ -12,6 +12,9 @@ desktop.ini
 /GEMINI.md
 /.git
 /.github
+!/.github/
+!/.github/workflows/
+!/.github/workflows/generate-sitemap.yml
 /.wiki-publish
 
 # Runtime config and secrets
@@ -27,6 +30,10 @@ desktop.ini
 /tests/
 /instructions/
 /main/
+!/main/
+!/main/*.html
+!/main/*.css
+!/main/*.xml
 
 # Sessions, uploads, cache, and other runtime storage
 /storage/cache/*

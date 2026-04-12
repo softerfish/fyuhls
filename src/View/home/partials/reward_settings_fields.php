@@ -1,11 +1,49 @@
-<div style="margin-top: 2rem; padding: 1.5rem; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px;">
-    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem; font-size: 1rem;">Monetization Rewards Program</label>
-    <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.5;">
+<style>
+    .reward-settings-card {
+        margin-top: 2rem;
+        padding: 1.5rem;
+        background: #f8fafc;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+    }
+    .reward-settings-label {
+        font-weight: 600;
+        display: block;
+        margin-bottom: 0.5rem;
+        font-size: 1rem;
+    }
+    .reward-settings-copy {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        margin-bottom: 1.25rem;
+        line-height: 1.5;
+    }
+    .reward-settings-group { margin-bottom: 0; }
+    .reward-settings-select,
+    .reward-settings-input {
+        width: 100%;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+    }
+    .reward-settings-select {
+        padding: 0.75rem;
+        border-color: var(--primary-color);
+    }
+    .reward-settings-grid {
+        display: grid;
+        grid-template-columns: 1fr 1.5fr;
+        gap: 1.5rem;
+    }
+</style>
+
+<div class="reward-settings-card">
+    <label class="reward-settings-label">Monetization Rewards Program</label>
+    <p class="reward-settings-copy">
         Choose your primary way of earning. This affects how your downloads and referrals are calculated.
     </p>
 
-    <div class="form-group" style="margin-bottom: 0;">
-        <select name="monetization_model" <?= empty($enabledModels) ? 'disabled' : '' ?> class="form-control" style="width: 100%; padding:0.75rem; border: 1px solid var(--primary-color); border-radius:6px;">
+    <div class="form-group reward-settings-group">
+        <select name="monetization_model" <?= empty($enabledModels) ? 'disabled' : '' ?> class="form-control reward-settings-select">
             <?php if (in_array('ppd', $enabledModels, true)): ?>
                 <option value="ppd" <?= ($user['monetization_model'] ?? 'ppd') === 'ppd' ? 'selected' : '' ?>>Pay-Per-Download (PPD) - Earn per 1,000 downloads</option>
             <?php endif; ?>
@@ -19,7 +57,7 @@
     </div>
 </div>
 
-<h3 style="margin-top: 2.5rem; border-top: 1px solid var(--border-color); padding-top: 2rem;">Withdrawal & Payment Settings</h3>
+<h3 class="settings-section-title">Withdrawal & Payment Settings</h3>
 <?php
 $supportedMethods = array_filter(array_map('trim', explode(',', \App\Model\Setting::get('supported_withdrawal_methods', 'paypal,bitcoin', 'rewards'))));
 $methodLabels = [
@@ -29,10 +67,10 @@ $methodLabels = [
     'wire' => 'Bank Wire Transfer',
 ];
 ?>
-<div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 1.5rem;">
+<div class="reward-settings-grid">
     <div class="form-group">
         <label>Default Payment Method</label>
-        <select name="payment_method" class="form-control" style="width: 100%; padding:0.625rem; border: 1px solid var(--border-color); border-radius:6px;">
+        <select name="payment_method" class="form-control reward-settings-input">
             <?php foreach ($supportedMethods as $method): ?>
                 <?php if (isset($methodLabels[$method])): ?>
                     <option value="<?= htmlspecialchars($method) ?>" <?= ($user['payment_method'] ?? '') === $method ? 'selected' : '' ?>><?= htmlspecialchars($methodLabels[$method]) ?></option>
@@ -42,6 +80,6 @@ $methodLabels = [
     </div>
     <div class="form-group">
         <label>Payment ID / Account Details</label>
-        <input type="text" name="payment_details" maxlength="500" value="<?= htmlspecialchars($user['payment_details'] ?? '') ?>" placeholder="e.g. your@email.com or BTC address" class="form-control" style="width: 100%; padding:0.625rem; border: 1px solid var(--border-color); border-radius:6px;">
+        <input type="text" name="payment_details" maxlength="500" value="<?= htmlspecialchars($user['payment_details'] ?? '') ?>" placeholder="e.g. your@email.com or BTC address" class="form-control reward-settings-input">
     </div>
 </div>

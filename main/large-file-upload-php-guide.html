@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Large File Upload PHP Guide | Multipart Uploads, Limits, and Storage with fyuhls</title>
+    <meta name="description" content="A large file upload PHP guide covering why big uploads fail, how multipart direct-to-storage flows work, recommended limits, and where fyuhls fits for self-hosted platforms.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="Large File Upload PHP Guide">
+    <meta property="og:description" content="How to handle large-file uploads in PHP without depending on one giant request.">
+    <meta property="og:site_name" content="fyuhls">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Large File Upload PHP Guide">
+    <meta name="twitter:description" content="Multipart uploads, PHP limits, and object storage planning for file hosting projects.">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="site-shell topbar-inner">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">F</span>
+                <span>fyuhls</span>
+            </a>
+            <nav class="nav" aria-label="Primary navigation">
+                <a href="index.html">Main</a>
+                <a href="documentation.html">Documentation</a>
+                <a href="api.html">API</a>
+                <a href="cloudflare-r2-file-hosting-guide.html">R2 Guide</a>
+                <a href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="article-shell">
+        <div class="site-shell">
+            <section class="article-hero">
+                <span class="eyebrow">Large Uploads</span>
+                <h1>How to handle large file uploads in PHP more reliably</h1>
+                <p class="lead">Large file uploads do not usually fail because a progress bar looks bad. They fail because the architecture forces the web server or PHP process to sit in the middle of every byte for too long. The bigger the file, the more painful that becomes.</p>
+                <p>fyuhls takes a more practical route for object-storage backends by using multipart direct-to-storage uploads with resumable session state.</p>
+            </section>
+
+            <div class="article-layout">
+                <article class="article-main article-prose">
+                    <section class="article-section" id="why-fail">
+                        <h2>Why large uploads fail</h2>
+                        <ul>
+                            <li>PHP upload and POST limits are too low.</li>
+                            <li>Execution timeouts stop long-running requests.</li>
+                            <li>The server has to relay the full file instead of orchestrating parts.</li>
+                            <li>There is no resume state when a connection drops.</li>
+                            <li>The storage backend is configured, but browser CORS is incomplete.</li>
+                        </ul>
+                    </section>
+
+                    <section class="article-section" id="better-model">
+                        <h2>A better model: multipart direct-to-storage uploads</h2>
+                        <p>Instead of making PHP assemble the entire file, the app creates an upload session, reserves quota, signs or prepares the part uploads, tracks part completion, and finalizes the upload when all parts are present. The actual file bytes can move directly from the client to the storage backend.</p>
+                        <p>This architecture is a better fit for multi-gigabyte files, resumed transfers, and object-storage workflows.</p>
+                    </section>
+
+                    <section class="article-section" id="recommended-limits">
+                        <h2>Reasonable PHP baseline for bigger uploads</h2>
+                        <p>The fyuhls documentation recommends a practical baseline for 2GB-plus deployments:</p>
+                        <ul>
+                            <li><code>upload_max_filesize = 256M</code></li>
+                            <li><code>post_max_size = 300M</code></li>
+                            <li><code>max_execution_time = 3600</code></li>
+                            <li><code>memory_limit = 512M</code></li>
+                        </ul>
+                        <p>Those values do not mean the final file must stay under 256 MB. In a multipart model, they act more like request and orchestration baselines than the real final file-size ceiling.</p>
+                    </section>
+
+                    <section class="article-section" id="where-fyuhls-fits">
+                        <h2>Where fyuhls fits</h2>
+                        <p>fyuhls includes the multipart upload path, API endpoints for session and part handling, storage backend support, and operational cleanup through its heartbeat cron runner. That makes it useful for self-hosted file hosting sites that need more than a single browser form.</p>
+                        <p>If you want to integrate uploads from tools outside the web UI, the <a href="api.html">API reference</a> covers token-based uploads and managed upload flows.</p>
+                    </section>
+
+                    <section class="article-section" id="related">
+                        <h2>Related guides</h2>
+                        <ul>
+                            <li><a href="cloudflare-r2-file-hosting-guide.html">Cloudflare R2 file hosting guide</a></li>
+                            <li><a href="how-to-make-a-file-hosting-website.html">How to make a file hosting website</a></li>
+                            <li><a href="documentation.html">Installation and admin documentation</a></li>
+                        </ul>
+                    </section>
+                </article>
+
+                <aside class="toc-card">
+                    <h2>On this page</h2>
+                    <nav class="toc-links">
+                        <a href="#why-fail">Why uploads fail</a>
+                        <a href="#better-model">Multipart model</a>
+                        <a href="#recommended-limits">Recommended limits</a>
+                        <a href="#where-fyuhls-fits">Where fyuhls fits</a>
+                        <a href="#related">Related guides</a>
+                    </nav>
+                </aside>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="site-shell footer-grid">
+            <div>
+                <h3>fyuhls</h3>
+                <p>Self-hosted PHP file hosting with multipart upload support, storage backends, and API access.</p>
+            </div>
+            <div>
+                <h3>Links</h3>
+                <p><a href="api.html">API reference</a></p>
+                <p><a href="documentation.html">Documentation</a></p>
+                <p><a href="cloudflare-r2-file-hosting-guide.html">Cloudflare R2 guide</a></p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

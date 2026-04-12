@@ -4,14 +4,29 @@ define('BASE_PATH', realpath(__DIR__ . '/..'));
 
 require_once BASE_PATH . '/vendor/autoload.php';
 
+$postInstallNonce = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
+header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'nonce-{$postInstallNonce}'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; frame-ancestors 'self';");
+
 use App\Core\Config;
 use App\Core\Database;
+use App\Core\Auth;
 use App\Model\Setting;
 use App\Service\Database\SchemaService;
 
 Config::load(BASE_PATH . '/config/app.php');
 
 $configReady = file_exists(BASE_PATH . '/config/database.php');
+
+if (!$configReady) {
+    http_response_code(403);
+    exit('This post-install page is only available after setup is complete.');
+}
+
+if (!Auth::isAdmin()) {
+    http_response_code(403);
+    exit('This post-install page is only available to an admin account after setup.');
+}
+
 $dbConnected = false;
 $schemaVersion = '';
 $schemaMatches = false;
@@ -28,19 +43,17 @@ if (file_exists(BASE_PATH . '/config/version.php')) {
     }
 }
 
-if ($configReady) {
-    try {
-        Config::load(BASE_PATH . '/config/database.php');
-        $db = Database::getInstance()->getConnection();
-        $dbConnected = $db !== null;
-        if ($dbConnected) {
-            $schemaVersion = (string)Setting::get('schema_version', '');
-            $schemaMatches = $schemaVersion === SchemaService::SCHEMA_VERSION;
-            $smtpConfigured = trim(Setting::get('email_smtp_host', '')) !== '' && trim(Setting::get('email_from_address', '')) !== '';
-        }
-    } catch (Throwable $e) {
-        $error = $e->getMessage();
+try {
+    Config::load(BASE_PATH . '/config/database.php');
+    $db = Database::getInstance()->getConnection();
+    $dbConnected = $db !== null;
+    if ($dbConnected) {
+        $schemaVersion = (string)Setting::get('schema_version', '');
+        $schemaMatches = $schemaVersion === SchemaService::SCHEMA_VERSION;
+        $smtpConfigured = trim(Setting::get('email_smtp_host', '')) !== '' && trim(Setting::get('email_from_address', '')) !== '';
     }
+} catch (Throwable $e) {
+    $error = 'Database check failed. Review the database connection and schema from the admin area.';
 }
 
 $checks = [
@@ -58,7 +71,7 @@ $checks = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fyuhls Post-Install Check</title>
-    <style>
+    <style nonce="<?= htmlspecialchars($postInstallNonce, ENT_QUOTES, 'UTF-8') ?>">
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f3f4f6; color: #111827; margin: 0; padding: 2rem; }
         .wrap { max-width: 760px; margin: 0 auto; }
         .card { background: #fff; border-radius: 12px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); padding: 1.5rem; }
@@ -73,32 +86,36 @@ $checks = [
         .btn-secondary { background: #e5e7eb; color: #111827; }
         .alert { margin-top: 1rem; padding: 1rem; border-radius: 10px; background: #fef2f2; color: #991b1b; }
         code { background: #f3f4f6; padding: 0.15rem 0.35rem; border-radius: 4px; }
+        .post-install-title { margin-top: 0; }
+        .post-install-align-right { text-align: right; }
     </style>
 </head>
 <body>
     <div class="wrap">
         <div class="card">
-            <h1 style="margin-top: 0;">Post-Install Self-Test</h1>
+            <h1 class="post-install-title">Post-Install Self-Test</h1>
             <p class="muted">Version <?= htmlspecialchars($appVersion) ?>. Use this page right after installation to confirm the core environment is ready.</p>
 
             <?php if ($error): ?>
-                <div class="alert">Database check failed: <?= htmlspecialchars($error) ?></div>
+                <div class="alert"><?= htmlspecialchars($error) ?></div>
             <?php endif; ?>
 
-            <table>
-                <tbody>
-                <?php foreach ($checks as $label => $passed): ?>
-                    <tr>
-                        <td><?= htmlspecialchars($label) ?></td>
-                        <td style="text-align: right;" class="<?= $passed ? 'ok' : 'fail' ?>"><?= $passed ? 'PASS' : 'FAIL' ?></td>
-                    </tr>
-                <?php endforeach; ?>
-                    <tr>
-                        <td>Schema version</td>
-                        <td style="text-align: right;"><?= htmlspecialchars($schemaVersion !== '' ? $schemaVersion : '(missing)') ?> / expected <?= htmlspecialchars(SchemaService::SCHEMA_VERSION) ?></td>
-                    </tr>
-                </tbody>
-            </table>
+            <?php if (!empty($checks)): ?>
+                <table>
+                    <tbody>
+                    <?php foreach ($checks as $label => $passed): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($label) ?></td>
+                            <td class="post-install-align-right <?= $passed ? 'ok' : 'fail' ?>"><?= $passed ? 'PASS' : 'FAIL' ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                        <tr>
+                            <td>Schema version</td>
+                            <td class="post-install-align-right"><?= htmlspecialchars($schemaVersion !== '' ? $schemaVersion : '(missing)') ?> / expected <?= htmlspecialchars(SchemaService::SCHEMA_VERSION) ?></td>
+                        </tr>
+                    </tbody>
+                </table>
+            <?php endif; ?>
 
             <div class="actions">
                 <a class="btn btn-primary" href="/">Go to Site</a>

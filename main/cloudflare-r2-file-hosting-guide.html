@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudflare R2 File Hosting Guide | Self-Hosted Storage Planning with fyuhls</title>
+    <meta name="description" content="A Cloudflare R2 file hosting guide for self-hosted projects using fyuhls, including why object storage matters, multipart uploads, CORS basics, and when R2 is a strong fit.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="Cloudflare R2 File Hosting Guide">
+    <meta property="og:description" content="Why Cloudflare R2 is a strong storage option for self-hosted file hosting projects.">
+    <meta property="og:site_name" content="fyuhls">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Cloudflare R2 File Hosting Guide">
+    <meta name="twitter:description" content="Object storage, multipart uploads, and CORS planning for a self-hosted file hosting stack.">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="site-shell topbar-inner">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">F</span>
+                <span>fyuhls</span>
+            </a>
+            <nav class="nav" aria-label="Primary navigation">
+                <a href="index.html">Main</a>
+                <a href="documentation.html">Documentation</a>
+                <a href="api.html">API</a>
+                <a href="large-file-upload-php-guide.html">Uploads</a>
+                <a href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="article-shell">
+        <div class="site-shell">
+            <section class="article-hero">
+                <span class="eyebrow">Cloudflare R2</span>
+                <h1>Using Cloudflare R2 for self-hosted file hosting</h1>
+                <p class="lead">Cloudflare R2 is attractive for file hosting because it gives you S3-compatible object storage without forcing you into a single all-in-one app stack. For self-hosted projects, that means you can keep your own site, own upload rules, and own delivery logic while moving the file bytes to an external storage layer.</p>
+                <p>fyuhls supports R2 alongside local storage and other S3-compatible providers, which makes it a natural option for operators who want to grow beyond a single server disk.</p>
+            </section>
+
+            <div class="article-layout">
+                <article class="article-main article-prose">
+                    <section class="article-section" id="why-r2">
+                        <h2>Why R2 is a strong fit for file hosting</h2>
+                        <p>For many self-hosted projects, the web server should control the user experience while object storage handles the large binary files. R2 fits that model well. You keep the application logic, users, packages, and indexing on your own site while the storage backend handles the raw file parts and stored objects.</p>
+                    </section>
+
+                    <section class="article-section" id="multipart">
+                        <h2>Multipart uploads matter more than the bucket itself</h2>
+                        <p>The real storage win is not only where the file ends up. It is how the file gets there. fyuhls uses multipart direct-to-storage uploads so the client can upload parts directly to the storage provider after the app creates the upload session and signs the required requests.</p>
+                        <p>This keeps PHP out of the full-file relay path and makes resume-aware uploads more practical for large files.</p>
+                    </section>
+
+                    <section class="article-section" id="cors">
+                        <h2>Do not forget bucket CORS</h2>
+                        <p>For browser multipart uploads to work correctly with R2, your bucket CORS rules need to allow the right methods and expose the right headers. In the fyuhls documentation and README, the key requirements are allowing <code>PUT</code>, <code>GET</code>, and <code>HEAD</code>, and exposing <code>ETag</code>.</p>
+                        <p>Without that, uploads can fail even when the storage credentials are valid.</p>
+                    </section>
+
+                    <section class="article-section" id="when-to-use">
+                        <h2>When to choose R2 over local storage</h2>
+                        <ul>
+                            <li>When you want the web server and file storage separated.</li>
+                            <li>When large uploads are important.</li>
+                            <li>When you expect storage growth that would outpace a small VPS disk.</li>
+                            <li>When you want a cleaner path to CDN-style delivery later.</li>
+                        </ul>
+                        <p>Local storage still makes sense for small deployments, testing, or extremely simple setups. The good part is that fyuhls supports both models.</p>
+                    </section>
+
+                    <section class="article-section" id="where-next">
+                        <h2>Where to continue</h2>
+                        <ul>
+                            <li><a href="large-file-upload-php-guide.html">Large file upload guide</a></li>
+                            <li><a href="documentation.html#storage">Storage documentation</a></li>
+                            <li><a href="api.html">API reference</a></li>
+                            <li><a href="how-to-make-a-file-hosting-website.html">How to make a file hosting website</a></li>
+                        </ul>
+                    </section>
+                </article>
+
+                <aside class="toc-card">
+                    <h2>On this page</h2>
+                    <nav class="toc-links">
+                        <a href="#why-r2">Why R2</a>
+                        <a href="#multipart">Multipart uploads</a>
+                        <a href="#cors">Bucket CORS</a>
+                        <a href="#when-to-use">When to use R2</a>
+                        <a href="#where-next">Next reads</a>
+                    </nav>
+                </aside>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="site-shell footer-grid">
+            <div>
+                <h3>fyuhls</h3>
+                <p>Self-hosted file hosting software with local and S3-compatible storage support, including Cloudflare R2.</p>
+            </div>
+            <div>
+                <h3>Links</h3>
+                <p><a href="documentation.html">Documentation</a></p>
+                <p><a href="large-file-upload-php-guide.html">Large upload guide</a></p>
+                <p><a href="api.html">API reference</a></p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

@@ -4,10 +4,10 @@ $metaDescription = 'Choose a new password and restore access to your account.';
 include __DIR__ . '/header.php';
 ?>
 
-<div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem;">
-    <div class="auth-container" style="margin: 0;">
+<div class="reset-password-shell">
+    <div class="reset-password-card auth-container">
         <h2>Reset Password</h2>
-        <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.5rem; text-align: center;">
+        <p class="reset-password-copy">
             Please choose a new password for your account.
         </p>
 
@@ -33,5 +33,11 @@ include __DIR__ . '/header.php';
         </div>
     </div>
 </div>
+
+<style>
+.reset-password-shell{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
+.reset-password-card{margin:0}
+.reset-password-copy{color:var(--text-muted);font-size:.875rem;margin-bottom:1.5rem;text-align:center}
+</style>
 
 <?php include __DIR__ . '/footer.php'; ?>

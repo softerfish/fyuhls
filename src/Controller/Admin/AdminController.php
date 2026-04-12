@@ -274,21 +274,21 @@ class AdminController
         return $type;
     }
 
-    private function validateBackblazeAutomationOrigin(string $origin): string
+    private function validateStorageAutomationOrigin(string $origin): string
     {
         $origin = rtrim(trim($origin), '/');
         $host = strtolower((string)parse_url($origin, PHP_URL_HOST));
         if ($origin === '' || $host === '' || in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
-            throw new \RuntimeException('Set your real production URL in Config Hub > SEO before using automatic B2 CORS. Fyuhls should not apply upload CORS for localhost.');
+            throw new \RuntimeException('Set your real production URL in Config Hub > SEO before using automatic storage CORS. Fyuhls should not apply upload CORS for localhost.');
         }
 
         return $origin;
     }
 
-    private function getBackblazeAutomationOrigins(): array
+    private function getStorageAutomationOrigins(): array
     {
         $origins = [];
-        $origins[] = $this->validateBackblazeAutomationOrigin(\App\Service\SeoService::trustedBaseUrl());
+        $origins[] = $this->validateStorageAutomationOrigin(\App\Service\SeoService::trustedBaseUrl());
 
         $requestHost = trim((string)($_SERVER['HTTP_HOST'] ?? ''));
         if ($requestHost !== '') {
@@ -302,7 +302,7 @@ class AdminController
                 $requestScheme = 'https';
             }
 
-            $origins[] = $this->validateBackblazeAutomationOrigin($requestScheme . '://' . $requestHost);
+            $origins[] = $this->validateStorageAutomationOrigin($requestScheme . '://' . $requestHost);
         }
 
         return array_values(array_unique($origins));
@@ -1285,13 +1285,29 @@ class AdminController
         $servers = $stmt->fetchAll();
 
         $results = null;
+        $migrationForm = [
+            'from_server' => isset($_SESSION['migration_form']['from_server']) ? (int)$_SESSION['migration_form']['from_server'] : (int)($servers[0]['id'] ?? 0),
+            'to_server' => isset($_SESSION['migration_form']['to_server']) ? (int)$_SESSION['migration_form']['to_server'] : (int)($servers[0]['id'] ?? 0),
+            'batch_limit' => isset($_SESSION['migration_form']['batch_limit']) ? max(1, (int)$_SESSION['migration_form']['batch_limit']) : 50,
+        ];
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) die("CSRF mismatch");
+            $migrationForm = [
+                'from_server' => (int)($_POST['from_server'] ?? 0),
+                'to_server' => (int)($_POST['to_server'] ?? 0),
+                'batch_limit' => max(1, (int)($_POST['batch_limit'] ?? 50)),
+            ];
+            $_SESSION['migration_form'] = $migrationForm;
             $service = new \App\Service\MigrationService();
-            $results = $service->migrate((int)$_POST['from_server'], (int)$_POST['to_server'], (int)($_POST['batch_limit'] ?? 50));
+            $results = $service->migrate($migrationForm['from_server'], $migrationForm['to_server'], $migrationForm['batch_limit']);
         }
 
-        View::render('admin/file_servers/migrate.php', ['servers' => $servers, 'results' => $results]);
+        View::render('admin/file_servers/migrate.php', [
+            'servers' => $servers,
+            'results' => $results,
+            'migrationForm' => $migrationForm,
+        ]);
     }
 
     public function addFileServer()
@@ -1600,7 +1616,7 @@ class AdminController
         }
 
         try {
-            $origins = $this->getBackblazeAutomationOrigins();
+            $origins = $this->getStorageAutomationOrigins();
             $service = new \App\Service\BackblazeB2Service();
             $result = $service->applyFyuhlsCors(
                 (string)($_POST['key_id'] ?? ''),
@@ -1624,6 +1640,83 @@ class AdminController
                 'error' => $e->getMessage(),
             ]);
             $this->jsonResponse(['success' => false, 'message' => 'The CORS update failed. Check the bucket settings and logs.'], 422);
+        }
+    }
+
+    public function discoverWasabiBuckets(): void
+    {
+        $this->checkAuth();
+        $this->ensureDemoAdminReadOnly(true);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->jsonResponse(['success' => false, 'message' => 'Method not allowed.'], 405);
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->jsonResponse(['success' => false, 'message' => 'CSRF Token Mismatch'], 403);
+        }
+
+        try {
+            $service = new \App\Service\WasabiService();
+            $result = $service->discoverBuckets(
+                (string)($_POST['access_key'] ?? ''),
+                (string)($_POST['secret_key'] ?? ''),
+                trim((string)($_POST['region'] ?? 'us-east-1')),
+                trim((string)($_POST['endpoint'] ?? ''))
+            );
+
+            $this->jsonResponse([
+                'success' => true,
+                'message' => 'Wasabi buckets loaded successfully.',
+                'region' => $result['region'],
+                'endpoint' => $result['endpoint'],
+                'buckets' => $result['buckets'],
+            ]);
+        } catch (\Throwable $e) {
+            Logger::error('Wasabi bucket discovery failed', [
+                'error' => $e->getMessage(),
+            ]);
+            $this->jsonResponse(['success' => false, 'message' => 'Wasabi bucket discovery failed. Check the credentials, region, endpoint, and logs.'], 422);
+        }
+    }
+
+    public function applyWasabiCors(): void
+    {
+        $this->checkAuth();
+        $this->ensureDemoAdminReadOnly(true);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->jsonResponse(['success' => false, 'message' => 'Method not allowed.'], 405);
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->jsonResponse(['success' => false, 'message' => 'CSRF Token Mismatch'], 403);
+        }
+
+        try {
+            $origins = $this->getStorageAutomationOrigins();
+            $service = new \App\Service\WasabiService();
+            $result = $service->applyFyuhlsCors(
+                (string)($_POST['access_key'] ?? ''),
+                (string)($_POST['secret_key'] ?? ''),
+                trim((string)($_POST['bucket_name'] ?? '')),
+                $origins,
+                trim((string)($_POST['region'] ?? 'us-east-1')),
+                trim((string)($_POST['endpoint'] ?? ''))
+            );
+
+            $this->jsonResponse([
+                'success' => true,
+                'message' => 'The recommended Fyuhls CORS rule was applied to the selected Wasabi bucket.',
+                'origin' => $result['applied_origin'],
+                'origins' => $result['applied_origins'] ?? [$result['applied_origin']],
+                'bucket_name' => $result['bucket_name'],
+                'cors_rule_count' => $result['cors_rule_count'],
+                'region' => $result['region'],
+                'endpoint' => $result['endpoint'],
+            ]);
+        } catch (\Throwable $e) {
+            Logger::error('Wasabi CORS apply failed', [
+                'bucket_name' => trim((string)($_POST['bucket_name'] ?? '')),
+                'error' => $e->getMessage(),
+            ]);
+            $this->jsonResponse(['success' => false, 'message' => 'The Wasabi CORS update failed. Check the bucket settings and logs.'], 422);
         }
     }
 

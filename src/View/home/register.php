@@ -4,8 +4,8 @@ $metaDescription = 'Create an account to upload, manage, and share files using t
 include __DIR__ . '/header.php';
 ?>
 
-<div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem;">
-    <div class="auth-container" style="margin: 0;">
+<div class="register-shell">
+    <div class="register-card auth-container">
         <h2>Register</h2>
         <?php if (!empty($error)): ?>
             <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
@@ -43,5 +43,10 @@ include __DIR__ . '/header.php';
         </div>
     </div>
 </div>
+
+<style>
+.register-shell{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
+.register-card{margin:0}
+</style>
 
 <?php include __DIR__ . '/footer.php'; ?>

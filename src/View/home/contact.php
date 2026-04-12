@@ -3,10 +3,9 @@ $title = 'Contact Support';
 $metaDescription = 'Contact support for questions, account issues, abuse follow-up, or general help with this file hosting site.';
 include __DIR__ . '/header.php';
 ?>
-
-    <div class="auth-container" style="max-width: 600px; border: none; box-shadow: none; background: transparent;">
+    <div class="contact-support-card auth-container">
         <h2>Contact Us</h2>
-        <p style="text-align: center; color: var(--text-muted); margin-bottom: 2rem;">Have a question or feedback? We'd love to hear from you.</p>
+        <p class="contact-support-copy">Have a question or feedback? We'd love to hear from you.</p>
 
         <?php if ($error): ?>
             <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
@@ -31,12 +30,18 @@ include __DIR__ . '/header.php';
             </div>
             <div class="form-group">
                 <label for="message">Message</label>
-                <textarea name="message" id="message" rows="6" style="width: 100%; padding: 0.625rem; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.875rem;" required><?= htmlspecialchars($_POST['message'] ?? '') ?></textarea>
+                <textarea name="message" id="message" rows="6" class="contact-support-message" required><?= htmlspecialchars($_POST['message'] ?? '') ?></textarea>
             </div>
             <?php include __DIR__ . '/../partials/captcha.php'; ?>
             <button type="submit" class="btn">Send Message</button>
         </form>
     </div>
+
+<style>
+.contact-support-card{max-width:600px;border:none;box-shadow:none;background:transparent}
+.contact-support-copy{text-align:center;color:var(--text-muted);margin-bottom:2rem}
+.contact-support-message{width:100%;padding:.625rem;border:1px solid var(--border-color);border-radius:8px;font-size:.875rem}
+</style>
 
 <?php include __DIR__ . '/footer.php'; ?>
 

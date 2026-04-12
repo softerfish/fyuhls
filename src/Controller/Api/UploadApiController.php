@@ -31,7 +31,45 @@ class UploadApiController
             'action' => $action,
             'error' => $e->getMessage(),
         ]);
-        $this->jsonResponse(['error' => 'The upload request could not be completed.'], $status);
+        $this->jsonResponse([
+            'error' => $this->userFacingUploadError($e),
+        ], $status);
+    }
+
+    private function userFacingUploadError(\Throwable $e): string
+    {
+        $message = trim($e->getMessage());
+        if ($message === '') {
+            return 'The upload request could not be completed.';
+        }
+
+        if (str_starts_with($message, 'Security Error: file type (.') && str_contains($message, 'Allowed extensions are: [')) {
+            return $message;
+        }
+
+        $safeMessages = [
+            'A filename is required.',
+            'Upload size must be greater than zero.',
+            'User not found.',
+            'Upload package not found.',
+            'You already have the maximum number of active uploads for your package.',
+            'File exceeds your package upload limit.',
+            'Guests cannot upload into private folders.',
+            'Folder not found.',
+            'The selected storage backend does not support direct multipart uploads yet.',
+            'This upload would exceed your storage quota.',
+            'The selected storage node does not have enough free capacity.',
+            'Could not open multipart upload.',
+            'Invalid part number.',
+            'No uploaded parts were reported for this session.',
+            'Multipart completion failed.',
+        ];
+
+        if (in_array($message, $safeMessages, true)) {
+            return $message;
+        }
+
+        return 'The upload request could not be completed.';
     }
 
     private function ensureChunkedUploadsEnabled(): void
@@ -276,21 +314,17 @@ class UploadApiController
 
     public function downloadLink(string $fileId)
     {
-        $context = $this->resolveApiContext(false, null, false);
-        if (($context['mode'] ?? 'session') === 'token') {
-            $this->apiAuth->requireScope($context, 'files.read');
-        }
+        $context = $this->resolveApiContext(false, 'files.read', false);
+        $this->apiAuth->enforceRateLimit($context, 'api_download_link', 60, 60);
+        $userId = $context['user_id'] ?? $this->requireUser();
 
         $file = File::find($fileId);
         if (!$file) {
             $this->jsonResponse(['error' => 'File not found.'], 404);
         }
 
-        if (empty($file['is_public'])) {
-            $userId = $context['user_id'] ?? $this->requireUser();
-            if ((int)$file['user_id'] !== (int)$userId && !Auth::isAdmin()) {
-                $this->jsonResponse(['error' => 'File not found.'], 404);
-            }
+        if ((int)$file['user_id'] !== (int)$userId && !Auth::isAdmin()) {
+            $this->jsonResponse(['error' => 'File not found.'], 404);
         }
 
         $downloadManager = new DownloadManager();

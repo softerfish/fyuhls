@@ -5,10 +5,10 @@
 </div>
 
 <?php if (!empty($error)): ?>
-    <div class="alert alert-danger" style="margin-bottom: 1.5rem;"><?= htmlspecialchars($error) ?></div>
+    <div class="user-edit-feedback alert alert-danger"><?= htmlspecialchars($error) ?></div>
 <?php endif; ?>
 <?php if (!empty($success)): ?>
-    <div class="alert alert-success" style="margin-bottom: 1.5rem;"><?= htmlspecialchars($success) ?></div>
+    <div class="user-edit-feedback alert alert-success"><?= htmlspecialchars($success) ?></div>
 <?php endif; ?>
 
 <div class="card mb-4">
@@ -132,7 +132,7 @@
                             </p>
                         </div>
                         <div class="col-md-4 text-end">
-                            <form method="POST" action="/admin/users/disable-2fa" onsubmit="return confirm('CRITICAL SECURITY ACTION: Are you ABSOLUTELY sure you want to disable 2FA for this user?')">
+                            <form method="POST" action="/admin/users/disable-2fa" data-confirm-message="CRITICAL SECURITY ACTION: Are you ABSOLUTELY sure you want to disable 2FA for this user?">
                                 <?= \App\Core\Csrf::field() ?>
                                 <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
                                 <button type="submit" class="btn btn-danger">Disable 2FA Now</button>
@@ -144,5 +144,9 @@
         <?php endif; ?>
     </div>
 </div>
+
+<style>
+.user-edit-feedback{margin-bottom:1.5rem}
+</style>
 
 <?php include __DIR__ . '/../footer.php'; ?>

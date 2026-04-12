@@ -33,9 +33,9 @@ if ($type === 's3') {
 
 $tabs = [
     'local' => ['label' => 'Local Storage', 'icon' => 'bi-hdd'],
-    'b2'    => ['label' => 'Backblaze B2', 'icon' => 'bi-cloud'],
-    'r2'    => ['label' => 'Cloudflare R2', 'icon' => 'bi-cloud-sun'],
     'wasabi'=> ['label' => 'Wasabi S3', 'icon' => 'bi-snow'],
+    'r2'    => ['label' => 'Cloudflare R2', 'icon' => 'bi-cloud-sun'],
+    'b2'    => ['label' => 'Backblaze B2', 'icon' => 'bi-cloud'],
     's3'    => ['label' => 'S3 Compatible', 'icon' => 'bi-box-seam'],
 ];
 if (!isset($tabs[$activeTab])) {
@@ -157,27 +157,43 @@ if (!isset($tabs[$activeTab])) {
                     <?php if ($activeTab === 'wasabi'): ?>
                         <div class="mb-3">
                             <label class="form-label fw-bold small">Wasabi Bucket Name</label>
-                            <input type="text" name="path" class="form-control" value="<?= htmlspecialchars($server['storage_path']) ?>" required>
+                            <input type="text" name="path" id="wasabiBucketName" class="form-control" value="<?= htmlspecialchars($server['storage_path']) ?>" required>
                         </div>
                         <div class="row g-3 mb-3">
                             <div class="col-md-6">
                                 <label class="form-label fw-bold small">Wasabi Region</label>
-                                <input type="text" name="config[s3_region]" class="form-control" value="<?= htmlspecialchars($config['s3_region'] ?? '') ?>" required>
+                                <input type="text" name="config[s3_region]" id="wasabiRegion" class="form-control" value="<?= htmlspecialchars($config['s3_region'] ?? '') ?>" required>
                                 <div class="text-muted extra-small mt-1">Use the region from your real Wasabi endpoint, like <code>us-east-1</code> from <code>s3.us-east-1.wasabisys.com</code>.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold small">Access Key</label>
-                                <input type="password" name="config[s3_key]" class="form-control" value="" placeholder="<?= htmlspecialchars($hiddenKeyPlaceholder) ?>" autocomplete="off" spellcheck="false">
+                                <input type="password" name="config[s3_key]" id="wasabiAccessKey" class="form-control" value="" placeholder="<?= htmlspecialchars($hiddenKeyPlaceholder) ?>" autocomplete="off" spellcheck="false">
                             </div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold small">Wasabi Endpoint Host or URL (Optional)</label>
-                            <input type="text" name="config[s3_endpoint]" class="form-control" value="<?= htmlspecialchars($config['s3_endpoint'] ?? '') ?>" placeholder="e.g. s3.us-east-1.wasabisys.com">
+                            <input type="text" name="config[s3_endpoint]" id="wasabiEndpoint" class="form-control" value="<?= htmlspecialchars($config['s3_endpoint'] ?? '') ?>" placeholder="e.g. s3.us-east-1.wasabisys.com">
                             <div class="text-muted extra-small mt-1">Optional shortcut. Paste the exact Wasabi S3 endpoint if you want Fyuhls to auto-detect the region. If left blank, we build it from the region above.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold small">Secret Key</label>
-                            <input type="password" name="config[s3_secret]" class="form-control" value="" placeholder="<?= htmlspecialchars($hiddenKeyPlaceholder) ?>" autocomplete="off" spellcheck="false">
+                            <input type="password" name="config[s3_secret]" id="wasabiSecretKey" class="form-control" value="" placeholder="<?= htmlspecialchars($hiddenKeyPlaceholder) ?>" autocomplete="off" spellcheck="false">
+                            <div class="text-muted extra-small mt-1">Re-enter the current Wasabi Access Key and Secret Key here if you want Fyuhls to load buckets or update the real bucket CORS rule on your behalf.</div>
+                        </div>
+                        <div class="border rounded p-3 bg-light mb-4">
+                            <div class="d-flex flex-wrap gap-2 mb-3">
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="wasabiDiscoverBtn">Reload My Wasabi Buckets</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="wasabiApplyCorsBtn">Apply Fyuhls CORS</button>
+                            </div>
+                            <div class="text-muted extra-small mb-3">Use this if you want Fyuhls to confirm your Wasabi credentials, reload visible buckets, refresh the region and endpoint, or re-apply the recommended upload CORS rule for <code><?= htmlspecialchars($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?></code>. <strong>Save Server Settings</strong> only saves the Fyuhls record. <strong>Apply Fyuhls CORS</strong> is the button that actually updates the real Wasabi bucket CORS rule.</div>
+                            <div class="mb-3 d-none" id="wasabiBucketPickerWrap">
+                                <label class="form-label fw-bold small">Choose a Wasabi Bucket</label>
+                                <select class="form-select" id="wasabiBucketPicker"></select>
+                                <div class="text-muted extra-small mt-1">Selecting a bucket updates the bucket name, region, and endpoint fields above.</div>
+                            </div>
+                            <div class="alert alert-secondary border-0 small mb-0" id="wasabiAutomationStatus">
+                                If you want Fyuhls to automate the Wasabi checks here, re-enter your current Wasabi access key and secret key and click <strong>Reload My Wasabi Buckets</strong>. Use <strong>Apply Fyuhls CORS</strong> when you need Fyuhls to write the upload CORS rule to the real Wasabi bucket again, especially after a bucket change, key rotation, or multipart/preflight error.
+                            </div>
                         </div>
                     <?php endif; ?>
 
@@ -420,6 +436,45 @@ Invoke-RestMethod -Method Post -Uri ($apiUrl + "/b2api/v3/b2_update_bucket") -He
                     </div>
                 <?php endif; ?>
 
+                <?php if ($activeTab === 'wasabi'): ?>
+                    <div class="bg-white border rounded p-3 small mt-3">
+                        <div class="fw-bold mb-2">Wasabi edit checklist</div>
+                        <ol class="mb-0 ps-3">
+                            <li>Confirm the bucket name still matches the same Wasabi bucket that already holds your files.</li>
+                            <li>Confirm the region still matches the real endpoint, such as <code>us-east-1</code> from <code>s3.us-east-1.wasabisys.com</code>.</li>
+                            <li>If you rotated your Wasabi keys, update the access key here and paste the new secret key.</li>
+                            <li>When creating a replacement key in Wasabi, go to <strong>Access Keys</strong>, click <strong>Create Access Key</strong>, and choose <strong>Sub-User</strong> if possible instead of <strong>Root User</strong>.</li>
+                            <li>Leave the Wasabi endpoint field blank unless you already know the exact Wasabi S3 endpoint. Fyuhls can build it from the region as <code>https://s3.your-region.wasabisys.com</code>.</li>
+                            <li>Leave the secret blank only if you want to keep the currently saved one.</li>
+                            <li>If browser uploads fail, re-check the bucket's real CORS rules and confirm they still allow your exact site origin, <code>PUT</code>, <code>GET</code>, and <code>HEAD</code>, and expose <code>ETag</code>.</li>
+                        </ol>
+                    </div>
+                    <div class="alert alert-secondary border-0 small mt-3">
+                        <strong>Wasabi key reminder:</strong> The Wasabi console shows the <strong>Secret Key</strong> only once when the key is created. Copy it immediately when rotating credentials.
+                    </div>
+                    <div class="alert alert-light border small mt-3">
+                        <strong>Endpoint field tip:</strong> Only fill in <strong>Wasabi Endpoint Host or URL</strong> if you want to paste the exact endpoint yourself, such as <code>https://s3.us-east-1.wasabisys.com</code> or <code>s3.us-east-1.wasabisys.com</code>. Most installs should leave it blank and just keep the region correct.
+                    </div>
+                    <div class="bg-white border rounded p-3 small mt-3">
+                        <div class="fw-bold mb-2">Recommended S3-compatible CORS rule</div>
+<pre class="mb-2"><code>&lt;CORSConfiguration&gt;
+  &lt;CORSRule&gt;
+    &lt;AllowedOrigin&gt;https://yourdomain.com&lt;/AllowedOrigin&gt;
+    &lt;AllowedMethod&gt;PUT&lt;/AllowedMethod&gt;
+    &lt;AllowedMethod&gt;GET&lt;/AllowedMethod&gt;
+    &lt;AllowedMethod&gt;HEAD&lt;/AllowedMethod&gt;
+    &lt;AllowedHeader&gt;*&lt;/AllowedHeader&gt;
+    &lt;ExposeHeader&gt;ETag&lt;/ExposeHeader&gt;
+    &lt;MaxAgeSeconds&gt;3600&lt;/MaxAgeSeconds&gt;
+  &lt;/CORSRule&gt;
+&lt;/CORSConfiguration&gt;</code></pre>
+                        <div class="text-muted extra-small">Replace <code>https://yourdomain.com</code> with the exact origin your users upload from.</div>
+                    </div>
+                    <div class="alert alert-secondary border-0 small mt-3">
+                        <strong>Where this goes:</strong> This rule is configured on the <strong>Wasabi bucket itself</strong>, not in Fyuhls. If the Wasabi dashboard does not expose the full S3 CORS options you need, use the provider's S3-compatible API or CLI instead.
+                    </div>
+                <?php endif; ?>
+
                 <hr class="my-4">
 
                 <h6 class="fw-bold mb-3"><i class="bi bi-speedometer2 me-2"></i>Test Delivery Configuration</h6>
@@ -610,6 +665,168 @@ document.addEventListener('DOMContentLoaded', function () {
             setStatus('Fyuhls CORS was applied to <strong>' + result.bucket_name + '</strong> for <code>' + result.origin + '</code>. Backblaze may take about a minute to make the change live.', 'success');
         } catch (error) {
             setStatus(error.message || 'Could not apply Backblaze CORS.', 'danger');
+        } finally {
+            setBusy(false);
+        }
+    });
+});
+</script>
+<?php endif; ?>
+<?php if ($activeTab === 'wasabi'): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const demoReadOnly = <?= $demoAdminViewer ? 'true' : 'false' ?>;
+    const csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+    const accessKeyInput = document.getElementById('wasabiAccessKey');
+    const secretKeyInput = document.getElementById('wasabiSecretKey');
+    const bucketInput = document.getElementById('wasabiBucketName');
+    const regionInput = document.getElementById('wasabiRegion');
+    const endpointInput = document.getElementById('wasabiEndpoint');
+    const discoverBtn = document.getElementById('wasabiDiscoverBtn');
+    const applyCorsBtn = document.getElementById('wasabiApplyCorsBtn');
+    const bucketPickerWrap = document.getElementById('wasabiBucketPickerWrap');
+    const bucketPicker = document.getElementById('wasabiBucketPicker');
+    const statusBox = document.getElementById('wasabiAutomationStatus');
+    let discoveredBuckets = [];
+
+    const setStatus = (message, type = 'secondary') => {
+        statusBox.className = 'alert border-0 small mb-0 alert-' + type;
+        statusBox.innerHTML = message;
+    };
+
+    const setBusy = (busy) => {
+        discoverBtn.disabled = busy;
+        applyCorsBtn.disabled = busy;
+        discoverBtn.textContent = busy ? 'Working...' : 'Reload My Wasabi Buckets';
+    };
+
+    const fillBucketDetails = (bucket) => {
+        if (!bucket) {
+            return;
+        }
+
+        bucketInput.value = bucket.bucket_name || '';
+        regionInput.value = bucket.region || regionInput.value;
+        endpointInput.value = bucket.endpoint || endpointInput.value;
+    };
+
+    const renderBucketOptions = (buckets) => {
+        discoveredBuckets = Array.isArray(buckets) ? buckets : [];
+        bucketPicker.innerHTML = '';
+
+        if (!discoveredBuckets.length) {
+            bucketPickerWrap.classList.add('d-none');
+            return;
+        }
+
+        discoveredBuckets.forEach((bucket, index) => {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = bucket.bucket_name;
+            bucketPicker.appendChild(option);
+        });
+
+        bucketPickerWrap.classList.remove('d-none');
+        const existingIndex = discoveredBuckets.findIndex((bucket) => bucket.bucket_name === bucketInput.value.trim());
+        bucketPicker.value = String(existingIndex >= 0 ? existingIndex : 0);
+        fillBucketDetails(discoveredBuckets[parseInt(bucketPicker.value, 10)]);
+    };
+
+    bucketPicker.addEventListener('change', function () {
+        const bucket = discoveredBuckets[parseInt(bucketPicker.value, 10)];
+        fillBucketDetails(bucket);
+    });
+
+    discoverBtn.addEventListener('click', async function () {
+        if (demoReadOnly) {
+            setStatus('This demo admin account is read-only while demo mode is enabled.', 'warning');
+            return;
+        }
+        if (!accessKeyInput.value.trim() || !secretKeyInput.value.trim()) {
+            setStatus('Re-enter the current Wasabi Access Key and Secret Key first. Fyuhls cannot reload buckets from Wasabi without both values.', 'warning');
+            return;
+        }
+
+        setBusy(true);
+        setStatus('Connecting to Wasabi and reloading your buckets...', 'info');
+
+        try {
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('access_key', accessKeyInput.value.trim());
+            formData.append('secret_key', secretKeyInput.value.trim());
+            formData.append('region', regionInput.value.trim());
+            formData.append('endpoint', endpointInput.value.trim());
+
+            const response = await fetch('/admin/file-server/wasabi/discover', {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin'
+            });
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Could not load Wasabi buckets.');
+            }
+
+            regionInput.value = result.region || regionInput.value;
+            endpointInput.value = result.endpoint || endpointInput.value;
+            renderBucketOptions(result.buckets || []);
+
+            if ((result.buckets || []).length === 0) {
+                setStatus('Wasabi connected, but this key does not currently expose any buckets Fyuhls can use. Create a bucket first or confirm the key has bucket-list access.', 'warning');
+            } else {
+                setStatus('Wasabi connected. Pick a bucket if needed, and Fyuhls will keep the bucket, region, and endpoint fields in sync.', 'success');
+            }
+        } catch (error) {
+            bucketPickerWrap.classList.add('d-none');
+            setStatus(error.message || 'Could not load Wasabi buckets.', 'danger');
+        } finally {
+            setBusy(false);
+        }
+    });
+
+    applyCorsBtn.addEventListener('click', async function () {
+        if (demoReadOnly) {
+            setStatus('This demo admin account is read-only while demo mode is enabled.', 'warning');
+            return;
+        }
+        const bucketName = bucketInput.value.trim();
+        if (!accessKeyInput.value.trim() || !secretKeyInput.value.trim() || !bucketName) {
+            setStatus('Re-enter the Access Key and Secret Key and make sure the bucket name is filled in before applying the Fyuhls CORS rule.', 'warning');
+            return;
+        }
+
+        if (!confirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?')) {
+            return;
+        }
+
+        setBusy(true);
+        setStatus('Applying the recommended Fyuhls browser-upload CORS rule to your Wasabi bucket...', 'info');
+
+        try {
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('access_key', accessKeyInput.value.trim());
+            formData.append('secret_key', secretKeyInput.value.trim());
+            formData.append('bucket_name', bucketName);
+            formData.append('region', regionInput.value.trim());
+            formData.append('endpoint', endpointInput.value.trim());
+
+            const response = await fetch('/admin/file-server/wasabi/apply-cors', {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin'
+            });
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Could not apply Wasabi CORS.');
+            }
+
+            setStatus('Fyuhls CORS was applied to <strong>' + result.bucket_name + '</strong> for <code>' + result.origin + '</code>. Wasabi may take about a minute to make the change live.', 'success');
+        } catch (error) {
+            setStatus(error.message || 'Could not apply Wasabi CORS.', 'danger');
         } finally {
             setBusy(false);
         }

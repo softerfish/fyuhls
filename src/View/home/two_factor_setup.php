@@ -5,8 +5,8 @@ $extraHead = '
 ';
 include __DIR__ . '/header.php';
 ?>
-<div class="fm-container" style="margin-top: 1rem;">
-    <div class="fm-main" style="margin-left: auto; margin-right: auto; max-width: 980px;">
+<div class="two-factor-setup-container fm-container">
+    <div class="two-factor-setup-main fm-main">
         <div class="fm-toolbar">
             <div class="toolbar-left">
                 <h2 class="folder-title">Security: Setup 2FA</h2>
@@ -20,7 +20,7 @@ include __DIR__ . '/header.php';
             </div>
         </div>
 
-        <div style="max-width: 850px; padding: 0 2rem 2rem 2rem;">
+        <div class="two-factor-setup-content">
             <div class="mb-5 mt-2">
                 <p class="text-muted">Two-Factor Authentication adds a second layer of security to your account. In addition to your password, you will need a code from your phone to log in.</p>
             </div>
@@ -66,7 +66,7 @@ include __DIR__ . '/header.php';
                     <form method="POST" action="/2fa/setup">
                         <?= \App\Core\Csrf::field() ?>
                         <div class="text-center">
-                            <input type="text" name="code" class="form-control form-control-lg mx-auto fw-bold" placeholder="000000" maxlength="6" required style="letter-spacing: 0.3rem; border-color: var(--primary-color); width: 40%; margin-bottom: 3rem !important;">
+                            <input type="text" name="code" class="two-factor-setup-code form-control form-control-lg mx-auto fw-bold" placeholder="000000" maxlength="6" required>
                         </div>
                         <button class="btn btn-primary w-100 py-3 fw-bold mt-2" type="submit">Enable 2FA Now</button>
                     </form>
@@ -82,5 +82,9 @@ document.getElementById('qr-container').appendChild(qr);
 <style>
 .extra-small { font-size: 0.75rem; }
 .fm-main { background: #fdfdfd; }
+.two-factor-setup-container { margin-top: 1rem; }
+.two-factor-setup-main { margin-left: auto; margin-right: auto; max-width: 980px; }
+.two-factor-setup-content { max-width: 850px; padding: 0 2rem 2rem 2rem; }
+.two-factor-setup-code { letter-spacing: 0.3rem; border-color: var(--primary-color); width: 40%; margin-bottom: 3rem !important; }
 </style>
 <?php include __DIR__ . '/footer.php'; ?>

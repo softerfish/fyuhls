@@ -53,33 +53,59 @@ class MigrationService
                 }
 
                 $primaryPath = $storedFile['storage_path'];
-                if (!$sourceProvider->exists($primaryPath)) {
-                    throw new Exception("Source file is missing from storage.");
-                }
+                $variantPaths = $this->buildVariantPaths($storedFile);
+                $sourceExists = $sourceProvider->exists($primaryPath);
 
-                if (!$this->copyBetweenProviders($sourceProvider, $destProvider, $primaryPath)) {
-                    throw new Exception("Failed to copy file payload.");
-                }
+                if (!$sourceExists) {
+                    if (!$destProvider->exists($primaryPath)) {
+                        throw new Exception("Source file is missing from storage.");
+                    }
+                    Logger::warning('Recovered partial migration state by using existing destination payload', [
+                        'file_id' => (int)$file['id'],
+                        'path' => $primaryPath,
+                        'from_server_id' => $fromServerId,
+                        'to_server_id' => $toServerId,
+                    ]);
+                } else {
+                    $sourceHead = $sourceProvider->head($primaryPath);
+                    if (!$this->copyBetweenProviders($sourceProvider, $destProvider, $primaryPath, $sourceHead)) {
+                        throw new Exception("Failed to copy file payload.");
+                    }
 
-                foreach ($this->buildVariantPaths($storedFile) as $variantPath) {
-                    if ($sourceProvider->exists($variantPath) && !$this->copyBetweenProviders($sourceProvider, $destProvider, $variantPath)) {
-                        throw new Exception("Failed to copy variant payload.");
+                    foreach ($variantPaths as $variantPath) {
+                        if ($sourceProvider->exists($variantPath) && !$this->copyBetweenProviders($sourceProvider, $destProvider, $variantPath, $sourceProvider->head($variantPath))) {
+                            throw new Exception("Failed to copy variant payload.");
+                        }
                     }
                 }
 
-                if (!$sourceProvider->delete($primaryPath)) {
-                    throw new Exception("Copied file, but failed to remove source payload.");
+                $db->beginTransaction();
+                try {
+                    $stmtUpdate = $db->prepare("UPDATE stored_files SET file_server_id = ?, storage_provider = ? WHERE id = ?");
+                    $stmtUpdate->execute([$toServerId, $dest['server_type'], $file['id']]);
+                    
+                    $db->prepare("UPDATE file_servers SET current_usage_bytes = current_usage_bytes - ? WHERE id = ?")->execute([$file['file_size'], $fromServerId]);
+                    $db->prepare("UPDATE file_servers SET current_usage_bytes = current_usage_bytes + ? WHERE id = ?")->execute([$file['file_size'], $toServerId]);
+
+                    $db->commit();
+                } catch (\Throwable $e) {
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
+                    throw $e;
                 }
 
-                $sourceProvider->deleteVariants($primaryPath, $this->buildVariantPaths($storedFile));
+                if ($sourceExists && !$sourceProvider->delete($primaryPath)) {
+                    Logger::warning('Source payload could not be removed after successful migration commit', [
+                        'file_id' => (int)$file['id'],
+                        'path' => $primaryPath,
+                        'from_server_id' => $fromServerId,
+                    ]);
+                }
 
-                // 4. Update DB after the bytes are actually moved
-                $stmtUpdate = $db->prepare("UPDATE stored_files SET file_server_id = ?, storage_provider = ? WHERE id = ?");
-                $stmtUpdate->execute([$toServerId, $dest['server_type'], $file['id']]);
-                
-                // 5. Update Server Capacities
-                $db->prepare("UPDATE file_servers SET current_usage_bytes = current_usage_bytes - ? WHERE id = ?")->execute([$file['file_size'], $fromServerId]);
-                $db->prepare("UPDATE file_servers SET current_usage_bytes = current_usage_bytes + ? WHERE id = ?")->execute([$file['file_size'], $toServerId]);
+                if ($sourceExists) {
+                    $sourceProvider->deleteVariants($primaryPath, $variantPaths);
+                }
 
                 $results['success']++;
             } catch (Exception $e) {
@@ -96,7 +122,7 @@ class MigrationService
         return $results;
     }
 
-    private function copyBetweenProviders(StorageProvider $sourceProvider, StorageProvider $destProvider, string $path): bool
+    private function copyBetweenProviders(StorageProvider $sourceProvider, StorageProvider $destProvider, string $path, ?array $expectedHead = null): bool
     {
         $tmpPath = tempnam(sys_get_temp_dir(), 'fy_mig_');
         if ($tmpPath === false) {
@@ -121,13 +147,33 @@ class MigrationService
             fclose($handle);
         }
 
-        $destProvider->delete($path);
         $saved = $destProvider->save($tmpPath, $path);
         if (file_exists($tmpPath)) {
             @unlink($tmpPath);
         }
 
-        return $saved;
+        if (!$saved) {
+            return false;
+        }
+
+        $destHead = $destProvider->head($path);
+        if ($destHead === null) {
+            return false;
+        }
+
+        $expectedSize = (int)($expectedHead['content_length'] ?? 0);
+        $actualSize = (int)($destHead['content_length'] ?? 0);
+
+        if ($expectedSize > 0 && $actualSize > 0 && $expectedSize !== $actualSize) {
+            Logger::error('Migrated payload size mismatch', [
+                'path' => $path,
+                'expected_size' => $expectedSize,
+                'actual_size' => $actualSize,
+            ]);
+            return false;
+        }
+
+        return true;
     }
 
     private function buildVariantPaths(array $storedFile): array

@@ -10,6 +10,7 @@ use App\Core\Auth;
 use App\Core\View;
 use App\Core\Database;
 use App\Core\Csrf;
+use App\Service\PackageAllowanceService;
 
 class HomeController {
     private function isHttpsRequest(): bool
@@ -111,6 +112,13 @@ class HomeController {
         return Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
     }
 
+    private function dailyDownloadLimitSummary(): array
+    {
+        $userId = Auth::id() ? (int)Auth::id() : null;
+        $package = $userId ? Package::getUserPackage($userId) : Package::getGuestPackage();
+        return PackageAllowanceService::dailyDownloadLimitSummary($userId, $package ?: []);
+    }
+
     public function index(?string $id = null) {
         if (\App\Service\FeatureService::affiliateEnabled() && isset($_GET['ref'])) {
             $ref = trim((string) $_GET['ref']);
@@ -170,7 +178,8 @@ class HomeController {
             'currentFolder' => $currentFolder,
             'breadcrumbPath' => $breadcrumbPath,
             'pageHeading' => $currentFolder ? $currentFolder['name'] : 'All Files',
-            'pageTitle' => $currentFolder ? ($currentFolder['name'] . " - " . $this->siteName()) : "Dashboard - " . $this->siteName()
+            'pageTitle' => $currentFolder ? ($currentFolder['name'] . " - " . $this->siteName()) : "Dashboard - " . $this->siteName(),
+            'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
         ]);
     }
 
@@ -217,7 +226,8 @@ class HomeController {
             'currentFolder' => null,
             'isTrash' => true,
             'pageHeading' => 'Trash',
-            'pageTitle' => "Trash - " . $this->siteName()
+            'pageTitle' => "Trash - " . $this->siteName(),
+            'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
         ]);
     }
 
@@ -243,7 +253,8 @@ class HomeController {
             'folders' => [],
             'currentFolder' => null,
             'pageHeading' => 'Recent Files',
-            'pageTitle' => "Recent Files - " . $this->siteName()
+            'pageTitle' => "Recent Files - " . $this->siteName(),
+            'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
         ]);
     }
 
@@ -269,7 +280,8 @@ class HomeController {
             'currentFolder' => null,
             'pageHeading' => 'Shared Files',
             'pageTitle' => "Shared Files - " . $this->siteName(),
-            'isShared' => true
+            'isShared' => true,
+            'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
         ]);
     }
 
@@ -297,7 +309,10 @@ class HomeController {
         $stmt->execute([$userId]);
         $notifications = $stmt->fetchAll();
 
-        View::render('home/notifications.php', ['notifications' => $notifications]);
+        View::render('home/notifications.php', [
+            'notifications' => $notifications,
+            'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
+        ]);
     }
 
     public function markNotificationsRead() {

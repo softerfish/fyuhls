@@ -137,8 +137,8 @@ $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1
 
     <div class="cta">
         <h2>Still have questions?</h2>
-        <p style="margin-bottom: 2rem; color: var(--text-muted);">If you are unsure which package or rule applies to your account, contact support directly.</p>
-        <a href="/contact" class="btn" style="width: auto; padding: 0.875rem 2.5rem;">Contact Support</a>
+        <p class="faq-cta-copy">If you are unsure which package or rule applies to your account, contact support directly.</p>
+        <a href="/contact" class="faq-cta-button btn">Contact Support</a>
     </div>
 </div>
 
@@ -155,6 +155,8 @@ $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1
     .faq-answer::before { content: "A"; background: #f0fdf4; color: var(--success-color); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 0.875rem; font-weight: 800; flex-shrink: 0; margin-top: 0.25rem; }
     .faq-answer > div, .faq-answer > p { margin: 0; color: var(--text-muted); line-height: 1.7; flex: 1; }
     .cta { text-align: center; margin-top: 5rem; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(37, 99, 235, 0.07), rgba(99, 102, 241, 0.1)); border-radius: 24px; border: 1px solid rgba(37, 99, 235, 0.15); }
+    .faq-cta-copy { margin-bottom: 2rem; color: var(--text-muted); }
+    .faq-cta-button { width: auto; padding: 0.875rem 2.5rem; }
 </style>
 
 <?php include __DIR__ . '/footer.php'; ?>

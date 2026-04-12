@@ -80,11 +80,38 @@
             padding-top: 1.5rem;
             border-top: 2px dashed var(--border-color);
         }
+        .checkout-header {
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .checkout-brand {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+        .checkout-submit-wrap { margin-top: 2rem; }
+        .checkout-summary-row {
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+        }
+        .checkout-summary-copy { font-size: 0.8125rem; color: var(--text-muted); }
+        .checkout-security-note {
+            margin-top: 2rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
     </style>
 </head>
 <body>
-    <header style="padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto;">
-        <a href="/" style="font-size: 1.5rem; font-weight: 800; color: var(--primary-color); text-decoration: none;"><?= htmlspecialchars($siteName) ?></a>
+    <header class="checkout-header">
+        <a href="/" class="checkout-brand"><?= htmlspecialchars($siteName) ?></a>
     </header>
 
     <div class="checkout-container">
@@ -129,7 +156,7 @@
                     <?php endif; ?>
                 </div>
 
-                <div style="margin-top: 2rem;">
+                <div class="checkout-submit-wrap">
                     <button type="submit" class="btn btn-lg" <?= empty($stripeEnabled) && empty($paypalEnabled) ? 'disabled' : '' ?>>Complete Purchase</button>
                 </div>
             </form>
@@ -137,11 +164,11 @@
 
         <div class="order-summary">
             <h3>Order Summary</h3>
-            <div style="margin-bottom: 1rem; display: flex; justify-content: space-between;">
+            <div class="checkout-summary-row">
                 <span><?= htmlspecialchars($package['name']) ?> Plan</span>
                 <span>$<?= number_format((float)($package['price'] ?? 0), 2) ?></span>
             </div>
-            <p style="font-size: 0.8125rem; color: var(--text-muted);">
+            <p class="checkout-summary-copy">
                 Includes: <?= round($package['max_storage_bytes'] / 1024 / 1024 / 1024, 0) ?>GB Storage, Direct Links, No Ads<?= \App\Service\FeatureService::rewardsEnabled() ? ', and PPD Rewards' : '' ?>.
             </p>
 
@@ -150,7 +177,7 @@
                 <span>$<?= number_format((float)($package['price'] ?? 0), 2) ?></span>
             </div>
 
-            <div style="margin-top: 2rem; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+            <div class="checkout-security-note">
                 Secure 256-bit encrypted payment flow
             </div>
         </div>

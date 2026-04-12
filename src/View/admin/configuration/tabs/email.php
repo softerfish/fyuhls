@@ -132,11 +132,11 @@ foreach ($templates as $templateRow) {
                     <hr class="my-4">
 
                     <div class="form-check form-switch mb-3">
-                        <input class="form-check-input" type="checkbox" name="email_smtp_requires_auth" id="smtpAuth" value="1" <?= $requiresAuth ? 'checked' : '' ?> onchange="document.getElementById('authFields').style.display = this.checked ? '' : 'none'">
+                        <input class="form-check-input" type="checkbox" name="email_smtp_requires_auth" id="smtpAuth" value="1" <?= $requiresAuth ? 'checked' : '' ?>>
                         <label class="form-check-label fw-bold" for="smtpAuth">Server Requires Authentication</label>
                     </div>
 
-                    <div id="authFields" style="<?= !$requiresAuth ? 'display:none;' : '' ?>">
+                    <div id="authFields" class="<?= !$requiresAuth ? 'email-auth-hidden' : '' ?>">
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Username</label>
@@ -151,7 +151,7 @@ foreach ($templates as $templateRow) {
 
                     <div class="mb-3 mt-4">
                         <label class="form-label fw-bold">Sending Rate Limit</label>
-                        <div class="input-group" style="max-width: 300px;">
+                        <div class="email-rate-limit input-group">
                             <input type="number" class="form-control" name="email_limit_per_minute" value="<?= htmlspecialchars($limitPerMin) ?>">
                             <span class="input-group-text text-muted small">emails / minute</span>
                         </div>
@@ -161,7 +161,7 @@ foreach ($templates as $templateRow) {
     <button type="submit" class="btn btn-primary px-4">
         <i class="bi bi-save me-2"></i> Save SMTP Config
     </button>
-    <button type="button" class="btn btn-outline-dark" onclick="testSmtpConnection(this)">
+    <button type="button" class="btn btn-outline-dark" id="testSmtpConnectionBtn">
         <i class="bi bi-plug me-2"></i> Test Connection
     </button>
 </div>
@@ -190,7 +190,7 @@ foreach ($templates as $templateRow) {
             <?php if (empty($templateByKey[$templateKey])) continue; ?>
             <?php $t = $templateByKey[$templateKey]; ?>
         <tr>
-            <td class="ps-4 small text-muted fw-bold" style="width: 140px;"><?= $index === 0 ? htmlspecialchars($groupLabel) : '' ?></td>
+            <td class="email-template-group ps-4 small text-muted fw-bold"><?= $index === 0 ? htmlspecialchars($groupLabel) : '' ?></td>
             <td class="ps-4">
                 <div class="fw-bold small"><?= str_replace('_', ' ', ucfirst($t['template_key'])) ?></div>
                 <code class="extra-small text-muted"><?= $t['template_key'] ?></code>
@@ -198,9 +198,9 @@ foreach ($templates as $templateRow) {
                     <div class="extra-small text-muted mt-1"><?= htmlspecialchars($t['description']) ?></div>
                 <?php endif; ?>
             </td>
-            <td class="small text-truncate" style="max-width: 300px;"><?= htmlspecialchars($t['subject']) ?></td>
+            <td class="email-template-subject small text-truncate"><?= htmlspecialchars($t['subject']) ?></td>
             <td class="text-end pe-4">
-                <button class="btn btn-sm btn-outline-primary" onclick="editTemplate(<?= htmlspecialchars(json_encode($t)) ?>)">
+                <button class="btn btn-sm btn-outline-primary" type="button" data-template='<?= htmlspecialchars(json_encode($t), ENT_QUOTES, 'UTF-8') ?>'>
                     <i class="bi bi-pencil"></i>
                 </button>
             </td>
@@ -265,9 +265,9 @@ new bootstrap.Modal(document.getElementById('templateModal')).show();
                 <p class="small text-muted">Verify your SMTP configuration by sending a real email to yourself.</p>
                 <div class="input-group mb-3">
                     <input type="email" id="testEmailAddr" class="form-control form-control-sm" placeholder="your@email.com">
-                    <button class="btn btn-sm btn-dark" type="button" onclick="sendTestEmail()">Send</button>
+                    <button class="btn btn-sm btn-dark" type="button" id="sendTestEmailBtn">Send</button>
                 </div>
-                <div id="testResult" class="small mt-2" style="display:none;"></div>
+                <div id="testResult" class="email-test-result small mt-2"></div>
             </div>
         </div>
 
@@ -281,6 +281,14 @@ new bootstrap.Modal(document.getElementById('templateModal')).show();
         </div>
     </div>
 </div>
+
+<style>
+.email-auth-hidden{display:none}
+.email-rate-limit{max-width:300px}
+.email-template-group{width:140px}
+.email-template-subject{max-width:300px}
+.email-test-result{display:none}
+</style>
 
 <script>
 function testSmtpConnection(btn) {
@@ -330,4 +338,43 @@ function sendTestEmail() {
         resultDiv.innerHTML = 'Error: ' + e.message;
     });
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    const smtpAuth = document.getElementById('smtpAuth');
+    const authFields = document.getElementById('authFields');
+    if (smtpAuth && authFields) {
+        const syncAuthFields = function() {
+            authFields.style.display = smtpAuth.checked ? '' : 'none';
+        };
+        smtpAuth.addEventListener('change', syncAuthFields);
+        syncAuthFields();
+    }
+
+    const testConnectionBtn = document.getElementById('testSmtpConnectionBtn');
+    if (testConnectionBtn) {
+        testConnectionBtn.addEventListener('click', function() {
+            testSmtpConnection(testConnectionBtn);
+        });
+    }
+
+    const sendTestEmailBtn = document.getElementById('sendTestEmailBtn');
+    if (sendTestEmailBtn) {
+        sendTestEmailBtn.addEventListener('click', sendTestEmail);
+    }
+
+    document.querySelectorAll('[data-template]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            const rawTemplate = button.getAttribute('data-template');
+            if (!rawTemplate) {
+                return;
+            }
+
+            try {
+                editTemplate(JSON.parse(rawTemplate));
+            } catch (error) {
+                console.error('Failed to parse template data:', error);
+            }
+        });
+    });
+});
 </script>

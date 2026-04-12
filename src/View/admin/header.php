@@ -75,7 +75,10 @@ elseif (str_contains($uriPath, '/admin/search')) $helpFile = 'search';
 elseif (str_contains($uriPath, '/admin/file-server/migrate')) $helpFile = 'file_server_migrate';
 elseif (str_contains($uriPath, '/admin/file-server/add')) $helpFile = 'file_server_add';
 elseif (str_contains($uriPath, '/admin/file-server/edit')) $helpFile = 'file_server_edit';
-elseif (str_contains($uriPath, '/admin/requests') || str_contains($uriPath, '/admin/contacts') || str_contains($uriPath, '/admin/abuse-reports') || str_contains($uriPath, '/admin/dmca')) $helpFile = 'requests';
+elseif (str_contains($uriPath, '/admin/requests')) $helpFile = 'requests';
+elseif (str_contains($uriPath, '/admin/contacts')) $helpFile = 'contacts';
+elseif (str_contains($uriPath, '/admin/abuse-reports')) $helpFile = 'abuse';
+elseif (str_contains($uriPath, '/admin/dmca')) $helpFile = 'dmca';
 elseif (str_contains($uriPath, '/admin/downloads/current')) $helpFile = 'live_downloads';
 elseif (str_contains($uriPath, '/admin/docs')) $helpFile = 'docs';
 elseif (str_contains($uriPath, '/admin/server-monitoring')) $helpFile = 'monitoring';
@@ -110,6 +113,11 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <!-- Keep custom CSS for component overrides (cards, etc) -->
     <link rel="stylesheet" href="/assets/css/admin.css">
+    <style>
+    .admin-search-input{font-size:.75rem;height:32px}
+    .admin-coffee-button{height:45px !important;width:170px !important}
+    .admin-status-icon{font-size:.75rem}
+    </style>
 </head>
 <body>
 
@@ -126,12 +134,12 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                 <!-- Global Search Widget -->
                 <div class="px-3 mb-4">
                     <form action="/admin/search" method="GET">
-                        <input type="text" name="q" class="form-control form-control-sm bg-white border shadow-sm rounded" placeholder="Partial ID, email, username, file..." style="font-size: 0.75rem; height: 32px;">
+                        <input type="text" name="q" class="admin-search-input form-control form-control-sm bg-white border shadow-sm rounded" placeholder="Partial ID, email, username, file...">
                     </form>
                 </div>
 
                 <div class="px-3 mb-4 text-center">
-                    <a href="https://www.buymeacoffee.com/softerfish" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 45px !important;width: 170px !important;" ></a>
+                    <a href="https://www.buymeacoffee.com/softerfish" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" class="admin-coffee-button"></a>
                 </div>
                 <ul class="nav flex-column mb-auto text-start">
                     <li class="nav-item">
@@ -222,7 +230,7 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                     </li>
                     <li class="nav-item">
                         <a class="nav-link <?= $helpFile === 'status' ? 'active' : '' ?>" href="/admin/status">
-                            <i class="bi bi-activity p-1 bg-danger text-white rounded me-2" style="font-size: 0.75rem;"></i> System Status
+                            <i class="admin-status-icon bi bi-activity p-1 bg-danger text-white rounded me-2"></i> System Status
                             <?php if ($updateAvailable): ?>
                                 <span class="badge bg-warning text-dark rounded-pill float-end">Update</span>
                             <?php endif; ?>
@@ -299,7 +307,7 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                             <strong>Security Warning:</strong> The <code>install.php</code> file is still present on your server. Delete it immediately to prevent unauthorized re-installation.
                         </div>
                     </div>
-                    <form action="/admin/delete-setup-file" method="POST" style="margin: 0;" onsubmit="return confirm('Permanently delete install.php?')">
+                    <form action="/admin/delete-setup-file" method="POST" class="m-0" data-confirm-message="Permanently delete install.php?">
                         <?= \App\Core\Csrf::field() ?>
                         <input type="hidden" name="type" value="install">
                         <button type="submit" class="btn btn-dark btn-sm px-3 fw-bold">
@@ -319,7 +327,7 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                             <strong>Security Suggestion:</strong> The <code>post_install_check.php</code> file is still present. Delete it once you are done verifying the installation.
                         </div>
                     </div>
-                    <form action="/admin/delete-setup-file" method="POST" style="margin: 0;" onsubmit="return confirm('Permanently delete post_install_check.php?')">
+                    <form action="/admin/delete-setup-file" method="POST" class="m-0" data-confirm-message="Permanently delete post_install_check.php?">
                         <?= \App\Core\Csrf::field() ?>
                         <input type="hidden" name="type" value="post_install_check">
                         <button type="submit" class="btn btn-dark btn-sm px-3 fw-bold">
@@ -339,7 +347,7 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                             <strong>Security Suggestion:</strong> The <code>database/</code> setup folder is still present. It contains the installer schema file and should be removed after installation.
                         </div>
                     </div>
-                    <form action="/admin/delete-setup-file" method="POST" style="margin: 0;" onsubmit="return confirm('Permanently delete the database setup folder?')">
+                    <form action="/admin/delete-setup-file" method="POST" class="m-0" data-confirm-message="Permanently delete the database setup folder?">
                         <?= \App\Core\Csrf::field() ?>
                         <input type="hidden" name="type" value="schema">
                         <button type="submit" class="btn btn-dark btn-sm px-3 fw-bold">

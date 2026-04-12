@@ -9,22 +9,22 @@ $sitemapUrl = \App\Service\SeoService::trustedBaseUrl() . '/sitemap.xml';
 <div class="row">
     <div class="col-md-3">
         <div class="nav flex-column nav-pills border-end pe-3">
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'overview' ? 'active' : '' ?>" onclick="window.location.href='?tab=seo&seo_tab=overview'">
+            <button class="nav-link text-start mb-2 <?= $seoTab === 'overview' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=overview">
                 <i class="bi bi-speedometer2 me-2"></i> Overview
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'general' ? 'active' : '' ?>" onclick="window.location.href='?tab=seo&seo_tab=general'">
+            <button class="nav-link text-start mb-2 <?= $seoTab === 'general' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=general">
                 <i class="bi bi-sliders me-2"></i> General
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'homepage' ? 'active' : '' ?>" onclick="window.location.href='?tab=seo&seo_tab=homepage'">
+            <button class="nav-link text-start mb-2 <?= $seoTab === 'homepage' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=homepage">
                 <i class="bi bi-house-door me-2"></i> Homepage
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'templates' ? 'active' : '' ?>" onclick="window.location.href='?tab=seo&seo_tab=templates'">
+            <button class="nav-link text-start mb-2 <?= $seoTab === 'templates' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=templates">
                 <i class="bi bi-file-earmark-richtext me-2"></i> Templates
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'indexing' ? 'active' : '' ?>" onclick="window.location.href='?tab=seo&seo_tab=indexing'">
+            <button class="nav-link text-start mb-2 <?= $seoTab === 'indexing' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=indexing">
                 <i class="bi bi-diagram-3 me-2"></i> Indexing
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'verification' ? 'active' : '' ?>" onclick="window.location.href='?tab=seo&seo_tab=verification'">
+            <button class="nav-link text-start mb-2 <?= $seoTab === 'verification' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=verification">
                 <i class="bi bi-patch-check me-2"></i> Verification
             </button>
         </div>

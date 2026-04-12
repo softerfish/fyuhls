@@ -12,14 +12,14 @@
 
                 <div class="mb-2">
                     <?php if ($isHealthy): ?>
-                        <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center mx-auto shadow-sm" style="width: 50px; height: 60px;">
-                            <i class="bi bi-heart-pulse-fill" style="font-size: 1.5rem;"></i>
+                        <div class="cron-health-icon rounded-circle bg-success text-white d-flex align-items-center justify-content-center mx-auto shadow-sm">
+                            <i class="cron-health-icon-symbol bi bi-heart-pulse-fill"></i>
                         </div>
                         <h5 class="mt-3 text-success fw-bold">System Healthy</h5>
                         <p class="extra-small text-muted">Heartbeat detected <?= round($diff / 60) ?> mins ago.</p>
                     <?php else: ?>
-                        <div class="rounded-circle bg-danger text-white d-flex align-items-center justify-content-center mx-auto shadow-sm pulse-red" style="width: 50px; height: 60px;">
-                            <i class="bi bi-exclamation-octagon-fill" style="font-size: 1.5rem;"></i>
+                        <div class="cron-health-icon rounded-circle bg-danger text-white d-flex align-items-center justify-content-center mx-auto shadow-sm pulse-red">
+                            <i class="cron-health-icon-symbol bi bi-exclamation-octagon-fill"></i>
                         </div>
                         <h5 class="mt-3 text-danger fw-bold">Cron Jobs Offline</h5>
                         <p class="extra-small text-muted">No heartbeat detected in over 31 mins. Check crontab.</p>
@@ -99,11 +99,11 @@
                                         <div class="fw-bold small"><?= htmlspecialchars($task['task_name']) ?></div>
                                         <code class="extra-small text-muted"><?= $task['task_key'] ?></code>
                                     </td>
-                                    <td class="extra-small text-muted" style="min-width: 260px;">
+                                    <td class="cron-task-description extra-small text-muted">
                                         <?= htmlspecialchars($descriptions[$task['task_key']] ?? 'System background task for internal maintenance and synchronization.') ?>
                                     </td>
                                     <td>
-                                        <div class="input-group input-group-sm" style="width: 110px;">
+                                        <div class="cron-interval-group input-group input-group-sm">
                                             <input type="number" class="form-control" name="intervals[<?= $task['task_key'] ?>]" value="<?= $task['interval_mins'] ?>">
                                             <span class="input-group-text extra-small">min</span>
                                         </div>
@@ -170,7 +170,7 @@
                         <div class="list-group-item border-0 py-3">
                             <div class="d-flex justify-content-between align-items-center mb-1">
                                 <div class="fw-bold extra-small text-primary"><?= htmlspecialchars($task['task_name']) ?></div>
-                                <span class="badge bg-light text-muted border extra-small" style="font-size: 0.6rem;"><?= $task['task_key'] ?></span>
+                                <span class="cron-task-key badge bg-light text-muted border extra-small"><?= $task['task_key'] ?></span>
                             </div>
                             <p class="extra-small text-muted mb-0"><?= $desc ?></p>
                         </div>
@@ -183,6 +183,11 @@
 
 <style>
 .pulse-red { animation: pulse-red 2s infinite; }
+.cron-health-icon { width: 50px; height: 60px; }
+.cron-health-icon-symbol { font-size: 1.5rem; }
+.cron-task-description { min-width: 260px; }
+.cron-interval-group { width: 110px; }
+.cron-task-key { font-size: 0.6rem; }
 @keyframes pulse-red {
     0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
     70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }

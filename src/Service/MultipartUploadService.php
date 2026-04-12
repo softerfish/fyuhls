@@ -35,6 +35,8 @@ class MultipartUploadService
             throw new Exception('Upload size must be greater than zero.');
         }
 
+        $this->assertAllowedExtension($filename);
+
         if ($userId !== null) {
             $user = User::find($userId);
             if (!$user) {
@@ -560,6 +562,18 @@ class MultipartUploadService
 
         $partSize = max($partSize, $minForPartLimit);
         return min($partSize, 5 * 1024 * 1024 * 1024);
+    }
+
+    private function assertAllowedExtension(string $filename): void
+    {
+        $allowedSetting = Setting::get('upload_allowed_extensions', 'jpg,jpeg,png,gif,pdf,doc,docx,xls,xlsx,txt,zip,mp4,mp3,ipa,apk');
+        $allowedExtensions = array_values(array_filter(array_map('trim', explode(',', strtolower($allowedSetting)))));
+        $ext = strtolower((string)pathinfo($filename, PATHINFO_EXTENSION));
+
+        if (!in_array($ext, $allowedExtensions, true)) {
+            $allowedStr = implode(', ', $allowedExtensions);
+            throw new Exception("Security Error: file type (.$ext) is not allowed. Allowed extensions are: [$allowedStr]. Check your Settings.");
+        }
     }
 
     private function buildObjectKey(?int $userId, string $filename): string

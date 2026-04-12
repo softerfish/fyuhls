@@ -11,11 +11,18 @@ use App\Core\Config;
 use App\Model\ApiToken;
 use App\Model\Setting;
 use App\Service\FeatureService;
+use App\Service\PackageAllowanceService;
 use App\Service\LoginDeviceService;
 
 class AuthController {
     private const MAX_PAYMENT_DETAILS_LENGTH = 500;
     private const MAX_API_TOKEN_NAME_LENGTH = 100;
+
+    private function isHttpsRequest(): bool
+    {
+        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+    }
 
     private function normalizeUserTimezone(?string $timezone): string
     {
@@ -257,7 +264,7 @@ class AuthController {
                                 setcookie('ref', '', [
                                     'expires' => time() - 3600,
                                     'path' => '/',
-                                    'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+                                    'secure' => $this->isHttpsRequest(),
                                     'httponly' => true,
                                     'samesite' => 'Lax',
                                 ]);
@@ -493,6 +500,7 @@ class AuthController {
             'enabledModels' => $enabledModels,
             'apiTokens' => $apiTokens,
             'newApiToken' => $newApiToken,
+            'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary((int)$userId, \App\Model\Package::getUserPackage((int)$userId) ?: []),
         ]);
     }
 

@@ -11,8 +11,9 @@ $captchaEnabled  = $captchaEnabled ?? false;
 $captchaSiteKey  = $captchaSiteKey ?? \App\Model\Setting::get('captcha_site_key', '');
 ?>
 <?php if ($captchaEnabled && $captchaSiteKey): ?>
-<div style="margin: 1rem 0;">
+<div class="captcha-wrap">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
     <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($captchaSiteKey) ?>"></div>
 </div>
+<style>.captcha-wrap{margin:1rem 0}</style>
 <?php endif; ?>

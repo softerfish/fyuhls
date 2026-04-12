@@ -8,7 +8,7 @@
 <?php if (empty($users) && empty($files)): ?>
     <div class="card shadow-sm border-0 py-5 text-center">
         <div class="card-body">
-            <i class="bi bi-search text-muted" style="font-size: 3rem;"></i>
+            <i class="search-results-empty-icon bi bi-search text-muted"></i>
             <h5 class="mt-3">No Results Found</h5>
             <p class="text-muted small">We couldn't find any matches for that term.<br>
             Search supports exact IDs and short IDs, plus partial username, email, and filename matching.</p>
@@ -19,7 +19,7 @@
 <?php if (!empty($users)): ?>
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-header bg-white py-3 border-0">
-            <h6 class="mb-0 fw-bold text-uppercase" style="font-size: 0.75rem;">Matching Users</h6>
+            <h6 class="search-results-heading mb-0 fw-bold text-uppercase">Matching Users</h6>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -53,7 +53,7 @@
 <?php if (!empty($files)): ?>
     <div class="card shadow-sm border-0">
         <div class="card-header bg-white py-3 border-0">
-            <h6 class="mb-0 fw-bold text-uppercase" style="font-size: 0.75rem;">Matching Files</h6>
+            <h6 class="search-results-heading mb-0 fw-bold text-uppercase">Matching Files</h6>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -85,5 +85,10 @@
         </div>
     </div>
 <?php endif; ?>
+
+<style>
+.search-results-empty-icon{font-size:3rem}
+.search-results-heading{font-size:.75rem}
+</style>
 
 <?php include 'footer.php'; ?>

@@ -10,6 +10,11 @@ Options -MultiViews -Indexes +FollowSymLinks
     RewriteEngine On
     RewriteBase /
 
+    # Block setup helpers after the application has been installed.
+    RewriteCond %{REQUEST_URI} ^/(install|post_install_check)\.php$ [NC]
+    RewriteCond %{DOCUMENT_ROOT}/../config/database.php -f
+    RewriteRule ^ - [F,L]
+
     # Allow direct access to real files and directories (assets, etc.)
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
@@ -26,7 +31,7 @@ Options -MultiViews -Indexes +FollowSymLinks
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set X-XSS-Protection "1; mode=block"
-    Header always set Content-Security-Policy "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com https://cdn.jsdelivr.net"
+    # The application sets a per-request CSP with nonces at runtime.
 </IfModule>
 
 # ============================================================
@@ -54,9 +59,13 @@ Options -MultiViews -Indexes +FollowSymLinks
 </Files>
 
 # ============================================================
-# Force HTTPS (uncomment on production)
+# Force HTTPS
+# Works for direct Apache installs and proxy/CDN setups that send X-Forwarded-Proto.
 # ============================================================
-# <IfModule mod_rewrite.c>
-#     RewriteCond %{HTTPS} off
-#     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-# </IfModule>
+<IfModule mod_rewrite.c>
+    RewriteCond %{REQUEST_URI} !^/install\.php$ [NC]
+    RewriteCond %{REQUEST_URI} !^/post_install_check\.php$ [NC]
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>

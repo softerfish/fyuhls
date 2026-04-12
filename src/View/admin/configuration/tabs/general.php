@@ -71,12 +71,12 @@
             <div class="row">
             <div class="col-md-6 mb-3">
             <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" name="ffmpeg_enabled" id="ffmpegEnabled" value="1" <?= ($ffmpegEnabled === '1') ? 'checked' : '' ?> onchange="document.getElementById('ffmpegPathRow').style.display = this.checked ? '' : 'none'">
+                <input class="form-check-input" type="checkbox" name="ffmpeg_enabled" id="ffmpegEnabled" value="1" <?= ($ffmpegEnabled === '1') ? 'checked' : '' ?>>
                 <label class="form-check-label fw-bold" for="ffmpegEnabled">Enable FFmpeg (Video Thumbnails/Transcoding)</label>
             </div>
             <small class="text-muted">Requires FFmpeg binary to be installed on your server.</small>
             </div>
-            <div class="col-md-6 mb-3" id="ffmpegPathRow" style="<?= ($ffmpegEnabled !== '1') ? 'display:none;' : '' ?>">
+            <div class="col-md-6 mb-3 <?= ($ffmpegEnabled !== '1') ? 'general-ffmpeg-hidden' : '' ?>" id="ffmpegPathRow">
             <label class="form-label fw-bold">FFmpeg Binary Path</label>
             <input type="text" class="form-control" name="ffmpeg_path" value="<?= htmlspecialchars($ffmpegPath) ?>" placeholder="/usr/bin/ffmpeg">
             <small class="text-muted">Full path to the ffmpeg executable.</small>
@@ -90,3 +90,24 @@
         </button>
     </div>
 </form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ffmpegToggle = document.getElementById('ffmpegEnabled');
+    const ffmpegPathRow = document.getElementById('ffmpegPathRow');
+    if (!ffmpegToggle || !ffmpegPathRow) {
+        return;
+    }
+
+    const syncFfmpegRow = function() {
+        ffmpegPathRow.style.display = ffmpegToggle.checked ? '' : 'none';
+    };
+
+    ffmpegToggle.addEventListener('change', syncFfmpegRow);
+    syncFfmpegRow();
+});
+</script>
+
+<style>
+.general-ffmpeg-hidden{display:none}
+</style>

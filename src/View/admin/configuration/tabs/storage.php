@@ -37,8 +37,8 @@ unset($server);
             <div class="card-body">
                 <h6 class="text-uppercase small fw-bold text-muted">Network Capacity</h6>
                 <div class="d-flex align-items-center gap-3">
-                    <div class="progress flex-grow-1" style="height: 10px;">
-                        <div class="progress-bar <?= $usagePercent > 90 ? 'bg-danger' : 'bg-success' ?>" role="progressbar" style="width: <?= $usagePercent ?>%"></div>
+                    <div class="storage-capacity-progress progress flex-grow-1">
+                        <div class="progress-bar js-progress-width <?= $usagePercent > 90 ? 'bg-danger' : 'bg-success' ?>" role="progressbar" data-progress="<?= htmlspecialchars((string)$usagePercent) ?>"></div>
                     </div>
                     <span class="fw-bold"><?= $usagePercent ?>%</span>
                 </div>
@@ -110,14 +110,14 @@ unset($server);
                             }
                             ?>
                         </td>
-                        <td style="min-width: 150px;">
+                        <td class="storage-usage-cell">
                             <?php 
                             $usageBytes = (float)($server['current_usage_bytes'] ?? 0);
                             $maxBytes = (float)($server['max_capacity_bytes'] ?? 0);
                             $sUsage = $maxBytes > 0 ? round(($usageBytes / $maxBytes) * 100, 1) : 0;
                             ?>
-                            <div class="progress mb-1" style="height: 6px;">
-                                <div class="progress-bar <?= $sUsage > 85 ? 'bg-danger' : 'bg-primary' ?>" style="width: <?= $sUsage ?>%"></div>
+                            <div class="storage-usage-progress progress mb-1">
+                                <div class="progress-bar js-progress-width <?= $sUsage > 85 ? 'bg-danger' : 'bg-primary' ?>" data-progress="<?= htmlspecialchars((string)$sUsage) ?>"></div>
                             </div>
                             <div class="d-flex justify-content-between extra-small text-muted">
                                 <span><?= $sUsage ?>%</span>
@@ -135,7 +135,7 @@ unset($server);
                         </td>
                         <td class="text-end pe-4">
                             <div class="table-actions justify-content-end">
-                                <button type="button" class="btn btn-sm btn-outline-primary action-icon-btn" onclick="testServer(this, <?= $server['id'] ?>)" title="Ping Node" aria-label="Ping Node" <?= $demoAdmin ? 'disabled' : '' ?>>
+                                <button type="button" class="btn btn-sm btn-outline-primary action-icon-btn" data-test-server-id="<?= (int)$server['id'] ?>" title="Ping Node" aria-label="Ping Node" <?= $demoAdmin ? 'disabled' : '' ?>>
                                     <i class="bi bi-plug"></i>
                                 </button>
                                 <a href="<?= $demoAdmin ? '#' : '/admin/file-server/edit/' . $server['id'] ?>" class="btn btn-sm btn-outline-dark action-icon-btn <?= $demoAdmin ? 'disabled' : '' ?>" title="Edit Config" aria-label="Edit Config" <?= $demoAdmin ? 'aria-disabled="true" tabindex="-1"' : '' ?>>
@@ -177,4 +177,30 @@ function testServer(btn, id) {
         btn.disabled = false;
     });
 }
+
+document.addEventListener('click', function(event) {
+    const testButton = event.target.closest('[data-test-server-id]');
+    if (!testButton) {
+        return;
+    }
+
+    const serverId = testButton.getAttribute('data-test-server-id');
+    if (serverId) {
+        testServer(testButton, serverId);
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.js-progress-width').forEach(function(bar) {
+        const progress = parseFloat(bar.getAttribute('data-progress') || '0');
+        const safeProgress = Number.isFinite(progress) ? Math.min(100, Math.max(0, progress)) : 0;
+        bar.style.width = safeProgress + '%';
+    });
+});
 </script>
+
+<style>
+.storage-capacity-progress{height:10px}
+.storage-usage-cell{min-width:150px}
+.storage-usage-progress{height:6px}
+</style>

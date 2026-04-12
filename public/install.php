@@ -11,6 +11,9 @@ define('VERSION_PATH', ROOT_PATH . '/config/version.php');
 // Load Autoloader for Cryptography
 require_once ROOT_PATH . '/vendor/autoload.php';
 
+$installNonce = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
+header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'nonce-{$installNonce}'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; frame-ancestors 'self';");
+
 use App\Service\Database\SchemaService;
 
 function getInstallVersion(): string
@@ -35,7 +38,7 @@ function getExistingInstallWarning(): ?string
         $config = require LEGACY_CONFIG_PATH;
         $db = $config['database'] ?? null;
         if (!is_array($db)) {
-            return "System is already installed. Please delete the <code>config/database.php</code> file to reinstall.";
+            return 'Installation is unavailable on this server.';
         }
 
         $dsn = sprintf(
@@ -54,17 +57,18 @@ function getExistingInstallWarning(): ?string
         $schemaVersion = $stmt ? (string)$stmt->fetchColumn() : '';
 
         if ($schemaVersion === '') {
-            return "Installation looks incomplete. <code>config/database.php</code> exists, but <code>schema_version</code> is missing in the database. Delete the install config pointer and re-run the installer, or check <code>/post_install_check.php</code> after fixing the database.";
+            return 'Installation is unavailable on this server.';
         }
 
-        return "System is already installed. Please delete the <code>config/database.php</code> file to reinstall.";
+        return 'Installation is unavailable on this server.';
     } catch (Throwable $e) {
-        return "System is already installed or partially configured. We found <code>config/database.php</code>, but could not verify the database state: " . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
+        return 'Installation is unavailable on this server.';
     }
 }
 
 // Security Lock: Prevent re-installation if a config file is already linked
 if ($existingInstallWarning = getExistingInstallWarning()) {
+    http_response_code(403);
     die($existingInstallWarning);
 }
 
@@ -241,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
                         if ($schemaDeleted && $installerDeleted) {
                             $success .= "<br><br><em>Installer and setup schema folder were automatically deleted for security.</em>";
                         } else {
-                            $success .= "<br><br><strong style='color:red'>Warning: Could not fully delete setup files. Please remove public/install.php and the database/ folder manually if they still exist.</strong>";
+                            $success .= "<br><br><strong class='install-warning-text'>Warning: Could not fully delete setup files. Please remove public/install.php and the database/ folder manually if they still exist.</strong>";
                         }
                     }
                 } catch (Exception $e) {
@@ -251,7 +255,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
                     if ($configWritten && file_exists($configPath)) {
                         @unlink($configPath);
                     }
-                    $error = "Error: " . $e->getMessage();
+                    error_log("Installer failed: " . $e->getMessage());
+                    $error = "Installation failed. Please review your database details, config path, and server permissions, then try again.";
                 }
             }
         }
@@ -264,7 +269,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fyuhls Installer</title>
-    <style>
+    <style nonce="<?= htmlspecialchars($installNonce, ENT_QUOTES, 'UTF-8') ?>">
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f3f4f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .installer-box { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 500px; }
         h1 { margin-top: 0; color: #111827; }
@@ -280,12 +285,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
         .req-item { display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px solid #f3f4f6; }
         .met { color: #059669; }
         .not-met { color: #dc2626; font-weight: bold; }
+        .install-version { margin-top: -0.5rem; color: #6b7280; font-size: 0.95rem; }
+        .install-config-note { font-size: 0.85rem; color: #4B5563; margin-top: 0; margin-bottom: 0.5rem; }
+        .install-warning-text { color: red; }
     </style>
 </head>
 <body>
 <div class="installer-box">
     <h1>Install System</h1>
-    <p style="margin-top: -0.5rem; color: #6b7280; font-size: 0.95rem;">Version <?= htmlspecialchars(getInstallVersion()) ?></p>
+    <p class="install-version">Version <?= htmlspecialchars(getInstallVersion()) ?></p>
     <?php if ($error): ?>
         <div class="error"><?= $error ?></div>
     <?php endif; ?>
@@ -315,7 +323,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
                 <h3>Security & Configuration</h3>
                 <div class="group">
                     <label>Absolute Config Path (Highly Recommended)</label>
-                    <p style="font-size: 0.85rem; color: #4B5563; margin-top: 0; margin-bottom: 0.5rem;">For maximum security, enter a server path completely outside of your public web directory. We will store your database credentials and a 256-bit Database Encryption key here.</p>
+                    <p class="install-config-note">For maximum security, enter a server path completely outside of your public web directory. We will store your database credentials and a 256-bit Database Encryption key here.</p>
                     <input type="text" name="config_path" value="<?= htmlspecialchars($formData['config_path']) ?>" required>
                 </div>
                 <h3>Admin Account</h3>

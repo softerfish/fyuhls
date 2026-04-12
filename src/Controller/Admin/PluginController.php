@@ -62,6 +62,7 @@ class PluginController
     public function settings(string $dir)
     {
         $this->checkAuth();
+        $this->validateDir($dir);
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
@@ -70,17 +71,11 @@ class PluginController
         }
 
         $safeDir = htmlspecialchars($dir);
-
-        // Basic Settings Logic based on convention
-        // Plugins should register hooks to render their settings
-        // But for this simple implementation, we can look for settings.php in plugin dir
-
-        // Validate Dir (Simple Traversal Check)
-        if (strpos($dir, '.') !== false || strpos($dir, '/') !== false) {
+        $pluginBase = dirname(__DIR__, 2) . '/Plugin';
+        $settingsPath = $pluginBase . '/' . $dir . '/settings.php';
+        if (!PathValidator::isPathWithinBase($pluginBase, $settingsPath)) {
             die("Invalid Plugin Directory");
         }
-
-        $settingsPath = dirname(__DIR__, 2) . '/Plugin/' . $dir . '/settings.php';
 
         if (file_exists($settingsPath)) {
             include $settingsPath;
@@ -125,7 +120,7 @@ class PluginController
             $zip = new ZipArchive;
 
             if ($zip->open($zipPath) === TRUE) {
-                $extractPath = dirname(__DIR__, 2) . '/Plugin/';
+                $extractPath = dirname(__DIR__, 2) . '/Plugin';
                 $entryCount = 0;
                 $totalExtractedBytes = 0;
                 $hasPluginMeta = false;
@@ -169,7 +164,43 @@ class PluginController
                         $hasPluginMeta = true;
                     }
 
-                    $zip->extractTo($extractPath, $filename);
+                    $targetPath = PathValidator::buildSafeChildPath($extractPath, $filename);
+                    if ($targetPath === null) {
+                        $zip->close();
+                        $this->failUpload("Security Error: Malicious ZIP detected (invalid entry path)", 'plugin upload invalid target path', ['filename' => $originalName, 'entry' => $filename]);
+                    }
+
+                    $directory = str_ends_with(str_replace('\\', '/', $filename), '/');
+                    if ($directory) {
+                        if (!is_dir($targetPath) && !mkdir($targetPath, 0755, true) && !is_dir($targetPath)) {
+                            $zip->close();
+                            $this->failUpload("Plugin upload failed: could not create plugin directories.", 'plugin upload mkdir failed', ['filename' => $originalName, 'entry' => $filename]);
+                        }
+                        continue;
+                    }
+
+                    $parentDir = dirname($targetPath);
+                    if (!is_dir($parentDir) && !mkdir($parentDir, 0755, true) && !is_dir($parentDir)) {
+                        $zip->close();
+                        $this->failUpload("Plugin upload failed: could not prepare plugin directory.", 'plugin upload parent mkdir failed', ['filename' => $originalName, 'entry' => $filename]);
+                    }
+
+                    $stream = $zip->getStream($filename);
+                    if ($stream === false) {
+                        $zip->close();
+                        $this->failUpload("Plugin upload failed: ZIP entry could not be read.", 'plugin upload stream failed', ['filename' => $originalName, 'entry' => $filename]);
+                    }
+
+                    $out = fopen($targetPath, 'wb');
+                    if ($out === false) {
+                        fclose($stream);
+                        $zip->close();
+                        $this->failUpload("Plugin upload failed: extracted file could not be written.", 'plugin upload write failed', ['filename' => $originalName, 'entry' => $filename]);
+                    }
+
+                    stream_copy_to_stream($stream, $out);
+                    fclose($stream);
+                    fclose($out);
                 }
 
                 if (!$hasPluginMeta) {
@@ -284,7 +315,11 @@ class PluginController
         // Remove from DB
         $db->prepare("DELETE FROM plugins WHERE directory = ?")->execute([$dir]);
 
-        $pluginPath = dirname(__DIR__, 2) . '/Plugin/' . $dir;
+        $pluginBase = dirname(__DIR__, 2) . '/Plugin';
+        $pluginPath = $pluginBase . '/' . $dir;
+        if (!PathValidator::isPathWithinBase($pluginBase, $pluginPath)) {
+            die("Invalid Plugin Directory");
+        }
         $pluginFile = $pluginPath . '/' . $dir . 'Plugin.php';
         
         // Try to trigger the plugin's native uninstall method to clean up its own DB tables/data
@@ -308,6 +343,11 @@ class PluginController
     }
 
     private function deleteDirRecursively($dir) {
+        $pluginBase = dirname(__DIR__, 2) . '/Plugin';
+        if (!PathValidator::isPathWithinBase($pluginBase, $dir)) {
+            return false;
+        }
+
         if (!file_exists($dir)) {
             return true;
         }

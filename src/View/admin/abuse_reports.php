@@ -8,7 +8,7 @@
     <div class="card-header">Recent Abuse Reports</div>
     <div class="card-body">
         <?php if (empty($reports)): ?>
-            <p style="text-align: center; color: #64748b; padding: 2rem;">No abuse reports found.</p>
+            <p class="abuse-reports-empty">No abuse reports found.</p>
         <?php else: ?>
             <table>
                 <thead>
@@ -29,16 +29,16 @@
                                 <strong><?= htmlspecialchars($r['filename']) ?></strong><br>
                                 <small>Hash: <?= $r['short_id'] ?></small>
                             </td>
-                            <td><span class="badge" style="background: #fee2e2; color: #991b1b;"><?= strtoupper($r['reason']) ?></span></td>
+                            <td><span class="abuse-reason-badge badge"><?= strtoupper($r['reason']) ?></span></td>
                             <td><?= $r['reporter_ip'] ?></td>
                             <td><?= strtoupper($r['status']) ?></td>
                             <td>
-                                <div style="display: flex; gap: 0.5rem;">
-                                    <form method="POST" action="/admin/abuse-reports/action" onsubmit="return confirm('Permanently delete this file?')">
+                                <div class="abuse-report-actions">
+                                    <form method="POST" action="/admin/abuse-reports/action" data-confirm-message="Permanently delete this file?">
                                         <?= \App\Core\Csrf::field() ?>
                                         <input type="hidden" name="id" value="<?= $r['id'] ?>">
                                         <input type="hidden" name="action" value="delete_file">
-                                        <button type="submit" class="btn btn-sm" style="color: var(--error-color);">Delete File</button>
+                                        <button type="submit" class="abuse-report-delete btn btn-sm">Delete File</button>
                                     </form>
                                     <form method="POST" action="/admin/abuse-reports/action">
                                         <?= \App\Core\Csrf::field() ?>
@@ -46,7 +46,7 @@
                                         <input type="hidden" name="action" value="ignore">
                                         <button type="submit" class="btn btn-sm">Ignore</button>
                                     </form>
-                                    <button class="btn btn-sm" onclick="alert('Details: <?= addslashes(htmlspecialchars($r['details'])) ?>')">View Details</button>
+                                    <button class="btn btn-sm" type="button" data-alert-message="Details: <?= addslashes(htmlspecialchars($r['details'])) ?>">View Details</button>
                                 </div>
                             </td>
                         </tr>
@@ -56,5 +56,12 @@
         <?php endif; ?>
     </div>
 </div>
+
+<style>
+.abuse-reports-empty{text-align:center;color:#64748b;padding:2rem}
+.abuse-reason-badge{background:#fee2e2;color:#991b1b}
+.abuse-report-actions{display:flex;gap:.5rem}
+.abuse-report-delete{color:var(--error-color)}
+</style>
 
 <?php include 'footer.php'; ?>

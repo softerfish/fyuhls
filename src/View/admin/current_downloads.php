@@ -7,7 +7,7 @@ include __DIR__ . '/header.php';
     <h2>Current Live Downloads</h2>
     <div>
         <span class="badge bg-primary" id="activeCount">0 Active</span>
-        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="refreshDownloads()" id="refreshBtn">
+        <button class="btn btn-sm btn-outline-secondary ms-2" type="button" id="refreshBtn">
             <i class="bi bi-arrow-clockwise"></i> Refresh Now
         </button>
     </div>
@@ -108,7 +108,14 @@ function refreshDownloads() {
 }
 
 // Initial load
-document.addEventListener('DOMContentLoaded', refreshDownloads);
+document.addEventListener('DOMContentLoaded', function() {
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshDownloads);
+    }
+
+    refreshDownloads();
+});
 
 </script>
 

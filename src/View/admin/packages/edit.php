@@ -1,5 +1,27 @@
 <?php include dirname(__DIR__) . '/header.php'; ?>
 
+<style>
+    .package-edit-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+    }
+    .package-toggle-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+    }
+    .package-toggle-label--spaced { margin-top: 0.25rem; }
+    .package-toggle-input { width: auto; }
+    .package-field-spacer { margin-top: 1rem; }
+    .package-submit-row {
+        border-top: 1px solid var(--border-color);
+        padding-top: 1.5rem;
+        margin-top: 2rem;
+    }
+</style>
+
 <div class="page-header">
     <h1>Edit Package: <?= htmlspecialchars($package['name']) ?></h1>
     <a href="/admin/packages" class="btn">&larr; Back to Packages</a>
@@ -11,7 +33,7 @@
         <form method="POST">
             <?= \App\Core\Csrf::field() ?>
             
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+            <div class="package-edit-grid">
                 <div class="form-group">
                     <label>Package Name</label>
                     <input type="text" name="name" value="<?= htmlspecialchars($package['name']) ?>" maxlength="100" required>
@@ -43,8 +65,8 @@
                 </div>
                 <div class="form-group">
                     <label>Countdown Timer</label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin-top: 0.25rem;">
-                        <input type="checkbox" name="wait_time_enabled" value="1" <?= ($package['wait_time_enabled'] ?? 0) ? 'checked' : '' ?> style="width: auto;">
+                    <label class="package-toggle-label package-toggle-label--spaced">
+                        <input type="checkbox" name="wait_time_enabled" value="1" <?= ($package['wait_time_enabled'] ?? 0) ? 'checked' : '' ?> class="package-toggle-input">
                         Enable countdown before download
                     </label>
                 </div>
@@ -74,23 +96,23 @@
                 <?php \App\Core\PluginManager::doAction('admin_package_edit_limits', $package); ?>
             </div>
 
-            <div class="form-group" style="margin-top: 1rem;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                    <input type="checkbox" name="show_ads" value="1" <?= $package['show_ads'] ? 'checked' : '' ?> style="width: auto;">
+            <div class="form-group package-field-spacer">
+                <label class="package-toggle-label">
+                    <input type="checkbox" name="show_ads" value="1" <?= $package['show_ads'] ? 'checked' : '' ?> class="package-toggle-input">
                     Show Advertising on Download Pages
                 </label>
             </div>
 
-            <div class="form-group" style="margin-top: 1rem;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                    <input type="checkbox" name="allow_remote_upload" value="1" <?= ($package['allow_remote_upload'] ?? 0) ? 'checked' : '' ?> style="width: auto;">
+            <div class="form-group package-field-spacer">
+                <label class="package-toggle-label">
+                    <input type="checkbox" name="allow_remote_upload" value="1" <?= ($package['allow_remote_upload'] ?? 0) ? 'checked' : '' ?> class="package-toggle-input">
                     Allow Remote URL Upload
                 </label>
             </div>
 
-            <div class="form-group" style="margin-top: 1rem;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                    <input type="checkbox" name="allow_direct_links" value="1" <?= $package['allow_direct_links'] ? 'checked' : '' ?> style="width: auto;">
+            <div class="form-group package-field-spacer">
+                <label class="package-toggle-label">
+                    <input type="checkbox" name="allow_direct_links" value="1" <?= $package['allow_direct_links'] ? 'checked' : '' ?> class="package-toggle-input">
                     Allow Direct Hotlinking (Premium Feature)
                 </label>
             </div>
@@ -99,7 +121,7 @@
 
             <?php \App\Core\PluginManager::doAction('admin_package_edit_form_extra', $package); ?>
 
-            <div style="border-top: 1px solid var(--border-color); padding-top: 1.5rem; margin-top: 2rem;">
+            <div class="package-submit-row">
                 <button type="submit" class="btn btn-primary">Save Package Changes</button>
             </div>
         </form>

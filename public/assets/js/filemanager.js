@@ -1905,7 +1905,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleFiles(files) {
         if (!progressContainer) return;
         if (window.UPLOAD_CONFIG?.chunkingEnabled === false) {
-            alert('Chunked browser uploads are currently disabled by the administrator.');
+            showToast('Chunked browser uploads are currently disabled by the administrator.');
             return;
         }
         cancelRequested = false;
@@ -1964,7 +1964,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else if (!task.canceled) {
                         failedUploads++;
                         setTaskStatus(task, 'failed', err.message || 'Upload failed');
-                        alert(err.message || `Upload failed for ${task.file.name}`);
+                        showToast(
+                            `${task.file.name}: ${err.message || 'Upload failed.'}`,
+                            [],
+                            7000
+                        );
                     }
                 })
                 .finally(() => {
@@ -1989,7 +1993,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     reloadWithState({ selectedItems: [] });
                 } else {
                     if (failedUploads > 0) {
-                        alert(`${failedUploads} file(s) failed to upload. Check previous error messages.`);
+                        showToast(
+                            `${failedUploads} file(s) failed to upload. Check the notices above for details.`,
+                            [],
+                            7000
+                        );
                     }
                     failedUploads = 0;
                     updateUploadPanel();
@@ -2238,7 +2246,7 @@ document.addEventListener('DOMContentLoaded', () => {
             xhr.onerror = () => {
                 task.xhrs = task.xhrs.filter(active => active !== xhr);
                 const hint = xhr.status === 0
-                    ? ' This usually means the storage endpoint or bucket CORS rejected the browser request.'
+                    ? ' This usually means the storage endpoint, bucket CORS, or this site\'s CSP blocked the browser request.'
                     : '';
                 reject(new Error(`Network error while uploading part ${partNumber}.${hint}`));
             };

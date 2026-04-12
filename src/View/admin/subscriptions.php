@@ -2,14 +2,14 @@
 
 <div class="page-header">
     <h1>Premium Subscriptions</h1>
-    <a href="#" class="btn btn-primary" onclick="alert('Feature coming soon: Manual subscription creation')">Add Subscription</a>
+    <button type="button" class="btn btn-primary" data-alert-message="Feature coming soon: Manual subscription creation">Add Subscription</button>
 </div>
 
 <div class="card">
     <div class="card-header">Managed Subscriptions (Payments & Status)</div>
     <div class="card-body">
         <?php if (empty($subscriptions)): ?>
-            <p style="text-align: center; color: #64748b; padding: 2rem;">No subscriptions found in the system yet.</p>
+            <p class="subscriptions-empty-state">No subscriptions found in the system yet.</p>
         <?php else: ?>
             <table>
                 <thead>
@@ -31,7 +31,8 @@
                             <td><strong><?= htmlspecialchars($sub['username']) ?></strong></td>
                             <td><?= htmlspecialchars($sub['package_name']) ?></td>
                             <td><?= $sub['amount'] ?> <?= $sub['currency'] ?></td>
-                            <td><span class="badge" style="background: <?= $sub['status'] === 'active' ? '#dcfce7; color: #166534;' : '#fee2e2; color: #991b1b;' ?> padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem;"><?= strtoupper($sub['status']) ?></span></td>
+                            <?php $statusClass = $sub['status'] === 'active' ? 'subscriptions-status-active' : 'subscriptions-status-inactive'; ?>
+                            <td><span class="subscriptions-status-badge badge <?= $statusClass ?>"><?= strtoupper($sub['status']) ?></span></td>
                             <td><?= strtoupper($sub['gateway']) ?></td>
                             <td><?= date('Y-m-d', strtotime($sub['expires_at'])) ?></td>
                             <td>
@@ -44,5 +45,12 @@
         <?php endif; ?>
     </div>
 </div>
+
+<style>
+.subscriptions-empty-state{text-align:center;color:#64748b;padding:2rem}
+.subscriptions-status-badge{padding:.25rem .5rem;border-radius:4px;font-size:.75rem}
+.subscriptions-status-active{background:#dcfce7;color:#166534}
+.subscriptions-status-inactive{background:#fee2e2;color:#991b1b}
+</style>
 
 <?php include 'footer.php'; ?>

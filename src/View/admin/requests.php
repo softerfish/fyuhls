@@ -63,7 +63,7 @@ include 'header.php';
 
         <form method="GET" action="/admin/requests" class="ms-auto d-flex gap-2 align-items-center">
             <input type="hidden" name="type" value="<?= htmlspecialchars((string)$filterType) ?>">
-            <input type="text" name="status" class="form-control form-control-sm" placeholder="Filter status" value="<?= htmlspecialchars((string)$filterStatus) ?>" style="max-width: 180px;">
+            <input type="text" name="status" class="requests-filter-input form-control form-control-sm" placeholder="Filter status" value="<?= htmlspecialchars((string)$filterStatus) ?>">
             <button type="submit" class="btn btn-sm btn-outline-primary">Apply</button>
             <?php if (($filterStatus ?? '') !== ''): ?>
                 <a href="/admin/requests?type=<?= urlencode((string)$filterType) ?>" class="btn btn-sm btn-outline-secondary">Clear</a>
@@ -108,14 +108,14 @@ include 'header.php';
                                     <strong><?= htmlspecialchars((string)$item['submitter_name']) ?></strong><br>
                                     <small class="text-muted"><?= htmlspecialchars((string)$item['submitter_email']) ?></small>
                                 </td>
-                                <td style="max-width: 280px; word-break: break-word;">
+                                <td class="requests-target-cell">
                                     <?php if (($item['type_key'] ?? '') === 'dmca_report'): ?>
                                         <?= $renderLinkList((string)$item['target']) ?>
                                     <?php else: ?>
                                         <?= htmlspecialchars((string)$item['target']) ?>
                                     <?php endif; ?>
                                 </td>
-                                <td style="max-width: 320px; word-break: break-word;">
+                                <td class="requests-summary-cell">
                                     <?= htmlspecialchars(mb_strimwidth((string)$item['summary'], 0, 110, '...')) ?>
                                     <?php if (!empty($item['latest_reply'])): ?>
                                         <div class="small text-success mt-1">
@@ -134,7 +134,7 @@ include 'header.php';
                                             <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="collapse" data-bs-target="#<?= htmlspecialchars($replyId) ?>">Reply</button>
                                         <?php endif; ?>
                                         <?php if (($item['type_key'] ?? '') === 'abuse_report'): ?>
-                                            <form method="POST" action="/admin/abuse-reports/action" onsubmit="return confirm('Permanently delete this file?')">
+                                            <form method="POST" action="/admin/abuse-reports/action" data-confirm-message="Permanently delete this file?">
                                                 <?= \App\Core\Csrf::field() ?>
                                                 <input type="hidden" name="report_id" value="<?= (int)$item['id'] ?>">
                                                 <input type="hidden" name="action" value="delete_file">
@@ -164,7 +164,7 @@ include 'header.php';
                                                 <?php if (($item['type_key'] ?? '') === 'abuse_report'): ?>
                                                     <p class="mb-2"><strong>Reason:</strong> <?= htmlspecialchars((string)($item['reason'] ?? '')) ?></p>
                                                 <?php endif; ?>
-                                                <div class="border rounded p-3 bg-light-subtle" style="white-space: pre-wrap;"><?= htmlspecialchars((string)($item['details'] ?? $item['summary'])) ?></div>
+                                                <div class="requests-prewrap border rounded p-3 bg-light-subtle"><?= htmlspecialchars((string)($item['details'] ?? $item['summary'])) ?></div>
                                                 <?php if (($item['type_key'] ?? '') === 'dmca_report' && !empty($item['signature'])): ?>
                                                     <div class="mt-3">
                                                         <strong>Signature</strong>
@@ -255,7 +255,7 @@ include 'header.php';
                                                                         <div><?= htmlspecialchars((string)$activity['subject']) ?></div>
                                                                     <?php endif; ?>
                                                                     <?php if (!empty($activity['body'])): ?>
-                                                                        <div class="small text-muted mt-1" style="white-space: pre-wrap;"><?= htmlspecialchars((string)$activity['body']) ?></div>
+                                                                        <div class="requests-prewrap small text-muted mt-1"><?= htmlspecialchars((string)$activity['body']) ?></div>
                                                                     <?php endif; ?>
                                                                 </div>
                                                                 <div class="small text-muted text-end">
@@ -280,5 +280,12 @@ include 'header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<style>
+.requests-filter-input{max-width:180px}
+.requests-target-cell{max-width:280px;word-break:break-word}
+.requests-summary-cell{max-width:320px;word-break:break-word}
+.requests-prewrap{white-space:pre-wrap}
+</style>
 
 <?php include 'footer.php'; ?>

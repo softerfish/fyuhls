@@ -296,20 +296,24 @@ class FileProcessor {
         switch ($mime) {
             case 'image/jpeg':
                 if (!function_exists('imagecreatefromjpeg')) return false;
-                $src = imagecreatefromjpeg($source);
+                $src = @imagecreatefromjpeg($source);
                 break;
             case 'image/png':
                 if (!function_exists('imagecreatefrompng')) return false;
-                $src = imagecreatefrompng($source);
+                $src = @imagecreatefrompng($source);
                 imagealphablending($dst, false);
                 imagesavealpha($dst, true);
                 break;
             case 'image/gif':
                 if (!function_exists('imagecreatefromgif')) return false;
-                $src = imagecreatefromgif($source);
+                $src = @imagecreatefromgif($source);
                 break;
             default:
                 return false;
+        }
+        if (!$src) {
+            imagedestroy($dst);
+            return false;
         }
         if (!function_exists('imagecopyresampled') || !function_exists('imagejpeg')) return false;
         imagecopyresampled($dst, $src, 0, 0, 0, 0, $newW, $newH, $width, $height);
@@ -321,6 +325,10 @@ class FileProcessor {
 
     private function createVideoThumbnail(string $source, string $dest, string $ffmpegPath): bool {
         $dims = \App\Core\Config::get('thumbnail', ['max_width' => 320, 'max_height' => 240]);
+        $ffmpegPath = trim($ffmpegPath);
+        if ($ffmpegPath === '' || !is_file($ffmpegPath) || !preg_match('/^ffmpeg(?:\.exe)?$/i', basename($ffmpegPath))) {
+            return false;
+        }
         $scale = $dims['max_width'] . ':-1';
         $cmd = escapeshellcmd($ffmpegPath) . " -y -ss 00:00:01 -i " . escapeshellarg($source) . " -frames:v 1 -vf scale=" . $scale . " " . escapeshellarg($dest);
         $result = @shell_exec($cmd);

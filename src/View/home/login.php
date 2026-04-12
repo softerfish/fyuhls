@@ -4,8 +4,8 @@ $metaDescription = 'Login to access your file manager, packages, rewards, and ac
 include __DIR__ . '/header.php';
 ?>
 
-<div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem;">
-    <div class="auth-container" style="margin: 0;">
+<div class="login-shell">
+    <div class="login-card auth-container">
         <h2>Login</h2>
         <?php if (!empty($error)): ?>
             <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
@@ -46,10 +46,16 @@ include __DIR__ . '/header.php';
         </form>
 
         <div class="auth-footer">
-            <a href="/forgot-password" style="font-size: 0.875rem;">Forgot Password?</a><br><br>
+            <a href="/forgot-password" class="login-forgot-link">Forgot Password?</a><br><br>
             Don't have an account? <a href="/register">Register</a>
         </div>
     </div>
 </div>
+
+<style>
+.login-shell{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
+.login-card{margin:0}
+.login-forgot-link{font-size:.875rem}
+</style>
 
 <?php include __DIR__ . '/footer.php'; ?>

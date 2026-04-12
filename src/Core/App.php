@@ -6,9 +6,16 @@ use App\Service\GarbageCollector;
 
 class App {
     private Router $router;
+    private string $cspNonce = '';
 
     public function __construct() {
         $this->router = new Router();
+    }
+
+    private function isHttpsRequest(): bool
+    {
+        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
     }
 
     private function resolveSafeRefererRedirect(string $fallback): string
@@ -43,6 +50,120 @@ class App {
         return $fallback;
     }
 
+    private function buildContentSecurityPolicy(): string
+    {
+        $connectSrc = array_merge([
+            "'self'",
+            'https://challenges.cloudflare.com',
+            'https://static.cloudflareinsights.com',
+        ], $this->resolveStorageConnectSources());
+
+        $connectSrc = array_values(array_unique(array_filter($connectSrc)));
+
+        return "default-src 'self'; "
+            . "base-uri 'self'; "
+            . "form-action 'self'; "
+            . "frame-ancestors 'self'; "
+            . "script-src 'self' 'nonce-{$this->cspNonce}' https://challenges.cloudflare.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
+            . "script-src-elem 'self' 'nonce-{$this->cspNonce}' https://challenges.cloudflare.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
+            . "style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            . "style-src-elem 'self' 'nonce-{$this->cspNonce}' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            . "img-src 'self' data: https://cdn.buymeacoffee.com; "
+            . "font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; "
+            . "frame-src 'self' https://challenges.cloudflare.com; "
+            . 'connect-src ' . implode(' ', $connectSrc) . '; '
+            . "object-src 'none';";
+    }
+
+    private function resolveStorageConnectSources(): array
+    {
+        $sources = [
+            'https://*.wasabisys.com',
+            'https://*.backblazeb2.com',
+            'https://*.r2.cloudflarestorage.com',
+            'https://*.amazonaws.com',
+        ];
+
+        try {
+            $db = Database::getInstance()->getConnection();
+            $rows = $db->query("SELECT config FROM file_servers WHERE LOWER(status) = 'active'")->fetchAll();
+
+            foreach ($rows as $row) {
+                $config = $this->decodeFileServerConfig((string)($row['config'] ?? ''));
+                $preset = strtolower(trim((string)($config['provider_preset'] ?? '')));
+                $endpoint = trim((string)($config['s3_endpoint'] ?? ''));
+                $region = strtolower(trim((string)($config['s3_region'] ?? '')));
+
+                if ($preset === 'r2' && preg_match('/^[a-f0-9]{32}$/i', $endpoint)) {
+                    $sources[] = 'https://' . strtolower($endpoint) . '.r2.cloudflarestorage.com';
+                    continue;
+                }
+
+                if ($preset === 'wasabi' && $endpoint === '' && $region !== '') {
+                    $sources[] = 'https://s3.' . $region . '.wasabisys.com';
+                    continue;
+                }
+
+                if ($preset === 'b2' && $endpoint === '' && $region !== '') {
+                    $sources[] = 'https://s3.' . $region . '.backblazeb2.com';
+                    continue;
+                }
+
+                if ($endpoint !== '') {
+                    $origin = $this->normalizeConnectSourceOrigin($endpoint);
+                    if ($origin !== null) {
+                        $sources[] = $origin;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('CSP storage connect-src resolution failed: ' . $e->getMessage());
+        }
+
+        return $sources;
+    }
+
+    private function decodeFileServerConfig(string $raw): array
+    {
+        if ($raw === '') {
+            return [];
+        }
+
+        $decoded = \App\Service\EncryptionService::decrypt($raw);
+        if (is_string($decoded) && $decoded !== '') {
+            $parsed = json_decode($decoded, true);
+            if (is_array($parsed)) {
+                return $parsed;
+            }
+        }
+
+        $parsed = json_decode($raw, true);
+        return is_array($parsed) ? $parsed : [];
+    }
+
+    private function normalizeConnectSourceOrigin(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        if (!str_starts_with($value, 'http://') && !str_starts_with($value, 'https://')) {
+            $value = 'https://' . $value;
+        }
+
+        $parts = parse_url($value);
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $port = isset($parts['port']) ? (int)$parts['port'] : null;
+
+        if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+            return null;
+        }
+
+        return $scheme . '://' . $host . ($port !== null ? ':' . $port : '');
+    }
+
     public function run(): void {
         // Secure Session Start
         if (session_status() === PHP_SESSION_NONE) {
@@ -61,8 +182,7 @@ class App {
             ini_set('session.use_only_cookies', 1);
             ini_set('session.cookie_samesite', 'Lax'); 
             
-            $isHttps = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || 
-                       (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+            $isHttps = $this->isHttpsRequest();
 
             if ($isHttps) {
                 ini_set('session.cookie_secure', 1);
@@ -84,20 +204,17 @@ class App {
         // Don't advertise what we're running - removes "PHP/8.x" from response headers
         header_remove('X-Powered-By');
 
+        $this->cspNonce = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
+
         // Security Headers
         header('X-Content-Type-Options: nosniff');
         header('X-XSS-Protection: 1; mode=block');
+        header('X-Frame-Options: SAMEORIGIN');
         header('Referrer-Policy: strict-origin-when-cross-origin');
         // disable browser APIs we don't need (mic, camera, geolocation, etc.)
         header("Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(), usb=()");
         
-        // Content Security Policy (CSP)
-        // Allow self, unsafe-inline for scripts/styles (needed for this legacy-style app), 
-        // and allow images/media from self.
-        // We also allow Cloudflare Turnstile (challenges.cloudflare.com).
-        header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; img-src 'self' data: https://cdn.buymeacoffee.com; font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; frame-src 'self' https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; object-src 'none';");
-
-        if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
+        if ($this->isHttpsRequest()) {
             header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
         }
 
@@ -112,6 +229,8 @@ class App {
             $encryptionKey = Config::get('security.encryption_key', '');
             \App\Service\EncryptionService::setKey($encryptionKey);
         }
+
+        header('Content-Security-Policy: ' . $this->buildContentSecurityPolicy());
 
         // Load Plugins
         PluginManager::loadPlugins($this->router);
@@ -213,10 +332,44 @@ class App {
         PluginManager::doAction('app_boot');
 
         // Dispatch
+        ob_start(function (string $buffer): string {
+            return $this->injectNonceIntoHtml($buffer);
+        });
         $this->router->dispatch($_SERVER['REQUEST_URI'], $_SERVER['REQUEST_METHOD']);
+        if (ob_get_level() > 0) {
+            ob_end_flush();
+        }
     }
 
     public function getRouter(): Router {
         return $this->router;
+    }
+
+    private function injectNonceIntoHtml(string $buffer): string
+    {
+        $contentType = '';
+        foreach (headers_list() as $header) {
+            if (stripos($header, 'Content-Type:') === 0) {
+                $contentType = trim(substr($header, strlen('Content-Type:')));
+                break;
+            }
+        }
+
+        $looksLikeHtml = stripos($buffer, '<html') !== false || stripos($buffer, '<script') !== false;
+        if (($contentType !== '' && stripos($contentType, 'text/html') === false) || !$looksLikeHtml) {
+            return $buffer;
+        }
+
+        $buffer = preg_replace_callback(
+            '#<script\b(?![^>]*\bnonce=)([^>]*)>#i',
+            fn(array $matches): string => '<script nonce="' . htmlspecialchars($this->cspNonce, ENT_QUOTES, 'UTF-8') . '"' . $matches[1] . '>',
+            $buffer
+        ) ?? $buffer;
+
+        return preg_replace_callback(
+            '#<style\b(?![^>]*\bnonce=)([^>]*)>#i',
+            fn(array $matches): string => '<style nonce="' . htmlspecialchars($this->cspNonce, ENT_QUOTES, 'UTF-8') . '"' . $matches[1] . '>',
+            $buffer
+        ) ?? $buffer;
     }
 }

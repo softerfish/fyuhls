@@ -4,8 +4,8 @@
         <div>
             <h1>Platform Documentation</h1>
             <p class="text-muted">Reference guides for every main admin page and the major configuration areas behind them.</p>
-            <div class="position-relative mt-3" style="width: min(100%, 380px);">
-                <input type="text" id="docsSearchInput" class="form-control border-0 shadow-sm" placeholder="Search docs by page, option, or feature..." onkeyup="filterDocs()">
+            <div class="docs-search-wrap position-relative mt-3">
+                <input type="text" id="docsSearchInput" class="form-control border-0 shadow-sm" placeholder="Search docs by page, option, or feature...">
             </div>
         </div>
     </div>
@@ -23,6 +23,9 @@
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#users">Users</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#files">Files</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#requests">Requests</a>
+                    <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#contacts">Contacts</a>
+                    <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#abuse">Abuse</a>
+                    <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#dmca">DMCA</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#live-downloads">Live Downloads</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#withdrawals">Withdrawals</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#rewards-fraud">Rewards Fraud</a>
@@ -99,6 +102,42 @@
                         </div>
                         <div class="card-body pt-0">
                             <?php include 'help/requests.php'; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 doc-module" id="contacts" data-keywords="contacts messages replies smtp captcha support inbox">
+                    <div class="card page-guide-card border-0 shadow-sm overflow-hidden">
+                        <div class="card-header bg-white py-3 border-0 d-flex align-items-center">
+                            <i class="bi bi-envelope text-primary me-2 fs-5"></i>
+                            <h5 class="mb-0 fw-bold">Contacts</h5>
+                        </div>
+                        <div class="card-body pt-0">
+                            <?php include 'help/contacts.php'; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 doc-module" id="abuse" data-keywords="abuse malware phishing tos reports delete uploader moderation">
+                    <div class="card page-guide-card border-0 shadow-sm overflow-hidden">
+                        <div class="card-header bg-white py-3 border-0 d-flex align-items-center">
+                            <i class="bi bi-shield-fill-exclamation text-primary me-2 fs-5"></i>
+                            <h5 class="mb-0 fw-bold">Abuse Reports</h5>
+                        </div>
+                        <div class="card-body pt-0">
+                            <?php include 'help/abuse.php'; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 doc-module" id="dmca" data-keywords="dmca takedown copyright notices counter notice legal requests">
+                    <div class="card page-guide-card border-0 shadow-sm overflow-hidden">
+                        <div class="card-header bg-white py-3 border-0 d-flex align-items-center">
+                            <i class="bi bi-file-earmark-text text-primary me-2 fs-5"></i>
+                            <h5 class="mb-0 fw-bold">DMCA</h5>
+                        </div>
+                        <div class="card-body pt-0">
+                            <?php include 'help/dmca.php'; ?>
                         </div>
                     </div>
                 </div>
@@ -359,6 +398,17 @@ window.addEventListener('scroll', () => {
         }
     });
 });
+
+document.addEventListener('DOMContentLoaded', function() {
+    const docsSearchInput = document.getElementById('docsSearchInput');
+    if (docsSearchInput) {
+        docsSearchInput.addEventListener('input', filterDocs);
+    }
+});
 </script>
 
 <?php include 'footer.php'; ?>
+
+<style>
+.docs-search-wrap{width:min(100%,380px)}
+</style>

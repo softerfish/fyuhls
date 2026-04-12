@@ -142,6 +142,8 @@ $router->post('/admin/file-server/set-default', [AdminController::class, 'setDef
 $router->post('/admin/file-server/test', [AdminController::class, 'testFileServerConnection']);
 $router->post('/admin/file-server/b2/discover', [AdminController::class, 'discoverBackblazeBuckets']);
 $router->post('/admin/file-server/b2/apply-cors', [AdminController::class, 'applyBackblazeCors']);
+$router->post('/admin/file-server/wasabi/discover', [AdminController::class, 'discoverWasabiBuckets']);
+$router->post('/admin/file-server/wasabi/apply-cors', [AdminController::class, 'applyWasabiCors']);
 $router->get('/admin/contacts', [AdminController::class, 'contacts']);
 $router->get('/admin/dmca', [AdminController::class, 'dmcaReports']);
 $router->get('/admin/packages', [AdminController::class, 'packages']);
@@ -186,5 +188,3 @@ $router->post('/api/v1/uploads/sessions/{id}/complete', [UploadApiController::cl
 $router->post('/api/v1/uploads/sessions/{id}/abort', [UploadApiController::class, 'abort']);
 $router->get('/api/v1/files/{id}', [UploadApiController::class, 'fileInfo']);
 $router->get('/api/v1/downloads/{id}/link', [UploadApiController::class, 'downloadLink']);
-
-$router->get('/test', function() { echo "Router is working!"; });

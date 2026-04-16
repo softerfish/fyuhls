@@ -13,6 +13,11 @@ use App\Service\DemoModeService;
 use App\Core\Database;
 
 class SecurityController {
+    private function abortText(int $status, string $message): void
+    {
+        http_response_code($status);
+        exit($message);
+    }
 
     private function ensureDemoAdminReadOnly(): void
     {
@@ -26,9 +31,13 @@ class SecurityController {
     }
     
     public function migrateEncryption() {
-        if (!Auth::isAdmin()) die('Unauthorized');
+        if (!Auth::isAdmin()) {
+            $this->abortText(403, 'Unauthorized');
+        }
         $this->ensureDemoAdminReadOnly();
-        if (!Csrf::verify($_POST['csrf_token'] ?? '')) die('CSRF Mismatch');
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, 'CSRF Mismatch');
+        }
 
         $service = new \App\Service\Migration\EncryptionMigrationService();
         $service->expandColumns();
@@ -69,9 +78,13 @@ class SecurityController {
      * @throws \Exception
      */
     public function syncSchema() {
-        if (!Auth::isAdmin()) die('Unauthorized');
+        if (!Auth::isAdmin()) {
+            $this->abortText(403, 'Unauthorized');
+        }
         $this->ensureDemoAdminReadOnly();
-        if (!Csrf::verify($_POST['csrf_token'] ?? '')) die('CSRF Mismatch');
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, 'CSRF Mismatch');
+        }
 
         $repairDrift = isset($_POST['repair_drift']) && $_POST['repair_drift'] === '1';
         $service = new SchemaService();
@@ -102,9 +115,13 @@ class SecurityController {
 
 
     public function updateSettings() {
-        if (!Auth::isAdmin()) die('Unauthorized');
+        if (!Auth::isAdmin()) {
+            $this->abortText(403, 'Unauthorized');
+        }
         $this->ensureDemoAdminReadOnly();
-        if (!Csrf::verify($_POST['csrf_token'] ?? '')) die('CSRF Mismatch');
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, 'CSRF Mismatch');
+        }
 
         $activeTab = $_GET['tab'] ?? 'cloudflare';
 
@@ -149,9 +166,13 @@ class SecurityController {
      * @throws \Exception
      */
     public function syncCloudflare() {
-        if (!Auth::isAdmin()) die('Unauthorized');
+        if (!Auth::isAdmin()) {
+            $this->abortText(403, 'Unauthorized');
+        }
         $this->ensureDemoAdminReadOnly();
-        if (!Csrf::verify($_POST['csrf_token'] ?? '')) die('CSRF Mismatch');
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, 'CSRF Mismatch');
+        }
 
         $sync = new CloudflareSyncService();
         if ($sync->sync()) {

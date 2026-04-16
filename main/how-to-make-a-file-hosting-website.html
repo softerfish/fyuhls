@@ -62,7 +62,7 @@
 
                     <section class="article-section" id="document-root">
                         <h2>4. Get the document root right</h2>
-                        <p>One of the most common setup mistakes is exposing the wrong folder to the web. With fyuhls, the public-facing document root should point to the project’s <code>public/</code> directory, not the whole project root. That keeps configuration, storage, and application internals out of public reach.</p>
+                        <p>One of the most common setup mistakes is exposing the wrong folder to the web. With fyuhls, the public-facing document root should point to the project's <code>public/</code> directory, not the whole project root. That keeps configuration, storage, and application internals out of public reach.</p>
                     </section>
 
                     <section class="article-section" id="cron-maintenance">
@@ -80,11 +80,13 @@
                         <h2>Final launch checklist</h2>
                         <ul>
                             <li>Confirm the server meets the PHP and database requirements.</li>
-                            <li>Point the domain to the project’s <code>public/</code> directory.</li>
+                            <li>Point the domain to the project's <code>public/</code> directory.</li>
                             <li>Create the database before running the installer.</li>
                             <li>Set realistic PHP upload and execution limits.</li>
                             <li>Configure local or object storage before inviting users.</li>
                             <li>Enable cron so maintenance and cleanup jobs keep running.</li>
+                            <li>Set the base URL or canonical URL so share links and resets point to the correct domain.</li>
+                            <li>Use the updater preview before applying releases on production installs.</li>
                             <li>Publish indexable guides that support the homepage and docs.</li>
                         </ul>
                     </section>

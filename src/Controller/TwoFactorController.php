@@ -15,6 +15,12 @@ class TwoFactorController
 {
     private TotpService $totp;
 
+    private function abortText(int $status, string $message): void
+    {
+        http_response_code($status);
+        exit($message);
+    }
+
     public function __construct()
     {
         $this->totp = new TotpService();
@@ -22,8 +28,7 @@ class TwoFactorController
 
     private function isHttpsRequest(): bool
     {
-        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+        return \App\Service\SecurityService::isHttpsRequest();
     }
 
     public function showSetup()
@@ -77,7 +82,7 @@ class TwoFactorController
         }
 
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            die('CSRF mismatch');
+            $this->abortText(403, 'CSRF mismatch');
         }
 
         $code = trim($_POST['code'] ?? '');
@@ -138,7 +143,7 @@ class TwoFactorController
         }
 
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            die('CSRF mismatch');
+            $this->abortText(403, 'CSRF mismatch');
         }
 
         $userId = Auth::id();
@@ -178,7 +183,7 @@ class TwoFactorController
         }
 
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            die('CSRF mismatch');
+            $this->abortText(403, 'CSRF mismatch');
         }
 
         $userId = Auth::id();

@@ -57,7 +57,7 @@
     </div>
 </div>
 
-<h3 class="settings-section-title">Withdrawal & Payment Settings</h3>
+<h3 class="settings-section-title" style="margin-top: 2.5rem;">Withdrawal & Payment Settings</h3>
 <?php
 $supportedMethods = array_filter(array_map('trim', explode(',', \App\Model\Setting::get('supported_withdrawal_methods', 'paypal,bitcoin', 'rewards'))));
 $methodLabels = [

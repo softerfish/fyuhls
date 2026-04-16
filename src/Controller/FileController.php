@@ -2327,19 +2327,38 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         foreach ($ids as $item) {
             $id = $item['id'];
             if ($item['type'] === 'file') {
-                $file = File::find($id);
+                $file = File::findAnyStatus($id);
                 if ($file && ($file['user_id'] === Auth::id() || Auth::isAdmin())) {
-                    File::update($file['id'], ['folder_id' => $targetFolderId]);
+                    $update = ['folder_id' => $targetFolderId];
+                    if ($file['status'] === 'deleted') {
+                        $update['status'] = (!empty($file['deleted_restore_status'])) ? $file['deleted_restore_status'] : 'active';
+                        $update['deleted_restore_status'] = null;
+                    }
+                    File::update($file['id'], $update);
                 }
             } else {
                 $folder = \App\Model\Folder::find($id);
-                if (!$folder || ($folder['status'] ?? 'active') !== 'active' || ($folder['user_id'] !== Auth::id() && !Auth::isAdmin())) continue;
+                if (!$folder || ($folder['user_id'] !== Auth::id() && !Auth::isAdmin())) continue;
                 
                 $folderId = $folder['id'];
                 // Folder recursion check
                 if ($targetFolderId !== null && \App\Model\Folder::isSubfolderOf($targetFolderId, $folderId)) {
                     continue;
                 }
+
+                if (($folder['status'] ?? 'active') === 'deleted') {
+                    $allFolderIds = \App\Model\Folder::getTreeIds((int)$folderId);
+                    $db = \App\Core\Database::getInstance()->getConnection();
+                    $inClause = implode(',', array_map('intval', $allFolderIds));
+                    $db->exec("
+                        UPDATE files
+                        SET status = COALESCE(NULLIF(deleted_restore_status, ''), 'active'),
+                            deleted_restore_status = NULL
+                        WHERE folder_id IN ($inClause) AND status = 'deleted'
+                    ");
+                    \App\Model\Folder::restoreTree((int)$folderId);
+                }
+                
                 \App\Model\Folder::update($folderId, ['parent_id' => $targetFolderId]);
             }
         }
@@ -2405,6 +2424,56 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         }
 
         echo json_encode(['status' => 'success']);
+    }
+
+    public function bulkSetVisibility()
+    {
+        $this->checkAuth();
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die(json_encode(['status' => 'error', 'error' => 'CSRF Mismatch']));
+        }
+
+        $ids        = $_POST['ids'] ?? [];
+        $visibility = $_POST['visibility'] ?? '';
+
+        if (!in_array($visibility, ['public', 'private'], true)) {
+            http_response_code(400);
+            die(json_encode(['status' => 'error', 'error' => 'Invalid visibility value']));
+        }
+
+        $isPublic = $visibility === 'public' ? 1 : 0;
+        $userId   = Auth::id();
+        $updated  = 0;
+
+        $db = \App\Core\Database::getInstance()->getConnection();
+
+        foreach ($ids as $item) {
+            $id   = $item['id'] ?? null;
+            $type = $item['type'] ?? '';
+
+            // visibility only applies to files, not folders
+            if ($type !== 'file' || !$id) {
+                continue;
+            }
+
+            $file = File::find($id);
+            if (!$file) {
+                continue;
+            }
+
+            // IDOR check - must own the file or be admin
+            if ($file['user_id'] !== $userId && !Auth::isAdmin()) {
+                continue;
+            }
+
+            $stmt = $db->prepare('UPDATE files SET is_public = ? WHERE id = ?');
+            if ($stmt->execute([$isPublic, (int)$file['id']])) {
+                $updated++;
+            }
+        }
+
+        echo json_encode(['status' => 'success', 'updated' => $updated]);
     }
 
     public function cancelRemoteUpload()

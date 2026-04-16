@@ -7,6 +7,14 @@ use App\Core\Config;
 use PDO;
 
 class Setting {
+    private static function getConnection(): ?PDO {
+        try {
+            return Database::getInstance()->getConnection();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     private static function shouldBlockWriteForDemoAdmin(): bool {
         if (PHP_SAPI === 'cli') {
             return false;
@@ -21,22 +29,43 @@ class Setting {
     }
 
     public static function get(string $key, $default = null) {
-        $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $val = $stmt->fetchColumn();
-        return $val !== false ? $val : $default;
+        $db = self::getConnection();
+        if (!$db) {
+            return $default;
+        }
+
+        try {
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ? LIMIT 1");
+            if (!$stmt) {
+                return $default;
+            }
+
+            $stmt->execute([$key]);
+            $val = $stmt->fetchColumn();
+            return $val !== false ? $val : $default;
+        } catch (\Throwable $e) {
+            return $default;
+        }
     }
 
     // check the DB first, fall back to config/app.php - lets the admin UI override config values
     public static function getOrConfig(string $key, $default = null) {
-        $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $val = $stmt->fetchColumn();
-        if ($val !== false) {
-            return $val;
+        $db = self::getConnection();
+        if ($db) {
+            try {
+                $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ? LIMIT 1");
+                if ($stmt) {
+                    $stmt->execute([$key]);
+                    $val = $stmt->fetchColumn();
+                    if ($val !== false) {
+                        return $val;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Fall through to config/app.php when the settings table is unavailable during boot.
+            }
         }
+
         return Config::get($key, $default);
     }
 
@@ -45,7 +74,11 @@ class Setting {
             throw new \RuntimeException('This demo admin account is read-only.');
         }
 
-        $db = Database::getInstance()->getConnection();
+        $db = self::getConnection();
+        if (!$db) {
+            throw new \RuntimeException('Database connection unavailable.');
+        }
+
         $stmt = $db->prepare("
             INSERT INTO settings (setting_key, setting_value, setting_group) 
             VALUES (?, ?, ?) 
@@ -55,14 +88,26 @@ class Setting {
     }
 
     public static function getAllByGroup(string $group): array {
-        $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT * FROM settings WHERE setting_group = ?");
-        $stmt->execute([$group]);
-        return $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        $db = self::getConnection();
+        if (!$db) {
+            return [];
+        }
+
+        try {
+            $stmt = $db->prepare("SELECT * FROM settings WHERE setting_group = ?");
+            if (!$stmt) {
+                return [];
+            }
+
+            $stmt->execute([$group]);
+            return $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     public static function getEncrypted(string $key, $default = null) {
-        $val = self::get($key);
+        $val = self::get($key, null);
         return $val !== null ? \App\Service\EncryptionService::decrypt($val) : $default;
     }
 

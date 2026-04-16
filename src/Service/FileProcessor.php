@@ -73,11 +73,25 @@ class FileProcessor {
         $fileSize = filesize($tempFilePath);
         \App\Core\Logger::info("Processing upload", ['filename' => $originalFilename, 'tmp' => $tempFilePath, 'size' => $fileSize]);
         
-        // use global mime_content_type
-        if (function_exists('mime_content_type')) {
-            $mimeType = \mime_content_type($tempFilePath);
+        if (function_exists('finfo_open')) {
+            $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+            $mimeType = $finfo ? (string)@finfo_file($finfo, $tempFilePath) : '';
+            if ($finfo) {
+                @finfo_close($finfo);
+            }
+        } elseif (function_exists('mime_content_type')) {
+            $mimeType = (string)\mime_content_type($tempFilePath);
         } else {
-            $mimeType = 'application/octet-stream';
+            $mimeType = '';
+        }
+
+        if ($mimeType === '' || !preg_match('#^[a-z0-9.+-]+/[a-z0-9.+-]+$#i', $mimeType)) {
+            \App\Core\Logger::error('Upload rejected because MIME detection is unavailable or invalid.', [
+                'filename' => $originalFilename,
+                'path' => $tempFilePath,
+            ]);
+            unlink($tempFilePath);
+            throw new \Exception('Upload validation is unavailable on this server because MIME detection is not configured correctly.');
         }
 
         // check if file already exists globally (this keeps things clean in the db)

@@ -19,6 +19,9 @@ class View {
 
     public static function render(string $template, array $data = []): void {
         $theme = Config::get('theme.name', '');
+        if ($theme !== '' && !preg_match('/^[a-zA-Z0-9_-]+$/', $theme)) {
+            $theme = '';
+        }
         $base = dirname(__DIR__) . '/View';
         $root = dirname(__DIR__, 2);
         
@@ -34,20 +37,28 @@ class View {
         
         // 3. Fallback to core views (lowest priority)
         $paths[] = $base;
-        $file = null;
+        $templateFile = null;
         foreach ($paths as $p) {
             $candidate = rtrim($p, '/\\') . '/' . ltrim($template, '/\\');
             if (file_exists($candidate)) {
-                $file = $candidate;
+                $templateFile = $candidate;
                 break;
             }
         }
-        if (!$file) {
+        if (!$templateFile) {
+            http_response_code(500);
+            echo "view not found";
+            return;
+        }
+        // containment check: resolved path must stay inside the project root
+        $realTemplate = realpath($templateFile);
+        $realRoot = realpath($root);
+        if ($realTemplate === false || $realRoot === false || !str_starts_with(str_replace('\\', '/', $realTemplate), str_replace('\\', '/', $realRoot) . '/')) {
             http_response_code(500);
             echo "view not found";
             return;
         }
         extract($data, EXTR_SKIP);
-        include $file;
+        include $realTemplate;
     }
 }

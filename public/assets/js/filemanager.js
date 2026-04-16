@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     console.log('File Manager v6 Loaded (Advanced)');
+    const fileManagerConfig = window.FILE_MANAGER_CONFIG || {};
 
     // 1. Core Elements
     const dropZone = document.getElementById('dropZone');
@@ -15,7 +16,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const fmFilterChips = document.getElementById('fmFilterChips');
     const fmFilterResults = document.getElementById('fmFilterResults');
     const viewToggle = document.getElementById('viewToggle');
-    const csrfToken = document.querySelector('input[name="csrf_token"]')?.value;
+    let csrfToken = document.querySelector('input[name="csrf_token"]')?.value;
+
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const response = await originalFetch.apply(this, args);
+        // globally catch rotated CSRF tokens from any backend request so long-lived pages don't get stale Mismatches
+        const newToken = response.headers.get('X-CSRF-Token');
+        if (newToken) {
+            csrfToken = newToken;
+            document.querySelectorAll('input[name="csrf_token"]').forEach(el => el.value = newToken);
+        }
+        return response;
+    };
     const progressContainer = document.getElementById('progressContainer');
     const progressFill = document.getElementById('progressFill');
     const progressPercent = document.getElementById('progressPercent');
@@ -302,7 +315,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const shortId = element.dataset.shortId;
-        const pageUrl = `${window.location.origin}/file/${encodeURIComponent(shortId)}`;
+        const baseUrl = String(fileManagerConfig.baseUrl || window.location.origin).replace(/\/$/, '');
+        const pageUrl = `${baseUrl}/file/${encodeURIComponent(shortId)}`;
         const downloadUrl = await requestDownloadLink(fileId);
         const isPublic = element.dataset.public === '1';
         const visibility = isPublic ? 'Public file page is available.' : 'Private file. Only you or authorized users can open its page.';
@@ -394,6 +408,66 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- shared item action handler (used by context menu, dropdown, and mobile sheet) ---
+    async function performItemAction(action, id, type, name, itemEl) {
+        if (action === 'download') {
+            openDownloadById(id).catch(err => alert(err.message || 'Download failed'));
+            return;
+        }
+
+        if (action === 'share') {
+            hideItemDropdown();
+            openShareModalForItem(id).catch(err => alert(err.message || 'Failed to prepare share link'));
+            return;
+        }
+
+        if (action === 'rename') {
+            const currentItem = itemEl || document.querySelector(`.file-item[data-id="${id}"]`);
+            const currentName = currentItem?.querySelector('.file-name')?.innerText || name;
+            const newName = await showActionModal('Rename ' + type, 'Enter a new name:', currentName, true);
+            if (newName && newName !== currentName) {
+                const fd = new FormData();
+                fd.append(type === 'file' ? 'id' : 'folder_id', id);
+                fd.append('name', newName);
+                fd.append('csrf_token', csrfToken);
+                fetch(type === 'file' ? '/file/rename' : '/folder/rename', { method: 'POST', body: fd })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // update in-place instead of full reload
+                            const nameEl = currentItem?.querySelector('.file-name');
+                            if (nameEl) {
+                                nameEl.textContent = newName;
+                                nameEl.title = newName;
+                            }
+                            showToast(`Renamed to "${newName}"`);
+                        } else {
+                            alert(data.error || 'Failed to rename');
+                        }
+                    })
+                    .catch(() => alert('Rename failed'));
+            }
+            return;
+        }
+
+        if (action === 'move') {
+            document.getElementById('bulkMoveBtn')?.click();
+            return;
+        }
+
+        if (action === 'copy') {
+            showFolderTreeModal('Copy to...', (targetId) => {
+                performBulkCopy([{ id, type }], targetId);
+            });
+            return;
+        }
+
+        if (action === 'trash') {
+            performBulkTrash([{ id, type }]);
+            return;
+        }
+    }
+
     // 1.6 Context Menu Controller
     function showContextMenu(e, item) {
         e.preventDefault();
@@ -401,14 +475,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const type = item.classList.contains('folder-item') ? 'folder' : 'file';
         const name = item.querySelector('.file-name').innerText;
 
-        // Auto-select if not selected
+        // auto-select if not selected already
         if (!selectedItems.some(i => i.id === id)) {
             selectedItems = [{ id, type, name }];
             updateSelectionUI();
         }
 
         contextMenu.style.display = 'block';
-        contextMenu.style.visibility = 'hidden'; // Hide while measuring
+        contextMenu.style.visibility = 'hidden';
 
         const menuWidth = contextMenu.offsetWidth;
         const menuHeight = contextMenu.offsetHeight;
@@ -418,69 +492,50 @@ document.addEventListener('DOMContentLoaded', () => {
         let left = e.clientX;
         let top = e.clientY;
 
-        // Boundary checks
         if (left + menuWidth > viewportWidth) left -= menuWidth;
         if (top + menuHeight > viewportHeight) top -= menuHeight;
 
-        // Final safety
         left = Math.max(10, Math.min(left, viewportWidth - menuWidth - 10));
-        top = Math.max(10, Math.min(top, viewportHeight - menuHeight - 10));
+        top  = Math.max(10, Math.min(top,  viewportHeight - menuHeight - 10));
 
         contextMenu.style.left = left + 'px';
-        contextMenu.style.top = top + 'px';
+        contextMenu.style.top  = top  + 'px';
         contextMenu.style.visibility = 'visible';
         contextMenu.style.display = 'block';
 
-        // Clear previous listeners
+        // re-wire context menu items after cloning to clear stale listeners
         ['ctxDownload', 'ctxRename', 'ctxMove', 'ctxCopy', 'ctxTrash'].forEach(cid => {
             const el = document.getElementById(cid);
-            const newEl = el.cloneNode(true);
-            el.parentNode.replaceChild(newEl, el);
+            if (!el) return;
+            const fresh = el.cloneNode(true);
+            el.parentNode.replaceChild(fresh, el);
         });
 
-        // Hide download for folders
-        document.getElementById('ctxDownload').style.display = (type === 'file') ? 'flex' : 'none';
+        const ctxDownload = document.getElementById('ctxDownload');
+        if (ctxDownload) {
+            ctxDownload.style.display = (type === 'file') ? 'flex' : 'none';
+            ctxDownload.onclick = () => performItemAction('download', id, type, name, item);
+        }
+        const ctxRename = document.getElementById('ctxRename');
+        if (ctxRename) ctxRename.onclick = () => performItemAction('rename', id, type, name, item);
+        const ctxMove   = document.getElementById('ctxMove');
+        if (ctxMove)   ctxMove.onclick   = () => performItemAction('move',   id, type, name, item);
+        const ctxCopy   = document.getElementById('ctxCopy');
+        if (ctxCopy)   ctxCopy.onclick   = () => performItemAction('copy',   id, type, name, item);
+        const ctxTrash  = document.getElementById('ctxTrash');
+        if (ctxTrash)  ctxTrash.onclick  = () => performItemAction('trash',  id, type, name, item);
 
-        document.getElementById('ctxDownload').onclick = () => {
-            openDownloadById(id).catch(err => alert(err.message || 'Download failed'));
-        };
-
-        document.getElementById('ctxRename').onclick = async () => {
-            const newName = await showActionModal('Rename ' + type, 'Enter a new name:', name, true);
-            if (newName && newName !== name) {
-                const fd = new FormData();
-                fd.append(type === 'file' ? 'id' : 'folder_id', id);
-                fd.append('name', newName);
-                fd.append('csrf_token', csrfToken);
-                fetch(type === 'file' ? '/file/rename' : '/folder/rename', { method: 'POST', body: fd })
-                    .then(r => r.json()).then(data => {
-                        if (data.status === 'success') reloadWithState();
-                        else alert(data.error || 'Failed to rename');
-                    });
-            }
-        };
-
-        document.getElementById('ctxMove').onclick = () => {
-            document.getElementById('bulkMoveBtn')?.click();
-        };
-
-        document.getElementById('ctxCopy').onclick = () => {
-            showFolderTreeModal('Copy to...', (targetId) => {
-                performBulkCopy(selectedItems, targetId);
-            });
-        };
-
-        document.getElementById('ctxProps').onclick = () => {
-            const size = item.querySelector('.file-size-raw')?.innerText || 'Unknown';
-            const date = item.querySelector('.file-date')?.title || item.querySelector('.file-date')?.innerText || 'Unknown';
-            const info = `Name: ${name}\nType: ${type.toUpperCase()}\nSize: ${size}\nCreated: ${date}`;
-            showActionModal(type.charAt(0).toUpperCase() + type.slice(1) + ' Properties', info);
-        };
-
-        document.getElementById('ctxTrash').onclick = () => {
-            performBulkTrash(selectedItems);
-        };
+        const ctxProps = document.getElementById('ctxProps');
+        if (ctxProps) {
+            ctxProps.onclick = () => {
+                const size = item.querySelector('.file-size-raw')?.innerText || 'Unknown';
+                const date = item.querySelector('.file-date')?.title || item.querySelector('.file-date')?.innerText || 'Unknown';
+                const info = `Name: ${name}\nType: ${type.toUpperCase()}\nSize: ${size}\nCreated: ${date}`;
+                showActionModal(type.charAt(0).toUpperCase() + type.slice(1) + ' Properties', info);
+            };
+        }
     }
+
 
     document.body.addEventListener('click', (e) => {
         if (contextMenu) contextMenu.style.display = 'none';
@@ -619,53 +674,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const dropDownload = document.getElementById('dropDownload');
         if (dropDownload) {
             dropDownload.style.display = (type === 'file') ? 'flex' : 'none';
-            dropDownload.onclick = () => {
-                console.log('Downloading file:', id);
-                openDownloadById(id).catch(err => alert(err.message || 'Download failed'));
-            };
+            dropDownload.onclick = () => performItemAction('download', id, type, name, item);
         }
 
         const dropShare = document.getElementById('dropShare');
         if (dropShare) {
             dropShare.style.display = (type === 'file') ? 'flex' : 'none';
-            dropShare.onclick = () => {
-                hideItemDropdown();
-                openShareModalForItem(id).catch(err => alert(err.message || 'Failed to prepare share link'));
-            };
+            dropShare.onclick = () => performItemAction('share', id, type, name, item);
         }
 
         const dropRename = document.getElementById('dropRename');
-        if (dropRename) {
-            dropRename.onclick = async () => {
-                const newName = await showActionModal('Rename ' + type, 'Enter a new name:', name, true);
-                if (newName && newName !== name) {
-                    const fd = new FormData();
-                    fd.append(type === 'file' ? 'id' : 'folder_id', id);
-                    fd.append('name', newName);
-                    fd.append('csrf_token', csrfToken);
-                    fetch(type === 'file' ? '/file/rename' : '/folder/rename', { method: 'POST', body: fd })
-                        .then(r => r.json()).then(data => {
-                            if (data.status === 'success') reloadWithState();
-                            else alert(data.error || 'Failed to rename');
-                        });
-                }
-            };
-        }
+        if (dropRename) dropRename.onclick = () => performItemAction('rename', id, type, name, item);
 
-        document.getElementById('dropMove').onclick = () => {
-            document.getElementById('bulkMoveBtn')?.click();
-        };
+        const dropMove = document.getElementById('dropMove');
+        if (dropMove) dropMove.onclick = () => performItemAction('move', id, type, name, item);
 
-        document.getElementById('dropCopy').onclick = () => {
-            showFolderTreeModal('Copy to...', (targetId) => {
-                performBulkCopy([{ id, type }], targetId);
-            });
-        };
+        const dropCopy = document.getElementById('dropCopy');
+        if (dropCopy) dropCopy.onclick = () => performItemAction('copy', id, type, name, item);
 
-        document.getElementById('dropTrash').onclick = () => {
-            performBulkTrash([{ id, type }]);
-        };
+        const dropTrash = document.getElementById('dropTrash');
+        if (dropTrash) dropTrash.onclick = () => performItemAction('trash', id, type, name, item);
     }
+
 
     copySharePageBtn?.addEventListener('click', () => {
         if (sharePageUrl?.value) {
@@ -697,40 +727,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const item = { ...activeSheetItem };
             closeMobileSheet();
-
-            if (button.dataset.action === 'download') {
-                openDownloadById(item.id).catch(err => alert(err.message || 'Download failed'));
-            } else if (button.dataset.action === 'share') {
-                openShareModalForItem(item.id).catch(err => alert(err.message || 'Failed to prepare share link'));
-            } else if (button.dataset.action === 'rename') {
-                const sourceItem = document.querySelector(`.file-item[data-id="${item.id}"]`);
-                const currentName = sourceItem?.querySelector('.file-name')?.innerText || item.name;
-                showActionModal(`Rename ${item.type}`, 'Enter a new name:', currentName, true).then(newName => {
-                    if (!newName || newName === currentName) return;
-                    const fd = new FormData();
-                    fd.append(item.type === 'file' ? 'id' : 'folder_id', item.id);
-                    fd.append('name', newName);
-                    fd.append('csrf_token', csrfToken);
-                    fetch(item.type === 'file' ? '/file/rename' : '/folder/rename', { method: 'POST', body: fd })
-                        .then(r => r.json())
-                        .then(data => {
-                            if (data.status === 'success') reloadWithState();
-                            else alert(data.error || 'Failed to rename');
-                        });
-                });
-            } else if (button.dataset.action === 'move') {
-                selectedItems = [{ id: item.id, type: item.type, name: item.name }];
-                updateSelectionUI();
-                document.getElementById('bulkMoveBtn')?.click();
-            } else if (button.dataset.action === 'copy') {
-                showFolderTreeModal('Copy to...', (targetId) => {
-                    performBulkCopy([{ id: item.id, type: item.type }], targetId);
-                });
-            } else if (button.dataset.action === 'trash') {
-                performBulkTrash([{ id: item.id, type: item.type }]);
-            }
+            performItemAction(button.dataset.action, item.id, item.type, item.name);
         });
     });
+
 
     // 2. Service Worker
     if ('serviceWorker' in navigator) {
@@ -816,6 +816,78 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('clearSelectionBtn')?.addEventListener('click', () => {
         selectedItems = [];
         updateSelectionUI();
+    });
+
+    // select all - mirrors the Ctrl+A keyboard shortcut
+    document.getElementById('selectAllBtn')?.addEventListener('click', () => {
+        selectedItems = [];
+        document.querySelectorAll('.file-item').forEach(item => {
+            if (item.style.display === 'none') return;
+            const id   = item.getAttribute('data-id');
+            const type = item.classList.contains('folder-item') ? 'folder' : 'file';
+            selectedItems.push({ id, type });
+        });
+        updateSelectionUI();
+    });
+
+    // bulk visibility - Make Public
+    document.getElementById('bulkMakePublicBtn')?.addEventListener('click', async () => {
+        const files = selectedItems.filter(i => i.type === 'file');
+        if (files.length === 0) {
+            showToast('Select at least one file to change visibility.');
+            return;
+        }
+        const fd = new FormData();
+        files.forEach((it, idx) => {
+            fd.append(`ids[${idx}][id]`, it.id);
+            fd.append(`ids[${idx}][type]`, it.type);
+        });
+        fd.append('visibility', 'public');
+        fd.append('csrf_token', csrfToken);
+        fetch('/bulk/visibility', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    files.forEach(it => {
+                        document.querySelector(`.file-item[data-id="${it.id}"]`)?.setAttribute('data-public', '1');
+                    });
+                    showToast(`${data.updated} file${data.updated === 1 ? '' : 's'} set to public.`);
+                    applySearchFilter();
+                } else {
+                    alert(data.error || 'Failed to update visibility');
+                }
+            })
+            .catch(() => alert('Network error updating visibility'));
+    });
+
+    // bulk visibility - Make Private
+    document.getElementById('bulkMakePrivateBtn')?.addEventListener('click', async () => {
+        const files = selectedItems.filter(i => i.type === 'file');
+        if (files.length === 0) {
+            showToast('Select at least one file to change visibility.');
+            return;
+        }
+        const fd = new FormData();
+        files.forEach((it, idx) => {
+            fd.append(`ids[${idx}][id]`, it.id);
+            fd.append(`ids[${idx}][type]`, it.type);
+        });
+        fd.append('visibility', 'private');
+        fd.append('csrf_token', csrfToken);
+        fetch('/bulk/visibility', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    files.forEach(it => {
+                        document.querySelector(`.file-item[data-id="${it.id}"]`)?.setAttribute('data-public', '0');
+                    });
+                    showToast(`${data.updated} file${data.updated === 1 ? '' : 's'} set to private.`);
+                    applySearchFilter();
+                } else {
+                    alert(data.error || 'Failed to update visibility');
+                }
+            })
+            .catch(() => alert('Network error updating visibility'));
     });
 
     // 4. Drag and Drop (External Uploads)
@@ -905,7 +977,68 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         item.addEventListener('contextmenu', (e) => showContextMenu(e, item));
+
+        // inline double-click rename on the file name label
+        const nameEl = item.querySelector('.file-name');
+        if (nameEl) {
+            nameEl.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                const id   = item.getAttribute('data-id');
+                const type = item.classList.contains('folder-item') ? 'folder' : 'file';
+                const currentName = nameEl.textContent.trim();
+
+                const input = document.createElement('input');
+                input.type  = 'text';
+                input.value = currentName;
+                input.className = 'fm-inline-rename';
+                nameEl.replaceWith(input);
+                input.focus();
+                input.select();
+
+                function commitRename() {
+                    const newName = input.value.trim();
+                    nameEl.textContent = newName || currentName;
+                    nameEl.title = newName || currentName;
+                    input.replaceWith(nameEl);
+
+                    if (!newName || newName === currentName) return;
+
+                    const fd = new FormData();
+                    fd.append(type === 'file' ? 'id' : 'folder_id', id);
+                    fd.append('name', newName);
+                    fd.append('csrf_token', csrfToken);
+                    fetch(type === 'file' ? '/file/rename' : '/folder/rename', { method: 'POST', body: fd })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.status !== 'success') {
+                                nameEl.textContent = currentName;
+                                nameEl.title = currentName;
+                                alert(data.error || 'Rename failed');
+                            } else {
+                                showToast(`Renamed to "${newName}"`);
+                            }
+                        })
+                        .catch(() => {
+                            nameEl.textContent = currentName;
+                            nameEl.title = currentName;
+                        });
+                }
+
+                input.addEventListener('blur', commitRename, { once: true });
+                input.addEventListener('keydown', (ev) => {
+                    if (ev.key === 'Enter')  { ev.preventDefault(); input.blur(); }
+                    if (ev.key === 'Escape') {
+                        ev.preventDefault();
+                        input.removeEventListener('blur', commitRename);
+                        nameEl.textContent = currentName;
+                        nameEl.title = currentName;
+                        input.replaceWith(nameEl);
+                    }
+                });
+            });
+        }
     });
+
 
     document.querySelectorAll('.sidebar-trash-item').forEach(item => {
         item.addEventListener('contextmenu', (e) => showSidebarContextMenu(e));
@@ -979,25 +1112,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if ((e.key === 'r' || e.key === 'R') && selectedItems.length === 1) {
             e.preventDefault();
             const selected = selectedItems[0];
-            const item = document.querySelector(`.file-item[data-id="${selected.id}"]`);
-            const currentName = item?.querySelector('.file-name')?.innerText || '';
-            showActionModal(`Rename ${selected.type}`, 'Enter a new name:', currentName, true).then(newName => {
-                if (!newName || newName === currentName) return;
-                const fd = new FormData();
-                fd.append(selected.type === 'file' ? 'id' : 'folder_id', selected.id);
-                fd.append('name', newName);
-                fd.append('csrf_token', csrfToken);
-                fetch(selected.type === 'file' ? '/file/rename' : '/folder/rename', { method: 'POST', body: fd })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.status === 'success') reloadWithState();
-                        else alert(data.error || 'Failed to rename');
-                    });
-            });
+            const itemEl = document.querySelector(`.file-item[data-id="${selected.id}"]`);
+            performItemAction('rename', selected.id, selected.type, selected.name || '', itemEl);
         } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             selectedItems = [];
             document.querySelectorAll('.file-item').forEach(item => {
+                if (item.style.display === 'none') return;
                 const id = item.getAttribute('data-id');
                 const type = item.classList.contains('folder-item') ? 'folder' : 'file';
                 selectedItems.push({ id, type });
@@ -1179,20 +1300,40 @@ document.addEventListener('DOMContentLoaded', () => {
     fmStatusFilter?.addEventListener('change', () => applySearchFilter());
     fmSort?.addEventListener('change', () => applySearchFilter());
 
+    function setFileManagerView(mode) {
+        if (!fileGrid) {
+            return;
+        }
+
+        const normalizedMode = mode === 'list' ? 'list' : 'grid';
+        fileGrid.classList.toggle('list-view', normalizedMode === 'list');
+
+        try {
+            localStorage.setItem('fm_view', normalizedMode);
+        } catch (e) {
+        }
+
+        if (viewToggle) {
+            const nextMode = normalizedMode === 'list' ? 'grid' : 'list';
+            viewToggle.innerText = nextMode === 'grid' ? 'Grid View' : 'List View';
+            viewToggle.setAttribute('data-current-view', normalizedMode);
+            viewToggle.setAttribute('aria-label', `Switch to ${nextMode} view`);
+            viewToggle.setAttribute('title', `Switch to ${nextMode} view`);
+        }
+    }
+
     viewToggle?.addEventListener('click', () => {
-        fileGrid.classList.toggle('list-view');
-        const isList = fileGrid.classList.contains('list-view');
-        localStorage.setItem('fm_view', isList ? 'list' : 'grid');
-        viewToggle.innerText = isList ? 'List View' : 'Grid View';
+        const currentMode = fileGrid?.classList.contains('list-view') ? 'list' : 'grid';
+        setFileManagerView(currentMode === 'list' ? 'grid' : 'list');
     });
 
     // Restore view preference
-    if (localStorage.getItem('fm_view') === 'list') {
-        fileGrid.classList.add('list-view');
-        if (viewToggle) viewToggle.innerText = 'List View';
-    } else if (viewToggle) {
-        viewToggle.innerText = 'Grid View';
+    let savedView = 'grid';
+    try {
+        savedView = localStorage.getItem('fm_view') === 'list' ? 'list' : 'grid';
+    } catch (e) {
     }
+    setFileManagerView(savedView);
 
     restorePageState();
     applySearchFilter();
@@ -1299,7 +1440,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const cur = document.getElementById('currentFolderId')?.value;
                 if (cur) fd.append('parent_id', cur);
                 fd.append('csrf_token', csrfToken);
-                fetch('/folder/create', { method: 'POST', body: fd }).then(() => reloadWithState());
+                fetch('/folder/create', { method: 'POST', body: fd })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            reloadWithState();
+                            return;
+                        }
+                        alert(data.error || 'Failed to create folder');
+                    })
+                    .catch(() => alert('Failed to create folder'));
             }
         }
 

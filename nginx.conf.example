@@ -63,6 +63,11 @@ location ~* ^/(config|src|storage|vendor|database|docs)/ {
     deny all;
 }
 
+# Explicitly block storage in case broader rules are removed later.
+location ^~ /storage/ {
+    deny all;
+}
+
 location ~ /\. {
     deny all;
 }

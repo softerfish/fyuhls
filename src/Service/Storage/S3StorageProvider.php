@@ -345,6 +345,10 @@ class S3StorageProvider implements StorageProvider {
             ]);
             return true;
         } catch (\Exception $e) {
+            if (stripos($e->getMessage(), 'NoSuchUpload') !== false) {
+                // Treat already-finished or already-aborted uploads as a successful cleanup outcome.
+                return true;
+            }
             error_log('[S3StorageProvider] abortMultipartUpload failed: ' . $e->getMessage());
             return false;
         }

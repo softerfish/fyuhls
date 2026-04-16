@@ -8,8 +8,15 @@ use App\Core\View;
 use App\Core\Csrf;
 use App\Core\Logger;
 use App\Service\PaymentService;
+use App\Service\RateLimiterService;
+use App\Service\SecurityService;
 
 class CheckoutController {
+    private function abortText(int $status, string $message): void
+    {
+        http_response_code($status);
+        exit($message);
+    }
     
     public function index(string $id) {
         if (!Auth::check()) {
@@ -32,26 +39,30 @@ class CheckoutController {
 
     public function process() {
         if (!Auth::check()) {
-            http_response_code(401); die("Unauthorized");
+            $this->abortText(401, "Unauthorized");
         }
 
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') die("Method Not Allowed");
-        if (!Csrf::verify($_POST['csrf_token'] ?? '')) die("CSRF Mismatch");
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->abortText(405, "Method Not Allowed");
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, "CSRF Mismatch");
+        }
 
         $packageId = (int)$_POST['package_id'];
         $gateway = $_POST['gateway'] ?? '';
         $package = Package::find($packageId);
 
-        if (!$package || ($package['level_type'] ?? '') !== 'paid') die("Invalid package.");
+        if (!$package || ($package['level_type'] ?? '') !== 'paid') {
+            $this->abortText(422, "Invalid package.");
+        }
         if (!in_array($gateway, ['stripe', 'paypal'], true)) {
-            http_response_code(422);
-            die("Invalid payment method.");
+            $this->abortText(422, "Invalid payment method.");
         }
 
         if (($gateway === 'stripe' && \App\Model\Setting::get('payment_stripe_enabled', '0') !== '1')
             || ($gateway === 'paypal' && \App\Model\Setting::get('payment_paypal_enabled', '0') !== '1')) {
-            http_response_code(422);
-            die("Selected payment method is not enabled.");
+            $this->abortText(422, "Selected payment method is not enabled.");
         }
 
         try {
@@ -78,8 +89,13 @@ class CheckoutController {
 
     public function callback(string $gateway) {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            die("Method Not Allowed");
+            $this->abortText(405, "Method Not Allowed");
+        }
+
+        $clientIp = SecurityService::normalizeIp((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'));
+        $rateKey = $gateway . ':' . $clientIp;
+        if (!RateLimiterService::check('payment_callback', $rateKey, 30, 300)) {
+            $this->abortText(429, "Too Many Requests");
         }
 
         $raw = file_get_contents('php://input') ?: '';

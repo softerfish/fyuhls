@@ -21,6 +21,9 @@ class TwoFactorGateService
 
         $userId = Auth::id();
         $db = Database::getInstance()->getConnection();
+        if (!$db) {
+            return;
+        }
 
         $stmt = $db->prepare("SELECT * FROM user_two_factor WHERE user_id = ?");
         $stmt->execute([$userId]);
@@ -50,6 +53,10 @@ class TwoFactorGateService
         }
 
         $db = Database::getInstance()->getConnection();
+        if (!$db) {
+            return false;
+        }
+
         $stmt = $db->prepare("SELECT 1 FROM user_two_factor_devices WHERE user_id = ? AND trust_token = ? AND expires_at > NOW()");
         $stmt->execute([$userId, $_COOKIE[$cookieName]]);
         return (bool) $stmt->fetchColumn();

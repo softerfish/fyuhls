@@ -18,10 +18,15 @@ class AuthController {
     private const MAX_PAYMENT_DETAILS_LENGTH = 500;
     private const MAX_API_TOKEN_NAME_LENGTH = 100;
 
+    private function abortText(int $status, string $message): void
+    {
+        http_response_code($status);
+        exit($message);
+    }
+
     private function isHttpsRequest(): bool
     {
-        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+        return \App\Service\SecurityService::isHttpsRequest();
     }
 
     private function normalizeUserTimezone(?string $timezone): string
@@ -144,7 +149,12 @@ class AuthController {
                     $ip = \App\Service\SecurityService::getClientIp();
                     $rateKey = md5($ip . '|' . $username);
 
-                    if (!\App\Service\RateLimiterService::check('login', $rateKey, $rlLimit, $rlWindow)) {
+                    $loginSprayLimit = max($rlLimit * 4, 20);
+                    if (!\App\Service\RateLimiterService::check('login_ip', $ip, $loginSprayLimit, $rlWindow)) {
+                        $mins = ceil($rlWindow / 60);
+                        $error = "Too many login attempts from your network. Please wait $mins minutes.";
+                        Logger::warning('login ip-wide rate limit hit', ['ip' => $ip]);
+                    } elseif (!\App\Service\RateLimiterService::check('login', $rateKey, $rlLimit, $rlWindow)) {
                         $mins = ceil($rlWindow / 60);
                         $error = "Too many login attempts. Please wait $mins minutes.";
                         Logger::warning('login rate limit hit', ['ip' => $ip, 'username' => $username]);
@@ -340,7 +350,9 @@ class AuthController {
     public function updateMonetization() {
         if (!Auth::check()) { header('Location: /login'); exit; }
         if (!FeatureService::rewardsEnabled()) { header('Location: /'); exit; }
-        if (!\App\Core\Csrf::verify($_POST['csrf_token'] ?? '')) die("CSRF mismatch");
+        if (!\App\Core\Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, "CSRF mismatch");
+        }
 
         $model = $_POST['model'] ?? 'ppd';
         $enabledModels = explode(',', \App\Model\Setting::get('enabled_models', 'ppd,pps,mixed', 'rewards'));
@@ -358,13 +370,11 @@ class AuthController {
 
     public function logout() {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            exit('Method Not Allowed');
+            $this->abortText(405, 'Method Not Allowed');
         }
 
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            http_response_code(403);
-            exit('CSRF mismatch');
+            $this->abortText(403, 'CSRF mismatch');
         }
 
         Auth::logout();
@@ -545,6 +555,12 @@ class AuthController {
                 $error = "Security Token Expired.";
             } else {
                 $email = $_POST['email'] ?? '';
+                $ip = \App\Service\SecurityService::getClientIp();
+                if (!\App\Service\RateLimiterService::check('forgot_password', $ip, 5, 900)) {
+                    $success = "If an account exists with that email, a reset link has been sent.";
+                    View::render('home/forgot_password.php', ['error' => $error, 'success' => $success]);
+                    return;
+                }
                 $user = \App\Model\User::findByCredentials($email);
 
                 if ($user) {

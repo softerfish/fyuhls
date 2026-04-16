@@ -57,7 +57,7 @@
                     <section class="article-section" id="cors">
                         <h2>Do not forget bucket CORS</h2>
                         <p>For browser multipart uploads to work correctly with R2, your bucket CORS rules need to allow the right methods and expose the right headers. In the fyuhls documentation and README, the key requirements are allowing <code>PUT</code>, <code>GET</code>, and <code>HEAD</code>, and exposing <code>ETag</code>.</p>
-                        <p>Without that, uploads can fail even when the storage credentials are valid.</p>
+                        <p>Without that, uploads can fail even when the storage credentials are valid. You also need your site CSP to allow direct uploads to the R2 endpoint.</p>
                     </section>
 
                     <section class="article-section" id="when-to-use">

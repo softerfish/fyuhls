@@ -57,12 +57,14 @@
                             <li><strong>Delivery model:</strong> app-controlled links, CDN redirects, and server-assisted handoff all matter once traffic increases.</li>
                             <li><strong>Administration:</strong> you want diagnostics, SEO settings, system status checks, and support tooling in one place.</li>
                             <li><strong>API access:</strong> desktop tools and automation workflows benefit from personal tokens and stable upload endpoints.</li>
+                            <li><strong>Update safety:</strong> a previewable updater with backups and quarantine keeps live installs safer.</li>
                         </ul>
                     </section>
 
                     <section class="article-section" id="how-fyuhls-approaches-it">
                         <h2>How fyuhls approaches the problem</h2>
                         <p>fyuhls combines the public site, upload logic, storage configuration, API, admin tools, and maintenance tasks into a single stack. It supports user accounts, packages, quotas, rewards controls, storage nodes, API tokens, and indexing controls without requiring you to bolt several different systems together.</p>
+                        <p>Recent releases also added a safer updater workflow with previews, backups, and stale-file quarantine, along with a structured download-page state system and richer file manager bulk actions.</p>
                         <p>For operators who need large-file support, one of the most important design choices is the multipart direct-to-storage path. The app manages the upload session, part signing, reservations, and finalization, while the heavy file transfer can go straight to the storage provider.</p>
                     </section>
 

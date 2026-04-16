@@ -51,6 +51,7 @@
                             <li>The server has to relay the full file instead of orchestrating parts.</li>
                             <li>There is no resume state when a connection drops.</li>
                             <li>The storage backend is configured, but browser CORS is incomplete.</li>
+                            <li>Site CSP blocks direct-to-storage uploads when origin rules are not aligned.</li>
                         </ul>
                     </section>
 
@@ -58,6 +59,7 @@
                         <h2>A better model: multipart direct-to-storage uploads</h2>
                         <p>Instead of making PHP assemble the entire file, the app creates an upload session, reserves quota, signs or prepares the part uploads, tracks part completion, and finalizes the upload when all parts are present. The actual file bytes can move directly from the client to the storage backend.</p>
                         <p>This architecture is a better fit for multi-gigabyte files, resumed transfers, and object-storage workflows.</p>
+                        <p>fyuhls also exposes a managed-upload API shortcut so desktop tools can request signed parts and resume without recreating the full multipart negotiation on their own.</p>
                     </section>
 
                     <section class="article-section" id="recommended-limits">

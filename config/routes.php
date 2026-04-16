@@ -76,6 +76,7 @@ $router->post('/bulk/move', [FileController::class, 'bulkMove']);
 $router->post('/bulk/trash', [FileController::class, 'bulkTrash']);
 $router->post('/bulk/restore', [FileController::class, 'bulkRestore']);
 $router->post('/bulk/copy', [FileController::class, 'bulkCopy']);
+$router->post('/bulk/visibility', [FileController::class, 'bulkSetVisibility']);
 $router->post('/trash/empty', [FileController::class, 'emptyTrash']);
 $router->get('/file/{id}', [FileController::class, 'show']);
 $router->post('/file/generate-link', [FileController::class, 'generateLink']);

@@ -24,6 +24,19 @@ class ConfigurationController
     private array $allowedTabs = ['general', 'security', 'email', 'storage', 'monetization', 'seo', 'cron', 'downloads', 'uploads'];
     private const MAX_CUSTOM_HEAD_CODE_LENGTH = 20000;
     private const MAX_AD_CODE_LENGTH = 20000;
+    private const ALLOWED_AD_SLOT_KEYS = [
+        'download_top',
+        'download_bottom',
+        'download_left',
+        'download_right',
+        'download_overlay',
+    ];
+
+    private function abortText(int $status, string $message): void
+    {
+        http_response_code($status);
+        exit($message);
+    }
 
     private function ensureDemoAdminReadOnly(bool $json = false): void
     {
@@ -144,6 +157,66 @@ class ConfigurationController
     {
         $method = strtolower(trim((string)$method));
         return in_array($method, ['none', 'ssl', 'tls'], true) ? $method : 'none';
+    }
+
+    private function normalizeCdnDownloadBaseUrl(?string $url): string
+    {
+        $url = trim((string)$url);
+        if ($url === '') {
+            return '';
+        }
+
+        if (filter_var($url, FILTER_VALIDATE_URL) === false) {
+            throw new \RuntimeException('CDN download base URL must be a valid absolute URL.');
+        }
+
+        $parts = parse_url($url);
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = (string)($parts['host'] ?? '');
+        if ($scheme !== 'https' || $host === '') {
+            throw new \RuntimeException('CDN download base URL must use HTTPS and include a valid host.');
+        }
+
+        if (!empty($parts['user']) || !empty($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) {
+            throw new \RuntimeException('CDN download base URL cannot include credentials, a query string, or a fragment.');
+        }
+
+        return rtrim($url, '/');
+    }
+
+    private function normalizeNginxCompletionLogPath(?string $path): string
+    {
+        $path = trim((string)$path);
+        if ($path === '') {
+            return '';
+        }
+
+        $isUnixAbsolute = str_starts_with($path, '/');
+        $isWindowsAbsolute = preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1;
+        if (!$isUnixAbsolute && !$isWindowsAbsolute) {
+            throw new \RuntimeException('Nginx completion log path must be an absolute path.');
+        }
+
+        if (preg_match('/[\x00-\x1F]/', $path) === 1) {
+            throw new \RuntimeException('Nginx completion log path contains invalid control characters.');
+        }
+
+        if (preg_match('/(^|[\\\\\\/])\.\.([\\\\\\/]|$)/', $path) === 1) {
+            throw new \RuntimeException('Nginx completion log path cannot contain parent-directory traversal.');
+        }
+
+        $normalized = str_replace('\\', '/', $path);
+        $basename = strtolower((string)pathinfo($normalized, PATHINFO_BASENAME));
+        $extension = strtolower((string)pathinfo($normalized, PATHINFO_EXTENSION));
+        $looksLikeLogFile = in_array($extension, ['log', 'txt'], true)
+            || str_contains($basename, 'access')
+            || str_contains($basename, 'download');
+
+        if (!$looksLikeLogFile) {
+            throw new \RuntimeException('Nginx completion log path must point to a plausible log file such as *.log, *.txt, or an access/download log name.');
+        }
+
+        return $path;
     }
 
     public function index()
@@ -443,8 +516,12 @@ class ConfigurationController
     {
         Auth::requireAdmin();
         $this->ensureDemoAdminReadOnly();
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') die("Method not allowed");
-        if (!Csrf::verify($_POST['csrf_token'] ?? '')) die("CSRF mismatch");
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->abortText(405, "Method not allowed");
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, "CSRF mismatch");
+        }
 
         $tab = $_POST['section'] ?? 'general';
 
@@ -508,8 +585,12 @@ class ConfigurationController
     {
         Auth::requireAdmin();
         $this->ensureDemoAdminReadOnly();
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') die("Method not allowed");
-        if (!Csrf::verify($_POST['csrf_token'] ?? '')) die("CSRF mismatch");
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->abortText(405, "Method not allowed");
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, "CSRF mismatch");
+        }
 
         // Cooldown check (60 seconds)
         $lastRun = (int)Setting::get('last_cron_run_timestamp', 0);
@@ -833,9 +914,9 @@ class ConfigurationController
         $this->updateSetting('track_current_downloads', isset($_POST['track_current_downloads']) ? '1' : '0', 'downloads');
         $this->updateSetting('remote_url_background', isset($_POST['remote_url_background']) ? '1' : '0', 'downloads');
         $this->updateSetting('cdn_download_redirects_enabled', isset($_POST['cdn_download_redirects_enabled']) ? '1' : '0', 'downloads');
-        $this->updateSetting('cdn_download_base_url', trim((string)($_POST['cdn_download_base_url'] ?? '')), 'downloads');
+        $this->updateSetting('cdn_download_base_url', $this->normalizeCdnDownloadBaseUrl($_POST['cdn_download_base_url'] ?? ''), 'downloads');
         $this->updateSetting('streaming_support_enabled', isset($_POST['streaming_support_enabled']) ? '1' : '0', 'downloads');
-        $this->updateSetting('nginx_completion_log_path', trim((string)($_POST['nginx_completion_log_path'] ?? '')), 'downloads');
+        $this->updateSetting('nginx_completion_log_path', $this->normalizeNginxCompletionLogPath($_POST['nginx_completion_log_path'] ?? ''), 'downloads');
         $this->updateSetting('nginx_completion_retention_days', (string)max(1, (int)($_POST['nginx_completion_retention_days'] ?? 7)), 'downloads');
         $this->updateSetting('nginx_completion_max_lines_per_run', (string)max(100, (int)($_POST['nginx_completion_max_lines_per_run'] ?? 5000)), 'downloads');
     }
@@ -905,6 +986,9 @@ class ConfigurationController
         } elseif ($action === 'ads') {
             $ads = $_POST['ads'] ?? [];
             foreach ($ads as $key => $code) {
+                if (!in_array((string)$key, self::ALLOWED_AD_SLOT_KEYS, true)) {
+                    continue;
+                }
                 $code = (string)$code;
                 if (strlen($code) > self::MAX_AD_CODE_LENGTH) {
                     $_SESSION['config_errors'] = ["Ad placement code is too large. Keep each ad block under " . self::MAX_AD_CODE_LENGTH . " characters."];

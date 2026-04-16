@@ -11,6 +11,25 @@ define('VERSION_PATH', ROOT_PATH . '/config/version.php');
 // Load Autoloader for Cryptography
 require_once ROOT_PATH . '/vendor/autoload.php';
 
+function installRequestIsHttps(): bool
+{
+    return \App\Service\SecurityService::isHttpsRequest();
+}
+
+function installRequestHostIsLocal(): bool
+{
+    return \App\Service\SecurityService::isLocalDevelopmentRequest();
+}
+
+if (!installRequestIsHttps() && !installRequestHostIsLocal()) {
+    $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+    $uri = (string)($_SERVER['REQUEST_URI'] ?? '/install.php');
+    if ($host !== '') {
+        header('Location: https://' . $host . $uri, true, 301);
+        exit;
+    }
+}
+
 $installNonce = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
 header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'nonce-{$installNonce}'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; frame-ancestors 'self';");
 
@@ -26,6 +45,61 @@ function getInstallVersion(): string
     }
 
     return '0.1';
+}
+
+function isPathAbsolute(string $path): bool
+{
+    return preg_match('/^(?:[A-Za-z]:[\\\\\\/]|\/|\\\\\\\\)/', $path) === 1;
+}
+
+function normalizeInstallPath(string $path): string
+{
+    return preg_replace('#[\\\\/]+#', DIRECTORY_SEPARATOR, $path) ?? $path;
+}
+
+function pathStartsWithBase(string $candidate, string $base): bool
+{
+    $candidate = rtrim(str_replace('\\', '/', $candidate), '/');
+    $base = rtrim(str_replace('\\', '/', $base), '/');
+    return $candidate === $base || str_starts_with($candidate . '/', $base . '/');
+}
+
+function validateHiddenConfigPath(string $path): string
+{
+    $path = trim($path);
+    if ($path === '') {
+        throw new Exception('Hidden config path is required.');
+    }
+
+    if (!isPathAbsolute($path)) {
+        throw new Exception('Hidden config path must be an absolute filesystem path.');
+    }
+
+    $path = normalizeInstallPath($path);
+    $root = normalizeInstallPath(ROOT_PATH);
+    $publicRoot = normalizeInstallPath(ROOT_PATH . DIRECTORY_SEPARATOR . 'public');
+    $configRoot = normalizeInstallPath(ROOT_PATH . DIRECTORY_SEPARATOR . 'config');
+
+    if (!str_ends_with(strtolower($path), '.php')) {
+        throw new Exception('Hidden config path must point to a .php file.');
+    }
+
+    if (pathStartsWithBase($path, $root) || pathStartsWithBase($path, $publicRoot) || pathStartsWithBase($path, $configRoot)) {
+        throw new Exception('Hidden config path must live outside the Fyuhls webroot and config directories.');
+    }
+
+    return $path;
+}
+
+function defaultHiddenConfigPath(): string
+{
+    $parent = dirname(ROOT_PATH);
+    return normalizeInstallPath($parent . DIRECTORY_SEPARATOR . 'fyuhls_secure' . DIRECTORY_SEPARATOR . 'fyuhls_config.php');
+}
+
+function resolveHiddenConfigPath(): string
+{
+    return validateHiddenConfigPath(defaultHiddenConfigPath());
 }
 
 function getExistingInstallWarning(): ?string
@@ -85,7 +159,7 @@ $formData = [
     'db_port' => '3306',
     'db_name' => '',
     'db_user' => '',
-    'config_path' => '/home/username/encryption_info/fyuhls_config.php',
+    'config_path' => defaultHiddenConfigPath(),
     'admin_user' => 'admin',
     'admin_email' => '',
 ];
@@ -119,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
         $adminEmail = $_POST['admin_email'] ?? '';
         $adminPass = $_POST['admin_pass'] ?? '';
 
-        $configPath = $_POST['config_path'] ?? '';
+        $configPath = defaultHiddenConfigPath();
 
         $formData = [
             'db_host' => $dbHost,
@@ -131,7 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
             'admin_email' => $adminEmail,
         ];
 
-        if (empty($dbName) || empty($dbUser) || empty($adminEmail) || empty($adminPass) || empty($configPath)) {
+        if (empty($dbName) || empty($dbUser) || empty($adminEmail) || empty($adminPass)) {
             $error = "All fields are required.";
         } elseif (!filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
             $error = "Admin email address is invalid.";
@@ -143,19 +217,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
             $configWritten = false;
             $pointerWritten = false;
             $installCompleted = false;
+            $configCreatedByInstaller = false;
 
-            // Ensure the config directory exists or is writable
-            $configDir = dirname($configPath);
-            if (!is_dir($configDir) || !is_writable($configDir)) {
-                $error = "Warning: The path {$configDir} does not exist or is not writable by the PHP user. Please create the folder and set CHMOD 777 permissions first.";
-            } else {
-                try {
+            try {
+                $configPath = resolveHiddenConfigPath();
+                $configDir = dirname($configPath);
+                if (!is_dir($configDir) && !mkdir($configDir, 0700, true) && !is_dir($configDir)) {
+                    $error = "Warning: The secure config directory {$configDir} could not be created by the PHP user. Please create it manually and grant write access temporarily.";
+                } elseif (!is_writable($configDir)) {
+                    $error = "Warning: The secure config directory {$configDir} is not writable by the PHP user. Please update its permissions temporarily to complete installation.";
+                } else {
+                    $configCreatedByInstaller = !file_exists($configPath);
                     $dsn = "mysql:host=$dbHost;port=$dbPort;dbname=$dbName;charset=utf8mb4";
                     $pdo = new PDO($dsn, $dbUser, $dbPass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 
                     // Generate a true 256-bit cryptographically secure key for AES Database Encryption
                     // base64 encoding 32 raw bytes gives us 44 characters of full 256-bit entropy.
                     $encryptionKey = base64_encode(random_bytes(32));
+                    $appKey = bin2hex(random_bytes(16));
 
                     if (!file_exists(SCHEMA_PATH)) {
                         throw new Exception("Schema file not found at " . SCHEMA_PATH);
@@ -213,8 +292,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
                         'security' => [
                             'encryption_key' => $encryptionKey,
                         ],
+                        'app_key' => $appKey,
                     ];
-                    $configContent = "<?php\n\nreturn " . var_export($configArray, true) . ";\n";
+                    $configContent = "<?php\n\n// FYUHLS_HIDDEN_CONFIG\nreturn " . var_export($configArray, true) . ";\n";
                     if (file_put_contents($configPath, $configContent) === false) {
                         throw new Exception("Could not write to the specified config file: $configPath");
                     }
@@ -248,16 +328,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
                             $success .= "<br><br><strong class='install-warning-text'>Warning: Could not fully delete setup files. Please remove public/install.php and the database/ folder manually if they still exist.</strong>";
                         }
                     }
-                } catch (Exception $e) {
-                    if ($pointerWritten && file_exists(LEGACY_CONFIG_PATH)) {
-                        @unlink(LEGACY_CONFIG_PATH);
-                    }
-                    if ($configWritten && file_exists($configPath)) {
-                        @unlink($configPath);
-                    }
-                    error_log("Installer failed: " . $e->getMessage());
-                    $error = "Installation failed. Please review your database details, config path, and server permissions, then try again.";
                 }
+            } catch (Exception $e) {
+                if ($pointerWritten && file_exists(LEGACY_CONFIG_PATH)) {
+                    @unlink(LEGACY_CONFIG_PATH);
+                }
+                if ($configWritten && $configCreatedByInstaller && file_exists($configPath)) {
+                    @unlink($configPath);
+                }
+                error_log("Installer failed: " . $e->getMessage());
+                $error = "Installation failed. Please review your database details, config path, and server permissions, then try again.";
             }
         }
     }
@@ -322,9 +402,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
                 <div class="group"><label>Database Password</label><input type="password" name="db_pass"></div>
                 <h3>Security & Configuration</h3>
                 <div class="group">
-                    <label>Absolute Config Path (Highly Recommended)</label>
-                    <p class="install-config-note">For maximum security, enter a server path completely outside of your public web directory. We will store your database credentials and a 256-bit Database Encryption key here.</p>
-                    <input type="text" name="config_path" value="<?= htmlspecialchars($formData['config_path']) ?>" required>
+                    <label>Hidden Config Path</label>
+                    <p class="install-config-note">Fyuhls now generates and uses a safe hidden config path automatically outside the webroot when possible. This is where your database credentials, database encryption key, and application key will be stored.</p>
+                    <input type="text" name="config_path" value="<?= htmlspecialchars($formData['config_path']) ?>" readonly>
                 </div>
                 <h3>Admin Account</h3>
                 <div class="group"><label>Admin Username</label><input type="text" name="admin_user" placeholder="admin" value="<?= htmlspecialchars($formData['admin_user']) ?>" required></div>

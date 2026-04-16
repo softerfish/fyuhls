@@ -166,8 +166,7 @@ class RewardFraudService
         }
 
         $value = bin2hex(random_bytes(16));
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        $isHttps = \App\Service\SecurityService::isHttpsRequest();
         setcookie(self::VISITOR_COOKIE, $value, [
             'expires' => time() + (86400 * 365),
             'path' => '/',

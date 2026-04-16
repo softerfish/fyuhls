@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>fyuhls API Reference | Tokens, Multipart Uploads, Managed Uploads, and Download Links</title>
-    <meta name="description" content="Full fyuhls API reference for personal API tokens, upload session endpoints, managed multipart uploads, file metadata, idempotency, and application-controlled downloads.">
+    <meta name="description" content="Full fyuhls API reference for personal API tokens, upload session endpoints, managed multipart uploads, file metadata, share fields, idempotency, and application-controlled downloads.">
     <link rel="stylesheet" href="styles.css">
     <style>
         .api-shell { max-width: 1180px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
@@ -71,7 +71,7 @@
         <section class="api-hero">
             <span class="api-eyebrow">API Reference</span>
             <h1>fyuhls Public API</h1>
-            <p>The current <code>/api/v1/</code> API is designed for account-bound integrations. It supports personal API tokens, direct-to-storage multipart uploads, a managed upload shortcut for desktop tools, owner-scoped file metadata, and application-controlled download links that keep delivery policy inside fyuhls.</p>
+            <p>The current <code>/api/v1/</code> API is designed for account-bound integrations. It supports personal API tokens, direct-to-storage multipart uploads, a managed upload shortcut for desktop tools, owner-scoped file metadata (including public share fields), and application-controlled download links that keep delivery policy inside fyuhls.</p>
             <div class="api-pill-row">
                 <div class="api-pill">Version: <strong>v1</strong></div>
                 <div class="api-pill">Auth: <strong>Bearer token or X-API-Token</strong></div>
@@ -108,6 +108,7 @@
                         <li>Quota is reserved before upload completion.</li>
                         <li>Large files should stay on the multipart direct-to-storage path.</li>
                         <li>Download links stay application-controlled so fyuhls can decide CDN, signed-origin, or tracked delivery.</li>
+                        <li>Public file metadata includes the same share fields shown on the download page.</li>
                     </ul>
                 </section>
 
@@ -148,7 +149,7 @@ X-API-Token: fyu_your_token_here</code></pre>
                                 </tr>
                                 <tr>
                                     <td><code>files.read</code></td>
-                                    <td>Read file metadata and request application-controlled download links.</td>
+                                    <td>Read file metadata (including public share fields) and request application-controlled download links.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -185,7 +186,7 @@ X-API-Token: fyu_your_token_here</code></pre>
                                 <tr><td>POST</td><td><code>/api/v1/uploads/sessions/{id}/parts/report</code></td><td>Report a successful part upload and its ETag.</td></tr>
                                 <tr><td>POST</td><td><code>/api/v1/uploads/sessions/{id}/complete</code></td><td>Finalize the upload and create the file record.</td></tr>
                                 <tr><td>POST</td><td><code>/api/v1/uploads/sessions/{id}/abort</code></td><td>Abort a multipart session and release reservation state.</td></tr>
-                                <tr><td>GET</td><td><code>/api/v1/files/{id}</code></td><td>Return owner-scoped file metadata.</td></tr>
+                                <tr><td>GET</td><td><code>/api/v1/files/{id}</code></td><td>Return owner-scoped file metadata, including public share fields.</td></tr>
                                 <tr><td>GET</td><td><code>/api/v1/downloads/{id}/link</code></td><td>Return an application-signed download link.</td></tr>
                             </tbody>
                         </table>
@@ -422,13 +423,29 @@ curl -X POST "https://your-site.example/api/v1/uploads/sessions/ups_ab12cd34ef56
                     <div class="api-grid">
                         <div>
                             <h3>File metadata</h3>
-                            <p><code>GET /api/v1/files/{id}</code> returns owner-scoped metadata including filename, file size, mime type, short ID, visibility, folder ID, status, and download count.</p>
+                            <p><code>GET /api/v1/files/{id}</code> returns owner-scoped metadata including filename, file size, mime type, short ID, visibility, folder ID, status, download count, and public share fields (when the file is public).</p>
                         </div>
                         <div>
                             <h3>Download links</h3>
-                            <p><code>GET /api/v1/downloads/{id}/link</code> returns an application-signed link. fyuhls still decides whether delivery uses CDN, signed origin, or an app-controlled path.</p>
+                            <p><code>GET /api/v1/downloads/{id}/link</code> returns an application-signed link with a time-limited <code>expires</code> value. fyuhls still decides whether delivery uses CDN, signed origin, or an app-controlled path.</p>
                         </div>
                     </div>
+                    <pre><code>{
+  "status": "ok",
+  "file": {
+    "id": 123,
+    "short_id": "1a2dd2a8",
+    "filename": "example.zip",
+    "file_size": 1048576,
+    "mime_type": "application/zip",
+    "is_public": 1,
+    "downloads": 42,
+    "share_fields": [
+      {"label": "Page Link", "value": "https://your-site.example/file/1a2dd2a8"},
+      {"label": "HTML Code", "value": "&lt;a href=&quot;...&quot;&gt;example.zip&lt;/a&gt;"}
+    ]
+  }
+}</code></pre>
                     <pre><code>{
   "status": "ok",
   "url": "https://your-site.example/download/123?token=...",

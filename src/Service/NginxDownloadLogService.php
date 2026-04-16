@@ -14,12 +14,42 @@ class NginxDownloadLogService
     private const HEALTH_REASON_CODES = ['missing_viewer_identity', 'missing_client_ip'];
     private static bool $schemaEnsured = false;
 
+    private function validateConfiguredLogPath(string $path): void
+    {
+        $isUnixAbsolute = str_starts_with($path, '/');
+        $isWindowsAbsolute = preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1;
+        if (!$isUnixAbsolute && !$isWindowsAbsolute) {
+            throw new \RuntimeException('Configured Nginx completion log path must be absolute.');
+        }
+
+        if (preg_match('/[\x00-\x1F]/', $path) === 1) {
+            throw new \RuntimeException('Configured Nginx completion log path contains invalid characters.');
+        }
+
+        if (preg_match('/(^|[\\\\\\/])\.\.([\\\\\\/]|$)/', $path) === 1) {
+            throw new \RuntimeException('Configured Nginx completion log path cannot contain parent-directory traversal.');
+        }
+
+        $normalized = str_replace('\\', '/', $path);
+        $basename = strtolower((string)pathinfo($normalized, PATHINFO_BASENAME));
+        $extension = strtolower((string)pathinfo($normalized, PATHINFO_EXTENSION));
+        $looksLikeLogFile = in_array($extension, ['log', 'txt'], true)
+            || str_contains($basename, 'access')
+            || str_contains($basename, 'download');
+
+        if (!$looksLikeLogFile) {
+            throw new \RuntimeException('Configured Nginx completion log path must point to a plausible log file such as *.log, *.txt, or an access/download log name.');
+        }
+    }
+
     public function process(?int $maxLines = null): array
     {
         $path = trim((string)Setting::get('nginx_completion_log_path', '', 'downloads'));
         if ($path === '') {
             return ['status' => 'disabled', 'processed' => 0, 'credited' => 0, 'skipped' => 0, 'purged' => 0];
         }
+
+        $this->validateConfiguredLogPath($path);
 
         $maxLines = $this->resolveMaxLinesPerRun($maxLines);
 
@@ -111,6 +141,8 @@ class NginxDownloadLogService
                 'last_issue_at' => null,
             ];
         }
+
+        $this->validateConfiguredLogPath($path);
 
         $this->ensureSchema();
 

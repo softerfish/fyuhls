@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>fyuhls v0.1 Documentation | Installation Guide, Admin Setup, Storage, Rewards, and Support</title>
-    <meta name="description" content="fyuhls documentation covering installation, admin setup, packages, storage backends, SEO controls, rewards, 2FA, system status, and support workflows for version v0.1.">
+    <title>fyuhls v0.1.2 Documentation | Installation Guide, Admin Setup, Storage, Rewards, and Support</title>
+    <meta name="description" content="fyuhls documentation covering installation, admin setup, packages, storage backends, SEO controls, rewards, 2FA, system status, updater safety, and support workflows for version v0.1.2.">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <meta property="og:type" content="article">
-    <meta property="og:title" content="fyuhls v0.1 Documentation">
-    <meta property="og:description" content="Installation guide, admin setup, storage, SEO controls, rewards, 2FA, and support documentation for fyuhls v0.1.">
+    <meta property="og:title" content="fyuhls v0.1.2 Documentation">
+    <meta property="og:description" content="Installation guide, admin setup, storage, SEO controls, rewards, 2FA, and support documentation for fyuhls v0.1.2.">
     <meta property="og:site_name" content="fyuhls">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="fyuhls v0.1 Documentation">
+    <meta name="twitter:title" content="fyuhls v0.1.2 Documentation">
     <meta name="twitter:description" content="Setup and admin documentation for the fyuhls self-hosted PHP file hosting script, including SEO controls.">
     <link rel="stylesheet" href="styles.css">
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "TechArticle",
-      "headline": "fyuhls v0.1 Setup and Admin Guide",
+      "headline": "fyuhls v0.1.2 Setup and Admin Guide",
       "description": "Installation and operational documentation for the fyuhls self-hosted PHP file hosting script.",
       "about": {
         "@type": "SoftwareApplication",
@@ -54,7 +54,7 @@
         <div class="site-shell">
             <div class="section-header">
                 <span class="eyebrow">Documentation</span>
-          <h1>fyuhls v0.1 Documentation, Installation Guide, and Admin Setup</h1>
+          <h1>fyuhls v0.1.2 Documentation, Installation Guide, and Admin Setup</h1>
                 <p class="lead">
                     This page is intended for site owners installing and configuring fyuhls on Linux-based hosting.
                     It covers the base install flow, storage setup, core admin sections, and the main support paths included in the script.
@@ -78,9 +78,9 @@
                             <li>Create an application folder above your public web root and upload the full script there, including <code>public</code>, <code>src</code>, <code>config</code>, <code>storage</code>, <code>vendor</code>, and <code>docs</code>.</li>
                             <li>Point your domain or subdomain document root to the installed project's <code>public/</code> directory. In cPanel or DirectAdmin this usually means changing the path to something like <code>/home/yourusername/domain.com/fyuhls/public</code>.</li>
                             <li>Create a MySQL database and a MySQL user with access to that database before running the installer. The installer does not create them for you.</li>
-                            <li>Visit <code>/install.php</code> and complete the install form with database credentials, hidden config path, and admin account details. For better security, keep the hidden config path outside the public web directory.</li>
+                            <li>Visit <code>/install.php</code> and complete the install form with database credentials and admin account details. The installer now generates a safe hidden config path outside the webroot automatically and shows it for reference.</li>
                             <li>After install, run <code>/post_install_check.php</code> to verify the environment.</li>
-                            <li>Delete <code>install.php</code>, <code>post_install_check.php</code>, and the schema file if they remain on the server after setup.</li>
+                            <li>Remove <code>install.php</code>, <code>post_install_check.php</code>, and the schema file after setup if you prefer a hardened surface. The app blocks them after install, but removal is still best practice.</li>
                             <li>Configure cron, storage, email, packages, uploads, downloads, monetization, security, and SEO in the admin area.</li>
                         </ol>
                     </article>
@@ -89,7 +89,7 @@
                         <ul class="checklist">
                             <li>The installer expects the database and database user to exist already.</li>
                             <li>The script targets Linux-based hosting environments, not Windows hosting.</li>
-                            <li>For better security, store the generated hidden config outside of the public web directory.</li>
+                            <li>The hidden config path is generated automatically outside the public web directory. Keep that file outside the webroot and readable by PHP.</li>
                             <li>Use the post-install check page before opening the site to real users.</li>
                             <li>If SMTP is configured, test it from the admin area before relying on email workflows.</li>
                             <li>If you plan to use rewards or payouts, review monetization and cron settings after the install finishes.</li>
@@ -288,6 +288,15 @@
                             <li>Use active, read-only, and disabled states intentionally during migrations or cutovers.</li>
                             <li>Test delivery after any credential, endpoint, or handoff change.</li>
                             <li>Keep object-storage CORS aligned with multipart upload needs.</li>
+                        </ul>
+                    </article>
+                    <article class="doc-card">
+                        <h3>Updater and Releases</h3>
+                        <p>Use the built-in updater preview to review what will change, then apply updates with automatic backups and quarantined stale files.</p>
+                        <ul class="checklist">
+                            <li>Run a preview before applying a release on production.</li>
+                            <li>Review the update report and quarantine list if a file was locally modified.</li>
+                            <li>Keep your GitHub repo setting pointed at the official fyuhls release source.</li>
                         </ul>
                     </article>
                     <article class="doc-card">
@@ -610,7 +619,7 @@
                 <div class="callout">
                     <div>
                         <h2>Repository and Release Tracking</h2>
-                        <p>Use the GitHub repository for source access, release snapshots, and future updates.</p>
+                        <p>Use the GitHub repository for source access, release snapshots, and future updates. The built-in updater supports previews, backups, and quarantined stale files to make upgrades safer.</p>
                     </div>
                     <a class="button" href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">Open GitHub</a>
                 </div>
@@ -622,7 +631,7 @@
         <div class="site-shell footer-grid">
             <div>
                 <h3>fyuhls</h3>
-          <p>Version v0.1 documentation for installation, storage, monetization, and admin operations.</p>
+          <p>Version v0.1.2 documentation for installation, storage, monetization, and admin operations.</p>
             </div>
             <div>
                 <h3>Quick Links</h3>

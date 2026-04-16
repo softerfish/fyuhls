@@ -28,6 +28,12 @@ class PluginController
         exit;
     }
 
+    private function abortText(int $status, string $message): void
+    {
+        http_response_code($status);
+        exit($message);
+    }
+
     public function index()
     {
         $this->checkAuth();
@@ -232,12 +238,10 @@ class PluginController
     {
         $this->checkAuth();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            die("Method Not Allowed");
+            $this->abortText(405, "Method Not Allowed");
         }
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            http_response_code(403);
-            die("CSRF Token Mismatch");
+            $this->abortText(403, "CSRF Token Mismatch");
         }
         $this->validateDir($dir);
         $db = Database::getInstance()->getConnection();
@@ -260,12 +264,10 @@ class PluginController
     {
         $this->checkAuth();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            die("Method Not Allowed");
+            $this->abortText(405, "Method Not Allowed");
         }
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            http_response_code(403);
-            die("CSRF Token Mismatch");
+            $this->abortText(403, "CSRF Token Mismatch");
         }
         $this->validateDir($dir);
         $db = Database::getInstance()->getConnection();
@@ -278,12 +280,10 @@ class PluginController
     {
         $this->checkAuth();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            die("Method Not Allowed");
+            $this->abortText(405, "Method Not Allowed");
         }
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            http_response_code(403);
-            die("CSRF Token Mismatch");
+            $this->abortText(403, "CSRF Token Mismatch");
         }
         $this->validateDir($dir);
         $db = Database::getInstance()->getConnection();
@@ -296,12 +296,10 @@ class PluginController
     {
         $this->checkAuth();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            die("Method Not Allowed");
+            $this->abortText(405, "Method Not Allowed");
         }
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            http_response_code(403);
-            die("CSRF Token Mismatch");
+            $this->abortText(403, "CSRF Token Mismatch");
         }
         $this->validateDir($dir);
 

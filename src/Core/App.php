@@ -5,8 +5,15 @@ namespace App\Core;
 use App\Service\GarbageCollector;
 
 class App {
+    private const INSECURE_APP_KEYS = [
+        '',
+        'REPLACE_DURING_INSTALL',
+        'a8b3c9d2e1f4g7h0i5j6k1l8m9n2o3p4',
+    ];
+
     private Router $router;
     private string $cspNonce = '';
+    private static array $runtimeSecurityNotices = [];
 
     public function __construct() {
         $this->router = new Router();
@@ -14,8 +21,7 @@ class App {
 
     private function isHttpsRequest(): bool
     {
-        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+        return \App\Service\SecurityService::isHttpsRequest();
     }
 
     private function resolveSafeRefererRedirect(string $fallback): string
@@ -66,8 +72,9 @@ class App {
             . "frame-ancestors 'self'; "
             . "script-src 'self' 'nonce-{$this->cspNonce}' https://challenges.cloudflare.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
             . "script-src-elem 'self' 'nonce-{$this->cspNonce}' https://challenges.cloudflare.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
-            . "style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
-            . "style-src-elem 'self' 'nonce-{$this->cspNonce}' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            . "style-src 'self' 'nonce-{$this->cspNonce}' https://cdn.jsdelivr.net https://fonts.googleapis.com https://challenges.cloudflare.com; "
+            . "style-src-elem 'self' 'nonce-{$this->cspNonce}' https://cdn.jsdelivr.net https://fonts.googleapis.com https://challenges.cloudflare.com; "
+            . "style-src-attr 'unsafe-inline'; "
             . "img-src 'self' data: https://cdn.buymeacoffee.com; "
             . "font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; "
             . "frame-src 'self' https://challenges.cloudflare.com; "
@@ -86,6 +93,10 @@ class App {
 
         try {
             $db = Database::getInstance()->getConnection();
+            if (!$db) {
+                return $sources;
+            }
+
             $rows = $db->query("SELECT config FROM file_servers WHERE LOWER(status) = 'active'")->fetchAll();
 
             foreach ($rows as $row) {
@@ -164,6 +175,82 @@ class App {
         return $scheme . '://' . $host . ($port !== null ? ':' . $port : '');
     }
 
+    private function appKeyIsSecure(?string $appKey): bool
+    {
+        $appKey = trim((string)$appKey);
+        return $appKey !== '' && !in_array($appKey, self::INSECURE_APP_KEYS, true);
+    }
+
+    private function resolveWritableConfigTarget(string $dbConfigPath): ?string
+    {
+        $dbConfigPath = realpath($dbConfigPath) ?: $dbConfigPath;
+        $raw = @file_get_contents($dbConfigPath);
+        if (!is_string($raw) || $raw === '') {
+            return is_writable($dbConfigPath) ? $dbConfigPath : null;
+        }
+
+        if (preg_match('/return\s+require\s+([\'"])(.+?)\1\s*;/s', $raw, $matches) === 1) {
+            $target = $matches[2];
+            if (!preg_match('/^(?:[A-Za-z]:[\\\\\\/]|\/|\\\\\\\\)/', $target)) {
+                $target = dirname($dbConfigPath) . DIRECTORY_SEPARATOR . $target;
+            }
+
+            return is_file($target) && is_writable($target) ? $target : null;
+        }
+
+        return is_writable($dbConfigPath) ? $dbConfigPath : null;
+    }
+
+    private function persistAppKey(string $dbConfigPath, string $appKey): bool
+    {
+        $target = $this->resolveWritableConfigTarget($dbConfigPath);
+        if ($target === null) {
+            return false;
+        }
+
+        $config = require $target;
+        if (!is_array($config)) {
+            return false;
+        }
+
+        $config['app_key'] = $appKey;
+        $content = "<?php\n\nreturn " . var_export($config, true) . ";\n";
+        return @file_put_contents($target, $content, LOCK_EX) !== false;
+    }
+
+    private function ensureSecureAppKey(?string $dbConfigPath): void
+    {
+        $currentKey = (string)Config::get('app_key', '');
+        if ($this->appKeyIsSecure($currentKey)) {
+            return;
+        }
+
+        if ($dbConfigPath === null || !file_exists($dbConfigPath)) {
+            return;
+        }
+
+        $generatedKey = bin2hex(random_bytes(16));
+        if ($this->persistAppKey($dbConfigPath, $generatedKey)) {
+            Config::set('app_key', $generatedKey);
+            error_log('Security: generated and persisted a unique application key for this installation.');
+            return;
+        }
+
+        $target = $this->resolveWritableConfigTarget($dbConfigPath);
+        self::$runtimeSecurityNotices['app_key'] = [
+            'title' => 'Application key still uses the insecure default',
+            'message' => 'Fyuhls could not auto-rotate the application key because the hidden config is not writable. Signed download, referral, reward, and callback secrets should be rotated as soon as possible.',
+            'config_path' => $target ?? $dbConfigPath,
+            'suggested_value' => $generatedKey,
+        ];
+        error_log('Security warning: application key is still using the insecure default and could not be rotated automatically.');
+    }
+
+    public static function getRuntimeSecurityNotices(): array
+    {
+        return array_values(self::$runtimeSecurityNotices);
+    }
+
     public function run(): void {
         // Secure Session Start
         if (session_status() === PHP_SESSION_NONE) {
@@ -208,7 +295,6 @@ class App {
 
         // Security Headers
         header('X-Content-Type-Options: nosniff');
-        header('X-XSS-Protection: 1; mode=block');
         header('X-Frame-Options: SAMEORIGIN');
         header('Referrer-Policy: strict-origin-when-cross-origin');
         // disable browser APIs we don't need (mic, camera, geolocation, etc.)
@@ -230,6 +316,8 @@ class App {
             \App\Service\EncryptionService::setKey($encryptionKey);
         }
 
+        $this->ensureSecureAppKey(file_exists($dbConfigPath) ? $dbConfigPath : null);
+
         header('Content-Security-Policy: ' . $this->buildContentSecurityPolicy());
 
         // Load Plugins
@@ -245,11 +333,24 @@ class App {
         $rootDir = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
         require $rootDir . '/config/routes.php';
 
+        $requestUri = (string)($_SERVER['REQUEST_URI'] ?? '/');
+        $requestPath = strtok($requestUri, '?') ?: '/';
+        $smartViewMap = [
+            '/starred' => 'starred',
+            '/largest' => 'largest',
+            '/duplicates' => 'duplicates',
+        ];
+        if (isset($smartViewMap[$requestPath])) {
+            $_GET['view'] = $_GET['view'] ?? $smartViewMap[$requestPath];
+            $_SERVER['REQUEST_URI'] = '/?view=' . rawurlencode((string)$_GET['view']);
+            $requestUri = (string)$_SERVER['REQUEST_URI'];
+        }
+
         // maintenance mode - show holding page to non-admins
         // admins can still access /admin while maintenance is on
-        $uri = strtok($_SERVER['REQUEST_URI'], '?');
+        $uri = strtok($requestUri, '?');
         $isAdminPath = str_starts_with($uri, '/admin');
-        $isAdminSession = isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
+        $viewerIsAdmin = \App\Core\Auth::isAdmin();
         
         // Allow login and registration even when VPN/proxy blocking is enabled.
         $isPublicAuth = in_array($uri, ['/login', '/register'], true);
@@ -258,7 +359,7 @@ class App {
             try {
                 // 1. Maintenance Mode Check
                 $maintenanceOn = \App\Model\Setting::get('maintenance_mode', '0') === '1';
-                if ($maintenanceOn && !$isAdminPath && !$isAdminSession) {
+                if ($maintenanceOn && !$isAdminPath && !$viewerIsAdmin) {
                     http_response_code(503);
                     $siteName = \App\Model\Setting::getOrConfig('app.name', Config::get('app_name', 'Site'));
                     require_once dirname(__DIR__) . '/View/maintenance.php';
@@ -268,7 +369,7 @@ class App {
                 // 2. Global VPN/Proxy Block
                 $vpnMode = \App\Model\Setting::get('vpn_proxy_mode', \App\Model\Setting::get('block_vpn_traffic', '0') === '1' ? 'enforcement' : 'intelligence');
                 if ($vpnMode === 'enforcement') {
-                    if ($isAdminPath || $isAdminSession) {
+                    if ($isAdminPath || $viewerIsAdmin) {
                         // error_log("VPN_BLOCK: Skipping check because user is Admin.");
                     } else {
                         $ip = \App\Service\SecurityService::getClientIp();
@@ -335,7 +436,7 @@ class App {
         ob_start(function (string $buffer): string {
             return $this->injectNonceIntoHtml($buffer);
         });
-        $this->router->dispatch($_SERVER['REQUEST_URI'], $_SERVER['REQUEST_METHOD']);
+        $this->router->dispatch($requestUri, $_SERVER['REQUEST_METHOD']);
         if (ob_get_level() > 0) {
             ob_end_flush();
         }
@@ -355,7 +456,10 @@ class App {
             }
         }
 
-        $looksLikeHtml = stripos($buffer, '<html') !== false || stripos($buffer, '<script') !== false;
+        $looksLikeHtml = stripos($buffer, '<html') !== false
+            || stripos($buffer, '<body') !== false
+            || stripos($buffer, '<script') !== false
+            || stripos($buffer, '<style') !== false;
         if (($contentType !== '' && stripos($contentType, 'text/html') === false) || !$looksLikeHtml) {
             return $buffer;
         }

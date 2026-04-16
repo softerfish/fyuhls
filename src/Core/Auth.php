@@ -3,6 +3,8 @@
 namespace App\Core;
 
 class Auth {
+    private static ?array $sessionUserMetaCache = null;
+
     public static function logActivity(string $type, ?string $description = null): void {
         $userId = self::id();
         $ip = \App\Service\SecurityService::getClientIp();
@@ -51,11 +53,13 @@ class Auth {
         $_SESSION['user_id'] = $userId;
         $_SESSION['role'] = $role;
         $_SESSION['last_activity'] = time();
+        self::$sessionUserMetaCache = null;
     }
 
     public static function logout(): void {
         if (session_status() === PHP_SESSION_NONE) session_start();
         $_SESSION = [];
+        self::$sessionUserMetaCache = null;
 
         if (ini_get('session.use_cookies')) {
             $params = session_get_cookie_params();
@@ -75,16 +79,21 @@ class Auth {
 
     public static function check(): bool {
         if (session_status() === PHP_SESSION_NONE) session_start();
-        return isset($_SESSION['user_id']);
+        return self::getSessionUserMeta() !== null;
     }
 
     public static function id(): ?int {
-        return $_SESSION['user_id'] ?? null;
+        if (!self::check()) {
+            return null;
+        }
+
+        return (int)($_SESSION['user_id'] ?? 0) ?: null;
     }
 
     public static function isAdmin(): bool {
         if (session_status() === PHP_SESSION_NONE) session_start();
-        return isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
+        $userMeta = self::getSessionUserMeta();
+        return $userMeta !== null && ($userMeta['role'] ?? '') === 'admin';
     }
 
     public static function requireAdmin(): void {
@@ -118,5 +127,40 @@ class Auth {
         }
 
         return $user ?: null;
+    }
+
+    private static function getSessionUserMeta(): ?array {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        $userId = (int)($_SESSION['user_id'] ?? 0);
+        if ($userId <= 0) {
+            self::$sessionUserMetaCache = null;
+            return null;
+        }
+
+        if (self::$sessionUserMetaCache !== null && (int)(self::$sessionUserMetaCache['id'] ?? 0) === $userId) {
+            return self::$sessionUserMetaCache;
+        }
+
+        try {
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare("SELECT id, role, status FROM users WHERE id = ? LIMIT 1");
+            $stmt->execute([$userId]);
+            $user = $stmt->fetch();
+
+            if (!$user || ($user['status'] ?? '') !== 'active') {
+                self::logout();
+                return null;
+            }
+
+            $_SESSION['role'] = $user['role'] ?? 'user';
+            self::$sessionUserMetaCache = $user;
+            return $user;
+        } catch (\Throwable $e) {
+            self::logout();
+            return null;
+        }
     }
 }

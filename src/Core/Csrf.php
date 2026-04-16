@@ -2,6 +2,8 @@
 
 namespace App\Core;
 
+use App\Core\Config;
+
 class Csrf {
     public static function generate(): string {
         return self::getSessionToken();
@@ -18,7 +20,24 @@ class Csrf {
         }
 
         $sessionToken = $_SESSION['csrf_token'] ?? '';
+        $previousToken = $_SESSION['csrf_token_prev'] ?? '';
+
         if ($sessionToken !== '' && hash_equals($sessionToken, $token)) {
+            $_SESSION['csrf_token_prev'] = $sessionToken;
+            $newToken = bin2hex(random_bytes(32));
+            $_SESSION['csrf_token'] = $newToken;
+            if (!headers_sent()) {
+                header('X-CSRF-Token: ' . $newToken);
+            }
+            return true;
+        }
+
+        if ($previousToken !== '' && hash_equals($previousToken, $token)) {
+            // A concurrent request might have hit the rotated token just before this one processed.
+            // Let it pass with the previous token, and reply with the new current token to get the client re-synced.
+            if (!headers_sent()) {
+                header('X-CSRF-Token: ' . $sessionToken);
+            }
             return true;
         }
 
@@ -45,6 +64,10 @@ class Csrf {
     }
 
     private static function logDebug(string $message): void {
+        if (!Config::get('debug', false)) {
+            return;
+        }
+
         $logPath = dirname(__DIR__, 2) . '/storage/logs/csrf_debug.log';
         @file_put_contents($logPath, date('Y-m-d H:i:s') . ' - ' . $message . "\n", FILE_APPEND);
     }

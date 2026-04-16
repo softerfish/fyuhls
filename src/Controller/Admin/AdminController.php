@@ -668,12 +668,12 @@ class AdminController
                     [
                         'name' => 'proxycheck.io',
                         'url' => 'https://proxycheck.io/',
-                        'description' => 'Helps you identify VPN, proxy, and risky traffic patterns. In Fyuhls, it pairs especially well with Rewards Fraud and Security settings when you want stronger intelligence around suspicious visitors without relying on a single signal.',
+                        'description' => 'A powerful API service for detecting VPNs, proxies, Tor exit nodes, and bad actors. It\'s an excellent tool to integrate if you want to block bots from inflating download counts or protect your platform from serial abusers and fraudulent reward claims. They offer a generous free tier, making it very easy to test out their intelligence feed alongside your own security rules.',
                     ],
                     [
                         'name' => 'themasoftware.com',
                         'url' => 'https://themasoftware.com/',
-                        'description' => 'A software company worth following when you are building the business side of a hosting platform. They can be a useful reference point for workflows, software operations, and the kinds of commercial systems that support a growing web product.',
+                        'description' => 'A suite of mass-posting and content automation software widely used by top-tier uploaders and affiliates. Their tools (like themaPoster and themaManager) help users blast file links across hundreds of forums and blogs automatically. Understanding how these tools work is incredibly useful if you want to attract high-volume uploaders to your platform and monetize their traffic.',
                     ],
                 ],
             ],
@@ -899,6 +899,7 @@ class AdminController
 
     public function abuseReports()
     {
+        $this->checkAuth();
         header("Location: /admin/requests");
         exit;
     }
@@ -940,6 +941,7 @@ class AdminController
 
     public function contacts()
     {
+        $this->checkAuth();
         header("Location: /admin/requests");
         exit;
     }
@@ -1219,6 +1221,7 @@ class AdminController
 
     public function dmcaReports()
     {
+        $this->checkAuth();
         header("Location: /admin/requests");
         exit;
     }

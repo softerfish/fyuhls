@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>fyuhls v0.1 | Self-Hosted PHP File Hosting Script for Shared Hosting, VPS, and Dedicated Servers</title>
-    <meta name="description" content="fyuhls is a self-hosted PHP file hosting script for shared hosting, VPS, and dedicated Linux servers with user accounts, storage backends, rewards, payouts, admin tools, and documentation.">
+    <title>fyuhls v0.1.2 | Self-Hosted PHP File Hosting Script for Shared Hosting, VPS, and Dedicated Servers</title>
+    <meta name="description" content="fyuhls is a self-hosted PHP file hosting script for shared hosting, VPS, and dedicated Linux servers with user accounts, storage backends, rewards, payouts, admin tools, safer updates, and deep documentation.">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="fyuhls v0.1 | Self-Hosted PHP File Hosting Script">
+    <meta property="og:title" content="fyuhls v0.1.2 | Self-Hosted PHP File Hosting Script">
     <meta property="og:description" content="Self-hosted PHP file hosting script for shared hosting, VPS, and dedicated Linux servers.">
     <meta property="og:site_name" content="fyuhls">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="fyuhls v0.1 | Self-Hosted PHP File Hosting Script">
-    <meta name="twitter:description" content="Self-hosted PHP file hosting script with packages, storage backends, rewards, payouts, and admin tooling.">
+    <meta name="twitter:title" content="fyuhls v0.1.2 | Self-Hosted PHP File Hosting Script">
+    <meta name="twitter:description" content="Self-hosted PHP file hosting script with packages, storage backends, rewards, payouts, safer updates, and admin tooling.">
     <link rel="stylesheet" href="styles.css">
     <script type="application/ld+json">
     {
@@ -23,7 +23,7 @@
           "name": "fyuhls",
           "applicationCategory": "BusinessApplication",
           "operatingSystem": "Linux",
-      "softwareVersion": "0.1",
+      "softwareVersion": "0.1.2",
           "codeRepository": "https://github.com/softerfish/fyuhls",
           "description": "fyuhls is a self-hosted PHP file hosting script for shared hosting, VPS, and dedicated Linux servers.",
           "featureList": [
@@ -33,6 +33,9 @@
             "AES-256 protection for sensitive fields",
             "Public API with personal tokens",
             "Rewards and payouts",
+            "Safer updater with preview, quarantine, and backups",
+            "Download-page state system with share panels",
+            "Advanced file manager selection and bulk actions",
             "Admin dashboard, diagnostics, and live download monitoring",
             "Installer and post-install checks"
           ]
@@ -92,7 +95,7 @@
         <section class="hero">
             <div class="site-shell hero-grid">
                 <article class="hero-card hero-copy">
-                    <span class="eyebrow">Version v0.1</span>
+                    <span class="eyebrow">Version v0.1.2</span>
                     <h1>File hosting that feels like an operator console, not a starter template.</h1>
                     <p class="lead">
                         fyuhls is a self-hosted PHP file hosting script for people who want a real platform with real control:
@@ -105,7 +108,8 @@
                         <span class="tag">Direct multipart uploads</span>
                         <span class="tag">API tokens</span>
                         <span class="tag">AES-256 sensitive-field protection</span>
-                        <span class="tag">Current download tracking</span>
+                        <span class="tag">Safer updater workflow</span>
+                        <span class="tag">Download state system</span>
                     </div>
                     <div class="button-row">
                         <a class="button" href="documentation.html">Read Documentation</a>
@@ -116,8 +120,8 @@
                 <aside class="hero-card hero-side">
                     <section class="mini-panel">
                         <span class="mini-label">Current release</span>
-                        <div class="mini-value">v0.1</div>
-                        <p>Pre-beta foundation focused on install flow, storage backends, monetization controls, and a serious admin surface.</p>
+                        <div class="mini-value">v0.1.2</div>
+                        <p>Beta foundation focused on storage, monetization controls, a serious admin surface, and a safer update pipeline.</p>
                     </section>
 
                     <section class="mini-panel demo-panel">
@@ -140,6 +144,7 @@
                             <li>Rewards, payouts, affiliate tooling, and built-in TOTP two-factor authentication</li>
                             <li>SMTP, queue-aware mail handling, sanitized diagnostics exports, and admin-side health tooling</li>
                             <li>SEO controls, cron heartbeat automation, live download tracking, and abuse or fraud review workflows</li>
+                            <li>Safer updater previews, quarantined stale files, and rollback-friendly backups</li>
                         </ul>
                     </section>
 
@@ -476,7 +481,7 @@
             <div>
                 <h3>fyuhls</h3>
                 <p>Self-hosted file hosting script for Linux-based shared hosting, VPS, and dedicated servers.</p>
-          <p class="muted">Version v0.1</p>
+          <p class="muted">Version v0.1.2</p>
             </div>
             <div>
                 <h3>Links</h3>

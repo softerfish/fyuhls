@@ -250,6 +250,17 @@ class File {
 
     public static function update(int $id, array $data): bool {
         self::ensureSchema();
+
+        // only allow known columns to prevent SQL column-name injection
+        static $allowed = [
+            'folder_id', 'status', 'deleted_restore_status', 'filename',
+            'is_public', 'password', 'allow_ppd', 'delete_at',
+        ];
+        $data = array_intersect_key($data, array_flip($allowed));
+        if (empty($data)) {
+            return false;
+        }
+
         $db = Database::getInstance()->getConnection();
         $fields = [];
         $values = [];

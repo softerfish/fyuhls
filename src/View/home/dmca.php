@@ -42,15 +42,16 @@ include __DIR__ . '/header.php';
         }
         .dmca-confirm-title { margin-top: 0; }
         .dmca-confirm-label {
-            display: flex;
-            align-items: flex-start;
-            gap: 0.5rem;
+            display: block;
             cursor: pointer;
             font-weight: 400;
+            line-height: 1.5;
         }
-        .dmca-confirm-checkbox {
+        .auth-form .dmca-confirm-checkbox {
             width: auto;
             margin-top: 0.25rem;
+            flex-shrink: 0;
+            cursor: pointer;
         }
     </style>
 
@@ -92,10 +93,12 @@ include __DIR__ . '/header.php';
                 <input type="text" name="signature" id="signature" value="<?= htmlspecialchars($_POST['signature'] ?? '') ?>" required>
             </div>
             <div class="dmca-confirm-box">
-                <p class="dmca-confirm-title"><strong>Confirmation:</strong></p>
                 <label class="dmca-confirm-label">
-                    <input type="checkbox" required class="dmca-confirm-checkbox">
-                    I have a good faith belief that the use of the material is not authorized by the copyright owner, its agent, or the law.
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                        <strong class="dmca-confirm-title" style="margin: 0;">Confirmation:</strong>
+                        <input type="checkbox" required class="dmca-confirm-checkbox" style="margin: 0;">
+                    </div>
+                    <span style="display:block;">I have a good faith belief that the use of the material is not authorized by the copyright owner, its agent, or the law.</span>
                 </label>
             </div>
             <?php include __DIR__ . '/../partials/captcha.php'; ?>

@@ -51,7 +51,8 @@ $extraHead = '
     .settings-token-grid { display: grid; grid-template-columns: 1.4fr 0.8fr; gap: 1rem; }
     .settings-scopes { margin-top: 1rem; }
     .settings-scopes-list { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem; }
-    .settings-scope-option { display: inline-flex; align-items: center; gap: 0.5rem; }
+    .settings-scope-option { display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .auth-form .settings-scope-option input[type="checkbox"] { width: auto; margin: 0; flex-shrink: 0; cursor: pointer; }
     .settings-token-btn { margin-top: 1.5rem; padding-left: 2rem; padding-right: 2rem; }
     .settings-token-list { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
     .settings-token-empty { padding: 1rem 1.25rem; color: var(--text-muted); }

@@ -98,9 +98,7 @@ class LoginDeviceService
 
     private static function persistCookie(string $token): void
     {
-        $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https'
-            || (($_SERVER['SERVER_PORT'] ?? null) == 443);
+        $secure = \App\Service\SecurityService::isHttpsRequest();
 
         setcookie(self::COOKIE_NAME, $token, [
             'expires' => time() + self::COOKIE_TTL,

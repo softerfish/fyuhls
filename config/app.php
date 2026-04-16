@@ -56,6 +56,6 @@ return [
         'ffmpeg_path' => ''
     ],
 
-    // Application Key (32 char random string)
-    'app_key' => 'a8b3c9d2e1f4g7h0i5j6k1l8m9n2o3p4'
+    // Application Key (generated during installation and stored in the hidden config)
+    'app_key' => 'REPLACE_DURING_INSTALL'
 ];

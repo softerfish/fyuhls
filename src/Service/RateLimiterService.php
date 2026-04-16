@@ -30,19 +30,37 @@ class RateLimiterService {
         $db = Database::getInstance()->getConnection();
         $now = time();
         $cutoff = $now - $windowSeconds;
+        $lockName = self::lockName($action, $key);
 
-        $stmt = $db->prepare("SELECT COUNT(*) FROM rate_limits WHERE action = ? AND identifier = ? AND created_at >= FROM_UNIXTIME(?)");
-        $stmt->execute([$action, $key, $cutoff]);
-        $count = (int)$stmt->fetchColumn();
-
-        if ($count >= $limit) {
+        $lockStmt = $db->prepare("SELECT GET_LOCK(?, 5)");
+        $lockStmt->execute([$lockName]);
+        $lockAcquired = (int)$lockStmt->fetchColumn() === 1;
+        if (!$lockAcquired) {
             return false;
         }
 
-        $stmt = $db->prepare("INSERT INTO rate_limits (action, identifier, created_at) VALUES (?, ?, FROM_UNIXTIME(?))");
-        $stmt->execute([$action, $key, $now]);
+        try {
+            $stmt = $db->prepare("SELECT COUNT(*) FROM rate_limits WHERE action = ? AND identifier = ? AND created_at >= FROM_UNIXTIME(?)");
+            $stmt->execute([$action, $key, $cutoff]);
+            $count = (int)$stmt->fetchColumn();
 
-        return true;
+            if ($count >= $limit) {
+                return false;
+            }
+
+            $stmt = $db->prepare("INSERT INTO rate_limits (action, identifier, created_at) VALUES (?, ?, FROM_UNIXTIME(?))");
+            $stmt->execute([$action, $key, $now]);
+
+            return true;
+        } finally {
+            $unlockStmt = $db->prepare("SELECT RELEASE_LOCK(?)");
+            $unlockStmt->execute([$lockName]);
+        }
+    }
+
+    private static function lockName(string $action, string $key): string
+    {
+        return 'rate_limit:' . hash('sha256', $action . '|' . $key);
     }
 
     public static function cleanup(int $maxAgeSeconds = 86400): int {

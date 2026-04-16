@@ -134,6 +134,21 @@ class Folder {
         return $folders;
     }
 
+    public static function getDeletedByUser(int $userId): array {
+        self::ensureSchema();
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT * FROM folders WHERE user_id = ? AND status = 'deleted' ORDER BY created_at DESC");
+        $stmt->execute([$userId]);
+        $folders = $stmt->fetchAll();
+        foreach ($folders as &$folder) {
+            $folder['name'] = \App\Service\EncryptionService::decrypt($folder['name']);
+            $folder['folder_count'] = 0;
+            $folder['file_count'] = 0;
+            $folder['total_size'] = 0;
+        }
+        return $folders;
+    }
+
     public static function update(int $id, array $data): bool {
         self::ensureSchema();
         $db = Database::getInstance()->getConnection();

@@ -248,6 +248,23 @@
     <h1>System Status</h1>
 </div>
 
+<?php if (!empty($runtimeSecurityNotices)): ?>
+    <?php foreach ($runtimeSecurityNotices as $notice): ?>
+        <div class="card mb-4 border-warning">
+            <div class="card-body">
+                <h2 class="h5 mb-2 text-warning"><?= htmlspecialchars((string)($notice['title'] ?? 'Security notice')) ?></h2>
+                <p class="status-muted-copy mb-2"><?= htmlspecialchars((string)($notice['message'] ?? '')) ?></p>
+                <?php if (!empty($notice['config_path'])): ?>
+                    <div class="status-small-copy mb-2"><strong>Hidden config path:</strong> <code><?= htmlspecialchars((string)$notice['config_path']) ?></code></div>
+                <?php endif; ?>
+                <?php if (!empty($notice['suggested_value'])): ?>
+                    <div class="status-small-copy"><strong>Suggested replacement app_key:</strong> <code><?= htmlspecialchars((string)$notice['suggested_value']) ?></code></div>
+                <?php endif; ?>
+            </div>
+        </div>
+    <?php endforeach; ?>
+<?php endif; ?>
+
 <div class="status-overview-grid">
     <div class="card status-overview-card">
         <div class="status-eyebrow">Uploads Path</div>
@@ -304,10 +321,11 @@
 
         <?php if (!empty($updateStatus['update_available']) && empty($updateStatus['error'])): ?>
             <div class="alert alert-info mb-3" role="alert">
-                The updater preserves local config files, <code>storage/</code>, <code>themes/custom/</code>, and <code>src/Plugin/</code> while applying the latest release package.
+                The updater preserves local config files, <code>storage/</code>, <code>themes/custom/</code>, and <code>src/Plugin/</code>. It now tracks core-owned files, backs up overwritten core files, and moves stale unchanged core files into quarantine instead of hard-deleting them.
             </div>
             <form method="POST" action="/admin/update/apply" data-confirm-message="Download and apply the latest GitHub release now?">
                 <?= \App\Core\Csrf::field() ?>
+                <button type="submit" formaction="/admin/update/preview" class="btn btn-outline-secondary me-2">Preview Update</button>
                 <button type="submit" class="btn btn-primary">Install Update</button>
                 <?php if (!empty($updateStatus['release_url'])): ?>
                     <a href="<?= htmlspecialchars($updateStatus['release_url']) ?>" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary ms-2">View Release</a>
@@ -316,6 +334,37 @@
         <?php elseif (empty($updateStatus['repo_configured'])): ?>
             <div class="alert alert-secondary mb-0" role="alert">
                 Set <code>update.github_repo</code> in <code>config/version.php</code> to enable one-click release checks.
+            </div>
+        <?php endif; ?>
+
+        <?php if (!empty($updateStatus['last_report']) && is_array($updateStatus['last_report'])): ?>
+            <?php $lastReport = $updateStatus['last_report']; ?>
+            <div class="status-policy-grid mt-4">
+                <div class="status-policy-card">
+                    <div class="status-policy-title">Last Update Report</div>
+                    <div class="status-policy-copy">
+                        Mode: <strong><?= htmlspecialchars((string)($lastReport['mode'] ?? 'unknown')) ?></strong><br>
+                        Generated: <strong><?= !empty($lastReport['generated_at']) ? htmlspecialchars(date('M j, Y H:i', strtotime((string)$lastReport['generated_at']))) : 'Unknown' ?></strong><br>
+                        Target: <strong><?= htmlspecialchars((string)($lastReport['from_version'] ?? '?')) ?> -> <?= htmlspecialchars((string)($lastReport['to_version'] ?? '?')) ?></strong>
+                    </div>
+                </div>
+                <div class="status-policy-card">
+                    <div class="status-policy-title">Safety Summary</div>
+                    <div class="status-policy-copy">
+                        Copy candidates: <strong><?= (int)($lastReport['copy_candidates'] ?? 0) ?></strong><br>
+                        Backed up: <strong><?= (int)($lastReport['files_backed_up'] ?? 0) ?></strong><br>
+                        Quarantined stale core files: <strong><?= (int)($lastReport['stale_quarantined'] ?? 0) ?></strong><br>
+                        Skipped modified stale files: <strong><?= (int)($lastReport['stale_modified_skipped'] ?? 0) ?></strong>
+                    </div>
+                </div>
+                <div class="status-policy-card">
+                    <div class="status-policy-title">Paths</div>
+                    <div class="status-policy-copy">
+                        Backup root: <code><?= htmlspecialchars((string)($lastReport['backup_root'] ?? 'Not created yet')) ?></code><br>
+                        Quarantine root: <code><?= htmlspecialchars((string)($lastReport['quarantine_root'] ?? 'Not created yet')) ?></code><br>
+                        Report file: <code><?= htmlspecialchars((string)($lastReport['report_path'] ?? 'storage/cache/update_report.json')) ?></code>
+                    </div>
+                </div>
             </div>
         <?php endif; ?>
     </div>
@@ -595,7 +644,7 @@
 </div>
 <?php endif; ?>
 
-<div class="card status-log-card">
+<div class="card status-log-card" id="recent-system-errors">
     <div class="card-header status-card-header">Recent System Errors</div>
     <div class="card-body status-card-body">
         <div class="status-log-size">

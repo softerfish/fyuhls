@@ -4,6 +4,25 @@ define('BASE_PATH', realpath(__DIR__ . '/..'));
 
 require_once BASE_PATH . '/vendor/autoload.php';
 
+function postInstallRequestIsHttps(): bool
+{
+    return \App\Service\SecurityService::isHttpsRequest();
+}
+
+function postInstallRequestHostIsLocal(): bool
+{
+    return \App\Service\SecurityService::isLocalDevelopmentRequest();
+}
+
+if (!postInstallRequestIsHttps() && !postInstallRequestHostIsLocal()) {
+    $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+    $uri = (string)($_SERVER['REQUEST_URI'] ?? '/post_install_check.php');
+    if ($host !== '') {
+        header('Location: https://' . $host . $uri, true, 301);
+        exit;
+    }
+}
+
 $postInstallNonce = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
 header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'nonce-{$postInstallNonce}'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; frame-ancestors 'self';");
 

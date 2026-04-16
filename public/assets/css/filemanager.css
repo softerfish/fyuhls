@@ -9,6 +9,49 @@
     --header-bg: #ffffff;
     --card-bg: #ffffff;
     --error-color: #ef4444;
+    --storage-bar-ok: #22c55e;
+    --storage-bar-warn: #f59e0b;
+    --storage-bar-danger: #ef4444;
+}
+
+/* storage quota bar */
+.storage-bar-wrap {
+    margin-bottom: 1.25rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-color);
+}
+
+.storage-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 0.45rem;
+}
+
+.storage-bar {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.storage-bar-fill {
+    height: 100%;
+    background: var(--storage-bar-ok);
+    border-radius: 999px;
+    transition: width 0.4s ease;
+}
+
+.storage-bar--warn .storage-bar-fill {
+    background: var(--storage-bar-warn);
+}
+
+.storage-bar--danger .storage-bar-fill {
+    background: var(--storage-bar-danger);
 }
 
 /* force the scrollbar to always show - prevents auto-hiding behavior in chrome/windows */
@@ -376,8 +419,9 @@ body {
 /* File Grid Items */
 .file-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    gap: 1.25rem;
+    align-items: stretch;
 }
 
 /* List View Override */
@@ -389,8 +433,8 @@ body {
 .file-item {
     position: relative;
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 0.75rem;
+    border-radius: 16px;
+    padding: 0.9rem 0.9rem 1rem;
     text-align: center;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     background: white;
@@ -398,7 +442,10 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: flex-start;
+    min-height: 220px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    overflow: hidden;
 }
 
 .file-item:hover {
@@ -415,10 +462,9 @@ body {
 
 .file-hover-controls {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    padding: 0.5rem;
+    top: 0.65rem;
+    left: 0.65rem;
+    right: 0.65rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -433,13 +479,16 @@ body {
 }
 
 .file-options-trigger {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(203, 213, 225, 0.9);
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
     color: var(--text-muted);
     transition: all 0.2s;
 }
@@ -456,6 +505,15 @@ body {
 .file-select {
     display: flex;
     align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(203, 213, 225, 0.9);
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+    opacity: 0;
+    transition: opacity 0.2s;
 }
 
 .file-item:hover .file-select,
@@ -473,22 +531,24 @@ body {
 }
 
 .file-preview {
-    margin: 0.25rem 0 0.75rem;
+    margin: 1.6rem 0 0.95rem;
     width: 100%;
+    min-height: 82px;
     display: flex;
     justify-content: center;
+    align-items: center;
     cursor: pointer;
 }
 
 .file-preview img {
-    width: 56px;
-    height: 56px;
+    width: 72px;
+    height: 72px;
     object-fit: contain;
-    border-radius: 6px;
+    border-radius: 10px;
 }
 
 .file-preview .file-icon {
-    font-size: 2.25rem;
+    font-size: 3rem;
 }
 
 .file-info {
@@ -497,18 +557,36 @@ body {
 }
 
 .file-name {
-    font-size: 0.8125rem;
-    font-weight: 500;
+    font-size: 0.95rem;
+    font-weight: 600;
     color: var(--text-color);
-    margin-bottom: 0.15rem;
-    white-space: nowrap;
+    margin-bottom: 0.35rem;
+    line-height: 1.35;
+    white-space: normal;
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: initial;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     width: 100%;
 }
 
+/* inline rename input - replaces .file-name on double-click */
+.fm-inline-rename {
+    width: 100%;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    padding: 0.1rem 0.3rem;
+    border: 1px solid var(--primary-color);
+    border-radius: 4px;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+    box-sizing: border-box;
+    text-align: center;
+}
+
 .file-meta {
-    font-size: 0.6875rem;
+    font-size: 0.8rem;
     color: var(--text-muted);
 }
 
@@ -528,6 +606,8 @@ body {
     border-top: none;
     border-left: none;
     border-right: none;
+    min-height: 0;
+    overflow: visible;
 }
 
 .file-grid.list-view .file-select {
@@ -539,6 +619,8 @@ body {
 .file-grid.list-view .file-preview {
     margin-bottom: 0;
     margin-right: 1rem;
+    margin-top: 0;
+    min-height: 0;
 }
 
 .file-grid.list-view .file-preview img {
@@ -555,6 +637,19 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+.file-grid.list-view .file-name {
+    display: block;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 900px) {
+    .file-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 1rem;
+    }
 }
 
 /* Custom context menu / dropdown styles */

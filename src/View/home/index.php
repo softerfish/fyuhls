@@ -2,7 +2,7 @@
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $title = $pageTitle ?? "Dashboard - {$siteName}";
 $extraHead = '
-<link rel="stylesheet" href="/assets/css/filemanager.css?v=' . time() . '">
+<link rel="stylesheet" href="/assets/css/filemanager.css?v=' . filemtime(BASE_PATH . '/public/assets/css/filemanager.css') . '">
 <style>
     .dashboard-shell { margin-top: 1rem; }
     .dashboard-plan-card { text-align: center; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); }
@@ -17,8 +17,8 @@ $extraHead = '
     .dashboard-nav { list-style: none; padding: 0.5rem 0; margin: 0; }
     .dashboard-trash-item { padding: 0; display: flex; justify-content: space-between; align-items: center; min-height: 40px; }
     .dashboard-trash-link { flex: 1; padding: 0.6rem 0.75rem; display: block; }
-    .dashboard-toolbar-controls { display: flex !important; align-items: center !important; gap: 12px !important; flex-wrap: nowrap !important; width: auto !important; min-width: 280px !important; justify-content: flex-end !important; position: relative !important; z-index: 10 !important; }
-    .dashboard-search-box { width: 180px !important; flex-shrink: 0 !important; position: relative !important; }
+    .dashboard-toolbar-controls { display: flex !important; align-items: center !important; gap: 12px !important; flex-wrap: wrap !important; width: auto !important; min-width: 0 !important; justify-content: flex-end !important; position: relative !important; z-index: 10 !important; }
+    .dashboard-search-box { width: min(220px, 100%) !important; flex: 1 1 180px !important; position: relative !important; }
     .dashboard-search-input { width: 100% !important; box-sizing: border-box !important; }
     .dashboard-view-toggle { width: 80px !important; height: 38px !important; display: flex !important; align-items: center !important; justify-content: center !important; flex-shrink: 0 !important; background: #f1f5f9 !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; font-size: 0.8rem !important; cursor: pointer !important; position: relative !important; z-index: 20 !important; }
     .dashboard-date-hidden,
@@ -72,15 +72,58 @@ $uploadLimitText = $effectiveUploadLimit > 0
                 <div class="dashboard-plan-expiry <?= $isPaidPlan ? 'dashboard-plan-expiry--tight' : 'dashboard-plan-expiry--wide' ?>">
                     <?= htmlspecialchars($expiryStr) ?>
                 </div>
-                <?php if (!empty($dailyDownloadLimitSummary['label']) && array_key_exists('value', $dailyDownloadLimitSummary)): ?>
-                    <div class="dashboard-plan-limit">
-                        <?= htmlspecialchars($dailyDownloadLimitSummary['label']) ?>: <?= htmlspecialchars($dailyDownloadLimitSummary['value']) ?>
-                    </div>
-                <?php endif; ?>
+
                 <?php if (!$isPaidPlan): ?>
                     <button class="btn btn-warning dashboard-plan-button" data-nav-url="/#pricing">View Plans</button>
                 <?php endif; ?>
             </div>
+            <?php
+            // storage quota bar - only render when the package has a limit
+            $sqUsed  = $storageQuota['used'] ?? 0;
+            $sqLimit = $storageQuota['limit'] ?? 0;
+            if ($sqLimit > 0):
+                $sqPct   = min(100, round(($sqUsed / $sqLimit) * 100));
+                $sqClass = $sqPct >= 90 ? 'storage-bar--danger' : ($sqPct >= 70 ? 'storage-bar--warn' : '');
+            ?>
+            <div class="storage-bar-wrap">
+                <div class="storage-bar-label">
+                    <span>Storage</span>
+                    <span><?= htmlspecialchars(\App\Service\FileProcessor::formatSize($sqUsed, 1)) ?> / <?= htmlspecialchars(\App\Service\FileProcessor::formatSize($sqLimit, 1)) ?></span>
+                </div>
+                <div class="storage-bar <?= $sqClass ?>">
+                    <div class="storage-bar-fill" style="width:<?= $sqPct ?>%"></div>
+                </div>
+            </div>
+            <?php endif; ?>
+            <?php
+            // download bandwidth quota bar
+            $bwUsed  = $dailyDownloadLimitSummary['used_bytes'] ?? 0;
+            $bwLimit = $dailyDownloadLimitSummary['limit_bytes'] ?? 0;
+            $bwHasLimit = $dailyDownloadLimitSummary['has_limit'] ?? false;
+            if ($bwHasLimit && $bwLimit > 0):
+                $bwPct   = min(100, round(($bwUsed / $bwLimit) * 100));
+                $bwClass = $bwPct >= 90 ? 'storage-bar--danger' : ($bwPct >= 70 ? 'storage-bar--warn' : '');
+            ?>
+            <div class="storage-bar-wrap" style="margin-top: 15px;">
+                <div class="storage-bar-label">
+                    <span>Bandwidth (Daily)</span>
+                    <span><?= htmlspecialchars(\App\Service\FileProcessor::formatSize($bwUsed, 1)) ?> / <?= htmlspecialchars(\App\Service\FileProcessor::formatSize($bwLimit, 1)) ?></span>
+                </div>
+                <div class="storage-bar <?= $bwClass ?>">
+                    <div class="storage-bar-fill" style="width:<?= $bwPct ?>%"></div>
+                </div>
+            </div>
+            <?php elseif (!$bwHasLimit): ?>
+            <div class="storage-bar-wrap" style="margin-top: 15px;">
+                <div class="storage-bar-label">
+                    <span>Bandwidth (Daily)</span>
+                    <span>Unlimited</span>
+                </div>
+                <div class="storage-bar">
+                    <div class="storage-bar-fill" style="width:0%"></div>
+                </div>
+            </div>
+            <?php endif; ?>
             <h3 class="dashboard-account-title">Account</h3>
             <!-- Antigravity-Sync-Check-1.0 -->
             <ul class="dashboard-nav">
@@ -343,8 +386,11 @@ $uploadLimitText = $effectiveUploadLimit > 0
             <div class="selection-actions">
                 <button class="btn btn-sm btn-white" id="bulkDownloadBtn">Download Selected</button>
                 <button class="btn btn-sm btn-white" id="bulkMoveBtn">Move</button>
+                <button class="btn btn-sm btn-white" id="bulkMakePublicBtn">Make Public</button>
+                <button class="btn btn-sm btn-white" id="bulkMakePrivateBtn">Make Private</button>
                 <button class="btn btn-sm btn-white" id="bulkTrashBtn">Move to Trash</button>
                 <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">Delete Permanently</button>
+                <button class="btn btn-sm btn-white" id="selectAllBtn">Select All</button>
                 <button class="btn btn-sm btn-white" id="clearSelectionBtn">Cancel</button>
             </div>
         </div>
@@ -548,7 +594,10 @@ if ($guestMode) {
 
 $extraBottom = "
 <script>window.UPLOAD_CONFIG = " . json_encode($uploadConfig) . ";</script>
-<script src=\"/assets/js/filemanager.js?v=" . time() . "\"></script>
+<script>window.FILE_MANAGER_CONFIG = " . json_encode([
+    'baseUrl' => rtrim(\App\Service\SeoService::trustedBaseUrl(), '/'),
+]) . ";</script>
+<script src=\"/assets/js/filemanager.js?v=" . filemtime(BASE_PATH . '/public/assets/js/filemanager.js') . "\"></script>
 ";
 include __DIR__ . '/footer.php';
 ?>

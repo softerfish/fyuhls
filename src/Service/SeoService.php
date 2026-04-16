@@ -458,28 +458,39 @@ class SeoService
             return null;
         }
 
-        $hostOnly = strtolower((string)parse_url('http://' . $host, PHP_URL_HOST));
+        $hostOnly = self::extractHostOnly($host);
         $configuredAllowedHosts = Config::get('security.allowed_hosts', []);
-        if (is_array($configuredAllowedHosts) && !empty($configuredAllowedHosts)) {
-            $normalizedAllowedHosts = array_values(array_filter(array_map(static function ($allowedHost) {
+        $normalizedAllowedHosts = is_array($configuredAllowedHosts)
+            ? array_values(array_filter(array_map(static function ($allowedHost) {
                 $allowedHost = strtolower(trim((string)$allowedHost));
                 return $allowedHost !== '' ? $allowedHost : null;
-            }, $configuredAllowedHosts)));
+            }, $configuredAllowedHosts)))
+            : [];
 
-            if ($hostOnly === '' || !in_array($hostOnly, $normalizedAllowedHosts, true)) {
+        if ($hostOnly === '') {
+            return null;
+        }
+
+        if ($normalizedAllowedHosts !== []) {
+            if (!in_array($hostOnly, $normalizedAllowedHosts, true)) {
+                return null;
+            }
+        } elseif (self::isLocalHost($hostOnly)) {
+            if (!SecurityService::isLocalDevelopmentRequest()) {
+                return null;
+            }
+        } else {
+            if (!self::isValidPublicHost($hostOnly)) {
+                return null;
+            }
+
+            $serverHostOnly = self::extractHostOnly((string)($_SERVER['SERVER_NAME'] ?? ''));
+            if ($serverHostOnly !== '' && !self::isLocalHost($serverHostOnly) && $serverHostOnly !== $hostOnly) {
                 return null;
             }
         }
 
-        $scheme = 'http';
-        $forwardedProto = strtolower(trim((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
-        if ($forwardedProto !== '') {
-            $scheme = explode(',', $forwardedProto)[0] === 'https' ? 'https' : 'http';
-        } elseif (!empty($_SERVER['REQUEST_SCHEME'])) {
-            $scheme = strtolower((string)$_SERVER['REQUEST_SCHEME']) === 'https' ? 'https' : 'http';
-        } elseif (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
-            $scheme = 'https';
-        }
+        $scheme = \App\Service\SecurityService::isHttpsRequest() ? 'https' : 'http';
 
         $scriptName = (string)($_SERVER['SCRIPT_NAME'] ?? '');
         $basePath = str_replace('\\', '/', dirname($scriptName));
@@ -497,7 +508,28 @@ class SeoService
             return false;
         }
 
-        return in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true);
+        return self::isLocalHost(strtolower($host));
+    }
+
+    private static function extractHostOnly(string $value): string
+    {
+        $host = strtolower((string)parse_url('http://' . trim($value), PHP_URL_HOST));
+        return $host !== '' ? $host : '';
+    }
+
+    private static function isLocalHost(string $host): bool
+    {
+        return in_array($host, ['localhost', '127.0.0.1', '::1'], true) || str_ends_with($host, '.localhost');
+    }
+
+    private static function isValidPublicHost(string $host): bool
+    {
+        if ($host === '' || self::isLocalHost($host)) {
+            return false;
+        }
+
+        return (bool)preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i', $host)
+            || (bool)filter_var($host, FILTER_VALIDATE_IP);
     }
 
     private static function pageKey(string $path): string

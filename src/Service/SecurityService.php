@@ -7,6 +7,55 @@ use App\Core\Database;
 use App\Model\Setting;
 
 class SecurityService {
+    public static function isHttpsRequest(): bool
+    {
+        if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+            return true;
+        }
+
+        if (!empty($_SERVER['REQUEST_SCHEME']) && strtolower((string)$_SERVER['REQUEST_SCHEME']) === 'https') {
+            return true;
+        }
+
+        if (($_SERVER['SERVER_PORT'] ?? null) == 443) {
+            return true;
+        }
+
+        $remoteAddr = self::normalizeIp((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'));
+        if (!self::isTrustedProxyAddress($remoteAddr)) {
+            return false;
+        }
+
+        $forwardedProto = strtolower(trim((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+        if ($forwardedProto === '') {
+            return false;
+        }
+
+        return explode(',', $forwardedProto)[0] === 'https';
+    }
+
+    public static function isLocalDevelopmentRequest(): bool
+    {
+        $host = strtolower(trim((string)($_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? ''))));
+        if ($host === '') {
+            return false;
+        }
+
+        $host = explode(':', $host)[0];
+        $hostLooksLocal = in_array($host, ['localhost', '127.0.0.1', '::1'], true) || str_ends_with($host, '.localhost');
+        if (!$hostLooksLocal) {
+            return false;
+        }
+
+        $remoteAddr = self::normalizeIp((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'));
+        return self::ipInCidr($remoteAddr, '127.0.0.0/8') || self::ipInCidr($remoteAddr, '::1/128');
+    }
+
+    public static function isTrustedProxyAddress(string $ip): bool
+    {
+        return self::isTrustedProxy(self::normalizeIp($ip));
+    }
+
     
     private static array $runtimeCache = [];
 
@@ -215,9 +264,14 @@ JS;
             }
             // 2. Try X-Forwarded-For (take leftmost public IP)
             if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-                foreach (array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])) as $ip) {
-                    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                        return $ip;
+                $forwardedIps = array_reverse(array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])));
+                foreach ($forwardedIps as $ip) {
+                    $normalized = self::normalizeIp($ip);
+                    if (!filter_var($normalized, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                        continue;
+                    }
+                    if (!self::isTrustedProxy($normalized)) {
+                        return $normalized;
                     }
                 }
             }

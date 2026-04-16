@@ -10,16 +10,22 @@ use App\Service\MailService;
 
 class TwoFactorController
 {
+    private function abortText(int $status, string $message): void
+    {
+        http_response_code($status);
+        exit($message);
+    }
+
     public function disableUser2FA()
     {
         Auth::requireAdmin();
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            die('CSRF mismatch');
+            $this->abortText(403, 'CSRF mismatch');
         }
 
         $userId = (int) ($_POST['user_id'] ?? 0);
         if ($userId <= 0) {
-            die('Invalid user');
+            $this->abortText(422, 'Invalid user');
         }
 
         $db = Database::getInstance()->getConnection();

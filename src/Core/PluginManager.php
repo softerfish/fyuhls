@@ -9,6 +9,11 @@ class PluginManager {
     private static array $actions = [];
     private static array $filters = [];
 
+    private static function isSafePluginDirectoryName(string $pluginDir): bool
+    {
+        return preg_match('/^[A-Za-z0-9_]+$/', $pluginDir) === 1;
+    }
+
     private static function canQueryPlugins(): bool {
         $dbConfig = Config::get('database');
         if (!is_array($dbConfig) || empty($dbConfig['host']) || empty($dbConfig['dbname']) || empty($dbConfig['username'])) {
@@ -39,10 +44,26 @@ class PluginManager {
             $stmt = $db->query("SELECT directory FROM plugins WHERE is_active = 1");
             if ($stmt) {
                 $plugins = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+                $pluginBase = realpath(dirname(__DIR__) . '/Plugin');
+                if ($pluginBase === false) {
+                    return;
+                }
                 foreach ($plugins as $pluginDir) {
-                    $pluginPath = dirname(__DIR__) . '/Plugin/' . $pluginDir . '/' . $pluginDir . 'Plugin.php';
-                    if (file_exists($pluginPath)) {
-                        require_once $pluginPath;
+                    $pluginDir = (string)$pluginDir;
+                    if (!self::isSafePluginDirectoryName($pluginDir)) {
+                        continue;
+                    }
+
+                    $pluginFolder = dirname(__DIR__) . '/Plugin/' . $pluginDir;
+                    $resolvedFolder = realpath($pluginFolder);
+                    if ($resolvedFolder === false || !str_starts_with(str_replace('\\', '/', $resolvedFolder) . '/', str_replace('\\', '/', $pluginBase) . '/')) {
+                        continue;
+                    }
+
+                    $pluginPath = $resolvedFolder . '/' . $pluginDir . 'Plugin.php';
+                    $resolvedPluginPath = realpath($pluginPath);
+                    if ($resolvedPluginPath !== false && str_starts_with(str_replace('\\', '/', $resolvedPluginPath), str_replace('\\', '/', $resolvedFolder) . '/')) {
+                        require_once $resolvedPluginPath;
                         
                         $className = "\\Plugin\\{$pluginDir}\\{$pluginDir}Plugin";
                         if (class_exists($className)) {
@@ -61,6 +82,10 @@ class PluginManager {
 
     // Check if a plugin is active by its directory name
     public static function isActive(string $pluginDir): bool {
+        if (!self::isSafePluginDirectoryName($pluginDir)) {
+            return false;
+        }
+
         if (!self::canQueryPlugins()) {
             return false;
         }
@@ -83,7 +108,8 @@ class PluginManager {
         try {
             $db = Database::getInstance()->getConnection();
             $stmt = $db->query("SELECT directory FROM plugins WHERE is_active = 1");
-            return $stmt ? $stmt->fetchAll(\PDO::FETCH_COLUMN) : [];
+            $rows = $stmt ? $stmt->fetchAll(\PDO::FETCH_COLUMN) : [];
+            return array_values(array_filter($rows, static fn ($dir): bool => self::isSafePluginDirectoryName((string)$dir)));
         } catch (\Throwable $e) {
             return [];
         }

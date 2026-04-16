@@ -22,6 +22,41 @@ foreach ($history as $day) {
     $chartUploads[] = (int)($day['uploads_count'] ?? 0);
     $chartDownloads[] = (int)($day['downloads_count'] ?? 0);
 }
+$latestHistoryDay = !empty($history) ? end($history) : null;
+if ($latestHistoryDay !== null) {
+    reset($history);
+}
+
+$attentionItems = [];
+if (($widgets['support_diagnostics']['recent_errors'] ?? 0) > 0) {
+    $attentionItems[] = ['warning', 'Recent Errors', $count($widgets['support_diagnostics']['recent_errors'] ?? 0) . ' recent errors logged', '/admin/status#recent-system-errors'];
+}
+if (($widgets['automation']['overdue_tasks'] ?? 0) > 0) {
+    $attentionItems[] = ['danger', 'Overdue Tasks', $count($widgets['automation']['overdue_tasks'] ?? 0) . ' automation tasks overdue', '/admin/configuration?tab=cron'];
+}
+if (($widgets['moderation_queue']['abuse_pending'] ?? 0) > 0 || ($widgets['moderation_queue']['dmca_pending'] ?? 0) > 0) {
+    $attentionItems[] = ['warning', 'Moderation Queue', $count(($widgets['moderation_queue']['abuse_pending'] ?? 0) + ($widgets['moderation_queue']['dmca_pending'] ?? 0)) . ' reports waiting', '/admin/requests'];
+}
+if (($widgets['storage_capacity']['nodes_over_80'] ?? 0) > 0 || (($widgets['storage_capacity']['disk']['percent'] ?? 0) >= 85)) {
+    $attentionItems[] = ['danger', 'Storage Pressure', 'Capacity is getting tight', '/admin/file-servers'];
+}
+if (empty($widgets['support_diagnostics']['smtp_configured'])) {
+    $attentionItems[] = ['info', 'SMTP Missing', 'Email delivery is not configured', '/admin/configuration?tab=email'];
+}
+
+$todaySummary = [];
+if (($widgets['user_growth']['new_today'] ?? 0) > 0) {
+    $todaySummary[] = '+' . $count($widgets['user_growth']['new_today']) . ' users';
+}
+if (($latestHistoryDay['uploads_count'] ?? 0) > 0) {
+    $todaySummary[] = '+' . $count($latestHistoryDay['uploads_count'] ?? 0) . ' uploads';
+}
+if (($widgets['automation']['overdue_tasks'] ?? 0) > 0) {
+    $todaySummary[] = $count($widgets['automation']['overdue_tasks']) . ' overdue tasks';
+}
+if (($widgets['storage_capacity']['nodes_over_80'] ?? 0) > 0) {
+    $todaySummary[] = $count($widgets['storage_capacity']['nodes_over_80']) . ' storage nodes over 80%';
+}
 
 function dashboardWidgetStart(string $id, string $title, string $subtitle, string $span = 'span-4'): void { ?>
     <section class="dashboard-widget <?= $span ?>" data-widget-id="<?= htmlspecialchars($id) ?>" draggable="true">
@@ -46,11 +81,24 @@ function dashboardWidgetEnd(): void { ?>
 
 function dashboardMetricGrid(array $items): void { ?>
     <div class="metric-grid metric-grid-2">
-        <?php foreach ($items as [$label, $value]): ?>
-            <div class="metric-chip">
-                <span><?= htmlspecialchars($label) ?></span>
-                <strong><?= htmlspecialchars((string)$value) ?></strong>
-            </div>
+        <?php foreach ($items as $item):
+            $label = $item[0] ?? '';
+            $value = $item[1] ?? '';
+            $href = $item[2] ?? '';
+            $stateClass = trim((string)($item[3] ?? ''));
+            $classes = trim('metric-chip' . ($stateClass !== '' ? ' ' . $stateClass : ''));
+        ?>
+            <?php if ($href): ?>
+                <a class="<?= htmlspecialchars($classes) ?>" href="<?= htmlspecialchars((string)$href) ?>">
+                    <span><?= htmlspecialchars((string)$label) ?></span>
+                    <strong><?= htmlspecialchars((string)$value) ?></strong>
+                </a>
+            <?php else: ?>
+                <div class="<?= htmlspecialchars($classes) ?>">
+                    <span><?= htmlspecialchars((string)$label) ?></span>
+                    <strong><?= htmlspecialchars((string)$value) ?></strong>
+                </div>
+            <?php endif; ?>
         <?php endforeach; ?>
     </div>
 <?php }
@@ -76,6 +124,9 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
         <h1>Dashboard</h1>
         <p class="text-muted mb-0">Drag widgets into any order and collapse the ones you do not need to see right now.</p>
     </div>
+    <div class="dashboard-header-actions">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="dashboardResetLayoutBtn">Reset layout</button>
+    </div>
 </div>
 
 <div class="row g-3 mb-4">
@@ -85,9 +136,49 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
     <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Cache Status</div><div class="h4 mb-0 fw-bold"><span class="dashboard-summary-badge badge <?= $isLive ? 'bg-warning text-dark' : 'bg-success' ?> rounded-pill"><?= $isLive ? 'LIVE (SLOW)' : 'OPTIMIZED' ?></span></div></div></div>
 </div>
 
+<?php if (!empty($attentionItems)): ?>
+<div class="dashboard-attention-strip card border-0 shadow-sm mb-4">
+    <div class="dashboard-attention-header">
+        <div>
+            <div class="dashboard-attention-title">Attention Needed</div>
+            <div class="dashboard-attention-subtitle">Things worth checking right now before they turn into support pain.</div>
+        </div>
+    </div>
+    <div class="dashboard-attention-grid">
+        <?php foreach ($attentionItems as [$severity, $title, $copy, $href]): ?>
+            <a href="<?= htmlspecialchars($href) ?>" class="dashboard-attention-item dashboard-attention-item--<?= htmlspecialchars($severity) ?>">
+                <span class="dashboard-attention-kicker"><?= htmlspecialchars($title) ?></span>
+                <strong><?= htmlspecialchars($copy) ?></strong>
+            </a>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if (!empty($todaySummary)): ?>
+<div class="dashboard-today-strip card border-0 shadow-sm mb-4">
+    <div class="dashboard-today-title">What changed today</div>
+    <div class="dashboard-today-items">
+        <?php foreach ($todaySummary as $item): ?>
+            <span class="dashboard-today-chip"><?= htmlspecialchars($item) ?></span>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
+
 <div class="alert alert-light border shadow-sm mb-4"><strong>Dashboard Layout:</strong> drag any widget to reorder it. Use the arrow button to collapse it down to the title bar. Your layout is saved in this browser.</div>
 
 <div id="dashboardWidgetGrid" class="dashboard-widget-grid">
+    <?php dashboardWidgetStart('support_diagnostics', 'Support and Diagnostics', 'Logs, SMTP, and plugin surface'); ?>
+        <?php dashboardMetricGrid([
+            ['Recent Errors', $count($widgets['support_diagnostics']['recent_errors'] ?? 0), '/admin/status#recent-system-errors', ($widgets['support_diagnostics']['recent_errors'] ?? 0) > 0 ? 'metric-chip--warning' : ''],
+            ['SMTP', !empty($widgets['support_diagnostics']['smtp_configured']) ? 'Configured' : 'Missing', '/admin/configuration?tab=email', !empty($widgets['support_diagnostics']['smtp_configured']) ? 'metric-chip--ok' : 'metric-chip--warning'],
+            ['Active Plugins', $count($widgets['support_diagnostics']['active_plugins'] ?? 0), '/admin/plugins'],
+            ['Support Email', $widgets['support_diagnostics']['support_email'] ?? 'N/A', '/admin/support'],
+        ]); ?>
+        <div class="dashboard-widget-links mt-3"><a href="/admin/support">Open support center</a><a href="/admin/status">View status and logs</a><a href="/admin/docs">Open admin docs</a></div>
+    <?php dashboardWidgetEnd(); ?>
+
     <?php dashboardWidgetStart('revenue', 'Revenue Snapshot', 'Rewards, payouts, and subscription momentum'); ?>
         <?php dashboardMetricGrid([
             ['Today', $money($widgets['revenue']['today_earnings'] ?? 0)],
@@ -124,10 +215,10 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
 
     <?php dashboardWidgetStart('moderation_queue', 'Abuse and Moderation Queue', 'Items waiting for review'); ?>
         <?php dashboardMetricGrid([
-            ['Abuse Reports', $count($widgets['moderation_queue']['abuse_pending'] ?? 0)],
-            ['DMCA Reports', $count($widgets['moderation_queue']['dmca_pending'] ?? 0)],
-            ['New Contacts', $count($widgets['moderation_queue']['new_contacts'] ?? 0)],
-            ['DMCA Investigating', $count($widgets['moderation_queue']['investigating_dmca'] ?? 0)],
+            ['Abuse Reports', $count($widgets['moderation_queue']['abuse_pending'] ?? 0), '/admin/abuse-reports', ($widgets['moderation_queue']['abuse_pending'] ?? 0) > 0 ? 'metric-chip--warning' : ''],
+            ['DMCA Reports', $count($widgets['moderation_queue']['dmca_pending'] ?? 0), '/admin/dmca', ($widgets['moderation_queue']['dmca_pending'] ?? 0) > 0 ? 'metric-chip--warning' : ''],
+            ['New Contacts', $count($widgets['moderation_queue']['new_contacts'] ?? 0), '/admin/contacts'],
+            ['DMCA Investigating', $count($widgets['moderation_queue']['investigating_dmca'] ?? 0), '/admin/dmca'],
         ]); ?>
         <div class="dashboard-widget-links mt-3"><a href="/admin/abuse-reports">Open abuse reports</a><a href="/admin/dmca">Open DMCA queue</a><a href="/admin/contacts">Open contact messages</a></div>
     <?php dashboardWidgetEnd(); ?>
@@ -168,15 +259,17 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
 
     <?php dashboardWidgetStart('automation', 'System Automation', 'Cron heartbeat and overdue tasks'); ?>
         <?php dashboardMetricGrid([
-            ['Heartbeat', !empty($widgets['automation']['healthy']) ? 'Healthy' : 'Warning'],
-            ['Overdue Tasks', $count($widgets['automation']['overdue_tasks'] ?? 0)],
-            ['Failed Tasks', $count($widgets['automation']['failed_tasks'] ?? 0)],
-            ['Last Run', $timeText($widgets['automation']['last_cron_run'] ?? null)],
+            ['Heartbeat', !empty($widgets['automation']['healthy']) ? 'Healthy' : 'Warning', '/admin/configuration?tab=cron', !empty($widgets['automation']['healthy']) ? 'metric-chip--ok' : 'metric-chip--warning'],
+            ['Overdue Tasks', $count($widgets['automation']['overdue_tasks'] ?? 0), '/admin/configuration?tab=cron', ($widgets['automation']['overdue_tasks'] ?? 0) > 0 ? 'metric-chip--danger' : ''],
+            ['Failed Tasks', $count($widgets['automation']['failed_tasks'] ?? 0), '/admin/configuration?tab=cron', ($widgets['automation']['failed_tasks'] ?? 0) > 0 ? 'metric-chip--warning' : ''],
+            ['Last Run', $timeText($widgets['automation']['last_cron_run'] ?? null), '/admin/configuration?tab=cron'],
         ]); ?>
         <?php
         $taskRows = [];
         foreach (($widgets['automation']['tasks'] ?? []) as $task) $taskRows[] = [$task['task_name'] ?? $task['task_key'], !empty($task['is_overdue']) ? 'Overdue' : ($task['last_status'] ?? 'unknown'), !empty($task['is_overdue']) ? 'text-danger' : 'text-muted'];
+        echo '<div class="dashboard-section-gap">';
         dashboardMiniList($taskRows, 'No cron task data yet.');
+        echo '</div>';
         ?>
     <?php dashboardWidgetEnd(); ?>
 
@@ -201,17 +294,7 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
         ]); ?>
     <?php dashboardWidgetEnd(); ?>
 
-    <?php dashboardWidgetStart('support_diagnostics', 'Support and Diagnostics', 'Logs, SMTP, and plugin surface'); ?>
-        <?php dashboardMetricGrid([
-            ['Recent Errors', $count($widgets['support_diagnostics']['recent_errors'] ?? 0)],
-            ['SMTP', !empty($widgets['support_diagnostics']['smtp_configured']) ? 'Configured' : 'Missing'],
-            ['Active Plugins', $count($widgets['support_diagnostics']['active_plugins'] ?? 0)],
-            ['Support Email', $widgets['support_diagnostics']['support_email'] ?? 'N/A'],
-        ]); ?>
-        <div class="dashboard-widget-links mt-3"><a href="/admin/support">Open support center</a><a href="/admin/status">View status and logs</a><a href="/admin/docs">Open admin docs</a></div>
-    <?php dashboardWidgetEnd(); ?>
-
-    <?php dashboardWidgetStart('top_content', 'Top Content', 'Downloads, storage-heavy users, and earners'); ?>
+    <?php dashboardWidgetStart('top_content', 'Top Content', 'Downloads, storage-heavy users, and earners', 'span-8'); ?>
         <div class="triple-list-grid">
             <div>
                 <h6 class="small text-uppercase text-muted fw-bold mb-3">Most Downloaded Files</h6>
@@ -263,6 +346,24 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
 </div>
 
 <style>
+.page-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}
+.dashboard-header-actions{display:flex;gap:.75rem;align-items:center}
+.dashboard-attention-strip,.dashboard-today-strip{padding:1rem 1.1rem}
+.dashboard-attention-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:.9rem}
+.dashboard-attention-title,.dashboard-today-title{font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#0f172a}
+.dashboard-attention-subtitle{font-size:.78rem;color:#64748b;line-height:1.45}
+.dashboard-attention-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.85rem}
+.dashboard-attention-item{text-decoration:none;border:1px solid #e2e8f0;border-radius:12px;padding:.85rem .9rem;background:#fff;display:flex;flex-direction:column;gap:.35rem;transition:.18s ease;color:#0f172a}
+.dashboard-attention-item:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.06)}
+.dashboard-attention-kicker{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.dashboard-attention-item--danger{border-color:#fecaca;background:#fff7f7}
+.dashboard-attention-item--danger .dashboard-attention-kicker{color:#b91c1c}
+.dashboard-attention-item--warning{border-color:#fde68a;background:#fffdf3}
+.dashboard-attention-item--warning .dashboard-attention-kicker{color:#b45309}
+.dashboard-attention-item--info{border-color:#bfdbfe;background:#f8fbff}
+.dashboard-attention-item--info .dashboard-attention-kicker{color:#1d4ed8}
+.dashboard-today-items{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.7rem}
+.dashboard-today-chip{display:inline-flex;align-items:center;padding:.45rem .7rem;border-radius:999px;background:#f8fafc;border:1px solid #e2e8f0;font-size:.78rem;font-weight:600;color:#334155}
 .dashboard-widget-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;align-items:start;grid-auto-flow:dense;grid-auto-rows:10px}
 .dashboard-widget{min-width:0}
 .dashboard-widget.span-4{grid-column:span 1}
@@ -280,9 +381,13 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
 .dashboard-widget.is-collapsed .dashboard-widget-toggle i{transform:rotate(180deg)}
 .metric-grid{display:grid;gap:.7rem}
 .metric-grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
-.metric-chip{border:1px solid #e2e8f0;border-radius:10px;padding:.7rem .8rem;background:#f8fafc}
+.metric-chip{border:1px solid #e2e8f0;border-radius:10px;padding:.7rem .8rem;background:#f8fafc;display:block;text-decoration:none;color:inherit;transition:.16s ease}
+.metric-chip:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.05);border-color:#cbd5e1}
 .metric-chip span{display:block;font-size:.66rem;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.28rem}
 .metric-chip strong{font-size:.92rem;font-weight:700;color:#0f172a}
+.metric-chip--ok{background:#f0fdf4;border-color:#bbf7d0}
+.metric-chip--warning{background:#fffbeb;border-color:#fde68a}
+.metric-chip--danger{background:#fef2f2;border-color:#fecaca}
 .dashboard-widget-links{display:flex;flex-wrap:wrap;gap:.65rem}
 .dashboard-widget-links a{font-size:.78rem;font-weight:600;color:var(--bs-primary);text-decoration:none}
 .dashboard-widget-links a:hover{text-decoration:underline}
@@ -292,14 +397,18 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
 .dashboard-activity-table{max-height:420px}
 .dashboard-activity-text{font-size:.85rem}
 .dashboard-activity-badge{font-size:.65rem}
+.dashboard-section-gap{margin-top:1rem}
 .mini-list{display:grid;gap:.55rem}
-.mini-list-row{display:flex;justify-content:space-between;gap:.85rem;align-items:center;font-size:.79rem;border-bottom:1px solid #eef2f7;padding-bottom:.45rem}
+.mini-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.85rem;align-items:flex-start;font-size:.79rem;border-bottom:1px solid #eef2f7;padding-bottom:.55rem}
 .mini-list-row:last-child{border-bottom:0;padding-bottom:0}
-.mini-list-row span{color:#334155;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mini-list-row strong{flex-shrink:0;color:#0f172a;font-size:.74rem}
-.triple-list-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.85rem}
-@media (max-width:1199px){.dashboard-widget-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-widget.span-4,.dashboard-widget.span-8,.dashboard-widget.span-12{grid-column:span 1}.triple-list-grid{grid-template-columns:1fr}}
-@media (max-width:767px){.dashboard-widget-grid{grid-template-columns:1fr}.metric-grid-2{grid-template-columns:1fr}}
+.mini-list-row span{color:#334155;min-width:0;overflow-wrap:anywhere;word-break:break-word;white-space:normal;line-height:1.4}
+.mini-list-row strong{justify-self:end;text-align:right;color:#0f172a;font-size:.74rem;line-height:1.35;min-width:3.5rem}
+.triple-list-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1.25rem}
+.triple-list-grid>div{min-width:0}
+.triple-list-grid h6{line-height:1.35;min-height:2.8em;margin-bottom:.9rem!important}
+@media (max-width:1199px){.dashboard-widget-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-widget.span-4,.dashboard-widget.span-12{grid-column:span 1}.triple-list-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:900px){.triple-list-grid{grid-template-columns:1fr}}
+@media (max-width:767px){.page-header{flex-direction:column;align-items:stretch}.dashboard-widget-grid{grid-template-columns:1fr}.metric-grid-2{grid-template-columns:1fr}}
 </style>
 
 <script src="/assets/js/vendor/chart.min.js"></script>
@@ -326,6 +435,7 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (error) {}
     const saveOrder = () => localStorage.setItem(orderKey, JSON.stringify(Array.from(grid.querySelectorAll('.dashboard-widget')).map((widget) => widget.dataset.widgetId)));
     const saveCollapsed = () => localStorage.setItem(collapseKey, JSON.stringify(Array.from(grid.querySelectorAll('.dashboard-widget.is-collapsed')).map((widget) => widget.dataset.widgetId)));
+    const resetLayoutBtn = document.getElementById('dashboardResetLayoutBtn');
     const layoutWidgets = () => {
         const computed = getComputedStyle(grid);
         const rowHeight = parseFloat(computed.getPropertyValue('grid-auto-rows')) || 10;
@@ -369,6 +479,11 @@ document.addEventListener('DOMContentLoaded', function () {
         widget.addEventListener('dragend', () => { widget.classList.remove('dragging'); dragged = null; pointerY = null; stopAutoScroll(); saveOrder(); layoutWidgets(); });
         widget.addEventListener('dragover', (event) => { event.preventDefault(); if (!dragged || dragged === widget) return; const box = widget.getBoundingClientRect(); grid.insertBefore(dragged, event.clientY < (box.top + box.height / 2) ? widget : widget.nextSibling); layoutWidgets(); });
         widget.querySelector('.dashboard-widget-toggle').addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); widget.classList.toggle('is-collapsed'); saveCollapsed(); layoutWidgets(); });
+    });
+    resetLayoutBtn?.addEventListener('click', function () {
+        localStorage.removeItem(orderKey);
+        localStorage.removeItem(collapseKey);
+        window.location.reload();
     });
     layoutWidgets();
     window.addEventListener('resize', layoutWidgets);

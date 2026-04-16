@@ -14,6 +14,7 @@ class PaymentService
     public const DEFAULT_PRICE = 9.99;
     public const DEFAULT_CURRENCY = 'USD';
     public const DEFAULT_BILLING_PERIOD = 'monthly';
+    private const STRIPE_WEBHOOK_TOLERANCE = 300;
 
     public static function ensureTablesExist(): void
     {
@@ -62,6 +63,17 @@ class PaymentService
                 KEY subscriptions_gateway_reference_idx (gateway_reference),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS payment_webhook_events (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                gateway VARCHAR(50) NOT NULL,
+                event_id VARCHAR(191) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY payment_webhook_gateway_event (gateway, event_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
 
@@ -270,6 +282,7 @@ class PaymentService
         }
 
         self::verifyStripeWebhookSignature((string)($payload['_raw_body'] ?? ''), $signature, $secret);
+        self::claimWebhookEvent('stripe', trim((string)($payload['id'] ?? '')));
 
         $eventType = (string)($payload['type'] ?? '');
         $object = $payload['data']['object'] ?? [];
@@ -291,6 +304,7 @@ class PaymentService
     private static function handlePayPalWebhook(array $payload): array
     {
         self::verifyPayPalWebhook($payload);
+        self::claimWebhookEvent('paypal', trim((string)($payload['id'] ?? ($_SERVER['HTTP_PAYPAL_TRANSMISSION_ID'] ?? ''))));
 
         $eventType = (string)($payload['event_type'] ?? '');
         $resource = $payload['resource'] ?? [];
@@ -348,6 +362,14 @@ class PaymentService
         }
 
         $previousStatus = (string)$transaction['status'];
+        if (!self::isAllowedStatusTransition($previousStatus, $status)) {
+            return [
+                'transaction_id' => (int)$transaction['id'],
+                'status' => $previousStatus,
+                'message' => 'Ignored stale or invalid payment status transition.',
+            ];
+        }
+
         if ($previousStatus === $status) {
             return [
                 'transaction_id' => (int)$transaction['id'],
@@ -560,6 +582,37 @@ class PaymentService
         return (string)Setting::get('payment_callback_secret', Config::get('app_key', ''));
     }
 
+    private static function claimWebhookEvent(string $gateway, string $eventId): void
+    {
+        if ($eventId === '') {
+            throw new \RuntimeException('Webhook event ID is missing.');
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            INSERT IGNORE INTO payment_webhook_events (gateway, event_id)
+            VALUES (?, ?)
+        ");
+        $stmt->execute([$gateway, $eventId]);
+        if ($stmt->rowCount() === 0) {
+            throw new \RuntimeException('Webhook event already processed.');
+        }
+    }
+
+    private static function isAllowedStatusTransition(string $previousStatus, string $newStatus): bool
+    {
+        if ($previousStatus === $newStatus) {
+            return true;
+        }
+
+        $terminalStatuses = ['completed', 'refunded', 'denied'];
+        if (in_array($previousStatus, $terminalStatuses, true)) {
+            return false;
+        }
+
+        return true;
+    }
+
     private static function verifyStripeWebhookSignature(string $rawBody, string $header, string $secret): void
     {
         if ($rawBody === '' || $header === '') {
@@ -578,6 +631,14 @@ class PaymentService
         $signature = $parts['v1'] ?? '';
         if ($timestamp === '' || $signature === '') {
             throw new \RuntimeException('Stripe webhook signature header is malformed.');
+        }
+
+        if (!ctype_digit($timestamp)) {
+            throw new \RuntimeException('Stripe webhook timestamp is malformed.');
+        }
+
+        if (abs(time() - (int)$timestamp) > self::STRIPE_WEBHOOK_TOLERANCE) {
+            throw new \RuntimeException('Stripe webhook timestamp is outside the allowed window.');
         }
 
         $expected = hash_hmac('sha256', $timestamp . '.' . $rawBody, $secret);

@@ -20,7 +20,10 @@
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Update Engine</h6>
     <ul class="mb-4">
         <li><strong>Release source:</strong> Fyuhls checks GitHub releases for the configured repository and compares the newest tag against your installed version.</li>
-        <li><strong>One-click updater:</strong> Downloads the release zip and updates the app while preserving local state.</li>
+        <li><strong>One-click updater:</strong> Downloads the release zip, builds a core-file manifest, backs up replaced core files, and updates the app while preserving local state.</li>
+        <li><strong>Preview first:</strong> Use the update preview on System Status to see how many files will change, which stale core files would move to quarantine, and which locally modified files will be left alone.</li>
+        <li><strong>Quarantine instead of hard delete:</strong> If Fyuhls finds an old unchanged core file that no longer belongs in the new release, it moves it into the update quarantine folder under <code>storage/</code> with the original path structure preserved.</li>
+        <li><strong>Modified files are not blindly removed:</strong> Stale core files are only quarantined when the local checksum still matches the previously installed core manifest. If you changed a core file locally, Fyuhls reports it and leaves it in place.</li>
         <li><strong>Manual updates still need care:</strong> Preserve <code>config/app.php</code>, <code>config/database.php</code>, <code>storage/</code>, <code>themes/custom/</code>, and <code>src/Plugin/</code> during a manual replacement.</li>
         <li><strong>Backups first:</strong> Always keep a database backup plus file backups before running any update path.</li>
     </ul>

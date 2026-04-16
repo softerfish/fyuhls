@@ -63,7 +63,9 @@ class SchemaService
                     'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
                     'public_id' => "VARCHAR(16) NOT NULL",
                     'username' => "VARCHAR(255) NOT NULL /* Encrypted */",
+                    'username_lookup' => "CHAR(64) NULL",
                     'email' => "VARCHAR(255) NOT NULL /* Encrypted */",
+                    'email_lookup' => "CHAR(64) NULL",
                     'password' => "VARCHAR(255) NOT NULL",
                     'role' => "ENUM('guest', 'user', 'admin') NOT NULL DEFAULT 'user'",
                     'package_id' => "INT UNSIGNED NOT NULL DEFAULT 2",
@@ -90,6 +92,8 @@ class SchemaService
                 'primary' => 'id',
                 'indexes' => [
                     'public_id' => "UNIQUE INDEX public_id (public_id)",
+                    'username_lookup_idx' => "INDEX username_lookup_idx (username_lookup)",
+                    'email_lookup_idx' => "INDEX email_lookup_idx (email_lookup)",
                     'username_idx' => "UNIQUE INDEX username_idx (username)",
                     'email_idx' => "UNIQUE INDEX email_idx (email)",
                     'status_idx' => "INDEX status_idx (status)"

@@ -85,6 +85,22 @@ try {
             $rewards = new \App\Service\RewardService();
             return ['rolled_up' => $rewards->rollupHistory(\App\Service\RewardService::retentionDays())];
         });
+
+        // 8b. Rewards Fraud background maintenance
+        $manager->register('fraud_scores', function() {
+            $fraud = new \App\Service\RewardFraudService();
+            return ['recomputed' => $fraud->recomputeAccountScores()];
+        });
+
+        $manager->register('fraud_clearance', function() {
+            $fraud = new \App\Service\RewardFraudService();
+            return ['cleared' => $fraud->clearHeldEarnings()];
+        });
+
+        $manager->register('fraud_cleanup', function() {
+            $fraud = new \App\Service\RewardFraudService();
+            return ['purged' => $fraud->purgeOldEventData()];
+        });
     }
 
     // 9. Database Schema Health Check

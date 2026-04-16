@@ -119,6 +119,24 @@ class HomeController {
         return PackageAllowanceService::dailyDownloadLimitSummary($userId, $package ?: []);
     }
 
+    private function storageQuotaInfo(): array
+    {
+        $userId = Auth::id() ? (int)Auth::id() : null;
+        if (!$userId) {
+            return ['used' => 0, 'limit' => 0];
+        }
+
+        $db = \App\Core\Database::getInstance()->getConnection();
+        $stmt = $db->prepare('SELECT storage_used FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $used = (int)($stmt->fetchColumn() ?: 0);
+
+        $package = Package::getUserPackage($userId);
+        $limit = (int)($package['max_storage_bytes'] ?? 0);
+
+        return ['used' => $used, 'limit' => $limit];
+    }
+
     public function index(?string $id = null) {
         if (\App\Service\FeatureService::affiliateEnabled() && isset($_GET['ref'])) {
             $ref = trim((string) $_GET['ref']);
@@ -173,13 +191,14 @@ class HomeController {
         }
 
         View::render('home/index.php', [
-            'files' => $files, 
+            'files'   => $files,
             'folders' => $folders,
-            'currentFolder' => $currentFolder,
-            'breadcrumbPath' => $breadcrumbPath,
+            'currentFolder'   => $currentFolder,
+            'breadcrumbPath'  => $breadcrumbPath,
             'pageHeading' => $currentFolder ? $currentFolder['name'] : 'All Files',
-            'pageTitle' => $currentFolder ? ($currentFolder['name'] . " - " . $this->siteName()) : "Dashboard - " . $this->siteName(),
+            'pageTitle'   => $currentFolder ? ($currentFolder['name'] . " - " . $this->siteName()) : "Dashboard - " . $this->siteName(),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
+            'storageQuota' => $this->storageQuotaInfo(),
         ]);
     }
 
@@ -218,16 +237,17 @@ class HomeController {
 
         $userId = Auth::id() ?? 0;
         $files = File::getDeletedByUser($userId);
-        $folders = []; // Folders aren't soft deleted currently, they hard delete or cascade
+        $folders = \App\Model\Folder::getDeletedByUser($userId);
 
         View::render('home/index.php', [
-            'files' => $files, 
+            'files'   => $files,
             'folders' => $folders,
             'currentFolder' => null,
             'isTrash' => true,
             'pageHeading' => 'Trash',
-            'pageTitle' => "Trash - " . $this->siteName(),
+            'pageTitle'   => "Trash - " . $this->siteName(),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
+            'storageQuota' => $this->storageQuotaInfo(),
         ]);
     }
 
@@ -249,12 +269,13 @@ class HomeController {
         $files = $this->decryptFileRows($stmt->fetchAll());
 
         View::render('home/index.php', [
-            'files' => $files,
+            'files'   => $files,
             'folders' => [],
             'currentFolder' => null,
             'pageHeading' => 'Recent Files',
-            'pageTitle' => "Recent Files - " . $this->siteName(),
+            'pageTitle'   => "Recent Files - " . $this->siteName(),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
+            'storageQuota' => $this->storageQuotaInfo(),
         ]);
     }
 
@@ -275,13 +296,14 @@ class HomeController {
         $files = $this->decryptFileRows($stmt->fetchAll());
 
         View::render('home/index.php', [
-            'files' => $files,
+            'files'   => $files,
             'folders' => [],
             'currentFolder' => null,
             'pageHeading' => 'Shared Files',
-            'pageTitle' => "Shared Files - " . $this->siteName(),
+            'pageTitle'   => "Shared Files - " . $this->siteName(),
             'isShared' => true,
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
+            'storageQuota' => $this->storageQuotaInfo(),
         ]);
     }
 

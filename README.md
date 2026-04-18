@@ -46,7 +46,7 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 
 
 ## Table of Contents
-- [Advanced Features (Beta)](#advanced-features-beta)
+- [Advanced Features](#advanced-features-beta)
 - [What You'll Need Before Starting](#what-youll-need-before-starting)
 - [Hosting Partnerships & Testing](#hosting-partnerships--testing)
 - [Server Requirements](#server-requirements)
@@ -60,7 +60,7 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 - [Troubleshooting](#troubleshooting)
 - [Security Reminders](#security-reminders)
 
-## Advanced Features (Beta)
+## Advanced Features
 - **Full-Coverage AES-256 Encryption**: 100% of sensitive user data (IPs, Emails, Filenames, Payment Details) is stored using AES-256 encryption with a fresh random IV per value.
 - **Multi-Server Object Storage Architecture**: Connect Local, Backblaze B2, Cloudflare R2, Wasabi, and generic S3-compatible nodes through one storage layer with setup guidance in the admin area.
 - **Direct Multipart Upload Pipeline**: Large uploads use direct-to-storage multipart sessions instead of PHP-side chunk assembly, with resumable sessions, quota reservations, and signed part URLs.
@@ -83,7 +83,7 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 | A domain name (e.g. `myfiles.com`) | Your domain registrar (PorkBun, CloudFlare, etc.) |
 | A VPS or Shared hosting account | Your hosting provider |
 | Your MySQL database details | You'll create these in Step 3 |
-| **SMTP Details** (Host, Port, User) | Your mail provider (Postmark, Brevo, or cPanel) |
+| SMTP Details (Host, Port, User) | [Starter Business E-mail](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN) @ Hostinger is very affordable |
 
 ## Hosting Partnerships & Testing
 

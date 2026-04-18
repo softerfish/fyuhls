@@ -83,9 +83,9 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 | What You Need | Where to Get It |
 |---|---|
 | A domain name (e.g. `myfiles.com`) | Your domain registrar (PorkBun, CloudFlare, etc.) |
-| A VPS or Shared hosting account | Your hosting provider |
+| A VPS or Shared hosting account | [Hostinger shared or VPS web hosting](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "additional 20% off with the provided link") with an additional 20% off on top of current discounts with the provided link |
 | Your MySQL database details | You'll create these in Step 3 |
-| SMTP Details (Host, Port, User) | [Starter Business E-mail](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "Generally around $0.39/mo prepaid") @ [Hostinger](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "Generally around $0.39/mo prepaid") is very affordable |
+| SMTP Details (Host, Port, User) | [Hostinger Starter Business E-mail](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "additional 20% off with the provided link") $0.39/mo prepaid and an additional 20% off with the provided link |
 
 ## Hosting Partnerships & Testing
 

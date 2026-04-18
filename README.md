@@ -82,10 +82,10 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 
 | What You Need | Where to Get It |
 |---|---|
-| Domain name (e.g. `myfiles.com`) | Your domain registrar (PorkBun, CloudFlare, etc.) |
-| Web hosting | [Hostinger shared or VPS web hosting](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "additional 20% off with the provided link") with an additional 20% off on top of current discounts with the provided link |
+| Domain name | Your domain registrar (PorkBun, CloudFlare, etc.) |
+| Web hosting | [Hostinger web hosting](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "additional 20% off with the provided link") and an extra 20% off on top of current discounts with the provided link |
 | MySQL | You'll create these in Step 3 |
-| SMTP | [Hostinger Starter Business E-mail](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "additional 20% off with the provided link") $0.39/mo prepaid and an additional 20% off with the provided link |
+| SMTP | [Hostinger Starter E-mail](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "additional 20% off with the provided link") and an extra 20% off with the provided link |
 
 ## Hosting Partnerships & Testing
 

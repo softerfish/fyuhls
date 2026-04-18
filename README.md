@@ -1,7 +1,9 @@
-# fyuhls v0.1.2: High-Performance File Hosting Platform (Beta)
+# fyuhls v0.1.2: High-Performance File Hosting Platform
+
+Does the project look interesting or has it helped you out at all? A star for the project helps a lot.
 
 > Beta notice:
-> fyuhls is still a beta release. You should expect errors, rough edges, and incomplete behavior. It is **not** intended to be treated as a fully polished or fully functional production website at this time. 
+> fyuhls is still a beta release. You should expect errors, rough edges, and incomplete behavior.
 
 > If you find bugs or broken flows, please send them through the built-in Bug Report area using the sanitized error log export so the issue can be reviewed safely and reproduced faster. You can also e-mail logs to **fyuhls.script@gmail.com** and I will support best I can when available. Keep in mind, this is a passion project, not a full time job. 
 

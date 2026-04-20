@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fyuhls v0.1.3 | Self-Hosted PHP File Hosting Script for Shared Hosting, VPS, and Dedicated Servers</title>
+    <meta name="description" content="fyuhls is a self-hosted PHP file hosting script for shared hosting, VPS, and dedicated Linux servers with user accounts, storage backends, rewards, payouts, admin tools, safer updates, and deep documentation.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="fyuhls v0.1.3 | Self-Hosted PHP File Hosting Script">
+    <meta property="og:description" content="Self-hosted PHP file hosting script for shared hosting, VPS, and dedicated Linux servers.">
+    <meta property="og:site_name" content="fyuhls">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="fyuhls v0.1.3 | Self-Hosted PHP File Hosting Script">
+    <meta name="twitter:description" content="Self-hosted PHP file hosting script with packages, storage backends, rewards, payouts, safer updates, and admin tooling.">
+    <link rel="stylesheet" href="styles.css">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "name": "fyuhls",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Linux",
+"softwareVersion": "0.1.3",
+          "codeRepository": "https://github.com/softerfish/fyuhls",
+          "description": "fyuhls is a self-hosted PHP file hosting script for shared hosting, VPS, and dedicated Linux servers.",
+          "featureList": [
+            "User accounts and packages",
+            "Local and S3-compatible storage backends",
+            "Direct multipart uploads with resume support",
+            "AES-256 protection for sensitive fields",
+            "Public API with personal tokens",
+            "Rewards and payouts",
+            "Safer updater with preview, quarantine, and backups",
+            "Download-page state system with share panels",
+            "Advanced file manager selection and bulk actions",
+            "Admin dashboard, diagnostics, and live download monitoring",
+            "Installer and post-install checks"
+          ]
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "Does fyuhls run on shared hosting?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. fyuhls is built for Linux-based shared hosting as well as VPS and dedicated servers, provided the required PHP extensions, writable storage, and MySQL database are available."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Does the installer create the database for me?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "No. You create the MySQL database and user first, then provide those details during installation."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I use external file storage?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. fyuhls supports local storage plus Cloudflare R2, Backblaze B2, Wasabi, and generic S3-compatible providers."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="site-shell topbar-inner">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">F</span>
+                <span>fyuhls</span>
+            </a>
+            <nav class="nav" aria-label="Primary navigation">
+                <a href="#features">Features</a>
+                <a href="#install">Install</a>
+                <a href="#guides">Guides</a>
+                <a href="#faq">FAQ</a>
+                <a href="documentation.html">Documentation</a>
+                <a href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="site-shell hero-grid">
+                <article class="hero-card hero-copy">
+                    <span class="eyebrow">Version v0.1.3</span>
+                    <h1>File hosting that feels like an operator console, not a starter template.</h1>
+                    <p class="lead">
+                        fyuhls is a self-hosted PHP file hosting script for people who want a real platform with real control:
+                        accounts, packages, storage nodes, rewards, payouts, diagnostics, and operational tooling in one stack.
+                    </p>
+                    <p>
+                        It is built for Linux-based shared hosting, VPS deployments, and dedicated servers where you want to run a branded upload business without rebuilding the boring infrastructure from zero.
+                    </p>
+                    <div class="tag-row">
+                        <span class="tag">Direct multipart uploads</span>
+                        <span class="tag">API tokens</span>
+                        <span class="tag">AES-256 sensitive-field protection</span>
+                        <span class="tag">Safer updater workflow</span>
+                        <span class="tag">Download state system</span>
+                    </div>
+                    <div class="button-row">
+                        <a class="button" href="documentation.html">Read Documentation</a>
+                        <a class="button-secondary" href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">View GitHub Repository</a>
+                    </div>
+                </article>
+
+                <aside class="hero-card hero-side">
+                    <section class="mini-panel">
+                        <span class="mini-label">Current release</span>
+                            <div class="mini-value">v0.1.3</div>
+                        <p>Beta foundation focused on storage, monetization controls, a serious admin surface, and a safer update pipeline.</p>
+                    </section>
+
+                    <section class="mini-panel demo-panel">
+                        <span class="mini-label">Live demo</span>
+                        <div class="mini-value">privacyglance.com</div>
+                        <p>Preview the public site and admin flow with the shared demo account.</p>
+                        <ul class="mini-list">
+                            <li>Demo URL: <a href="https://privacyglance.com" target="_blank" rel="noopener noreferrer">privacyglance.com</a></li>
+                            <li>Username: <strong>tester</strong></li>
+                            <li>Password: <strong>tester</strong></li>
+                        </ul>
+                        <a class="button demo-button" href="https://privacyglance.com" target="_blank" rel="noopener noreferrer">Open Demo</a>
+                    </section>
+
+                    <section class="mini-panel">
+                        <span class="mini-label">Operator stack</span>
+                        <ul class="mini-list">
+                            <li>Package rules, quotas, and upload controls that behave like real product rules</li>
+                            <li>Direct-to-storage multipart uploads with resumable sessions and managed API shortcuts</li>
+                            <li>Rewards, payouts, affiliate tooling, and built-in TOTP two-factor authentication</li>
+                            <li>SMTP, queue-aware mail handling, sanitized diagnostics exports, and admin-side health tooling</li>
+                            <li>SEO controls, cron heartbeat automation, live download tracking, and abuse or fraud review workflows</li>
+                            <li>Safer updater previews, quarantined stale files, and rollback-friendly backups</li>
+                        </ul>
+                    </section>
+
+                    <section class="mini-panel">
+                        <span class="mini-label">Storage backends</span>
+                        <ul class="mini-list">
+                            <li>Local storage</li>
+                            <li>Cloudflare R2</li>
+                            <li>Backblaze B2</li>
+                            <li>Wasabi</li>
+                            <li>Generic S3-compatible providers</li>
+                        </ul>
+                    </section>
+                </aside>
+            </div>
+        </section>
+
+        <section class="section" id="features">
+            <div class="site-shell">
+                <div class="section-header">
+                    <h2>Built like a control room</h2>
+                    <p class="muted">fyuhls is aimed at operators who need a deployable file hosting product with clear moving parts, not a vague demo shell.</p>
+                </div>
+                <div class="grid three">
+                    <article class="feature-card">
+                        <h3>Modern Storage Options</h3>
+                        <p>Run local storage or offload to object storage using provider presets and S3-compatible backends with active, read-only, and disabled server states.</p>
+                        <div class="tag-row">
+                            <span class="tag">Local</span>
+                            <span class="tag">R2</span>
+                            <span class="tag">B2 / Wasabi / S3</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Direct Multipart Uploads</h3>
+                        <p>Large-file flows use app-managed upload sessions, signed part URLs, resumable state, and direct object-storage transfer instead of forcing PHP to relay the whole file.</p>
+                        <div class="tag-row">
+                            <span class="tag">Resume support</span>
+                            <span class="tag">Signed parts</span>
+                            <span class="tag">Quota reservation</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Rewards and Payouts</h3>
+                        <p>Run pay-per-download or pay-per-sale style models with withdrawal methods, fraud controls, and payout review tools built into the script.</p>
+                        <div class="tag-row">
+                            <span class="tag">PPD</span>
+                            <span class="tag">PPS</span>
+                            <span class="tag">Withdrawals</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Rewards Fraud Review</h3>
+                        <p>Hold earnings, score suspicious traffic, inspect network and uploader risk signals, and manually clear, hold, or reverse questionable reward activity from a dedicated fraud console.</p>
+                        <div class="tag-row">
+                            <span class="tag">Held earnings</span>
+                            <span class="tag">Risk scoring</span>
+                            <span class="tag">Manual review</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>High-Performance Delivery</h3>
+                        <p>Serve downloads through PHP or optimized server-assisted handoff paths with Nginx, Apache, and LiteSpeed delivery modes available in the admin surface.</p>
+                        <div class="tag-row">
+                            <span class="tag">X-Accel-Redirect</span>
+                            <span class="tag">X-SendFile</span>
+                            <span class="tag">LiteSpeed</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Encrypted Data Protection</h3>
+                        <p>Protect sensitive account, file, and payout-related fields with built-in AES-256 encryption across critical data flows.</p>
+                        <div class="tag-row">
+                            <span class="tag">AES-256</span>
+                            <span class="tag">Sensitive fields</span>
+                            <span class="tag">Core security</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Admin Infrastructure</h3>
+                        <p>Manage packages, users, files, live downloads, withdrawals, plugins, system status, cron behavior, and support exports from one admin area.</p>
+                        <div class="tag-row">
+                            <span class="tag">Config Hub</span>
+                            <span class="tag">Diagnostics</span>
+                            <span class="tag">Search</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>User and Package Control</h3>
+                        <p>Create packages with upload limits, storage limits, remote upload access, download controls, and plan-specific behavior.</p>
+                        <div class="tag-row">
+                            <span class="tag">User roles</span>
+                            <span class="tag">Package limits</span>
+                            <span class="tag">Quota handling</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Public API and Tokens</h3>
+                        <p>Expose account-bound API access with personal tokens, managed upload shortcuts, multipart session control, owner-scoped file metadata, and application-signed download links.</p>
+                        <div class="tag-row">
+                            <span class="tag">Bearer tokens</span>
+                            <span class="tag">Managed upload</span>
+                            <span class="tag">Signed links</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>SEO Command Center</h3>
+                        <p>Control titles, descriptions, canonicals, sitemap rules, robots.txt, structured data, file-page templates, and verification tokens from a dedicated SEO area in the admin hub.</p>
+                        <div class="tag-row">
+                            <span class="tag">Sitemap</span>
+                            <span class="tag">Robots.txt</span>
+                            <span class="tag">Structured Data</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Security Controls</h3>
+                        <p>Use login protection, optional 2FA, abuse reporting, proxy and VPN screening, encrypted sensitive data, and server-side validation across key flows.</p>
+                        <div class="tag-row">
+                            <span class="tag">2FA</span>
+                            <span class="tag">Encrypted fields</span>
+                            <span class="tag">Abuse defenses</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Email and Queue System</h3>
+                        <p>Configure SMTP, send transactional mail, manage queued delivery, and edit templates for verification, password resets, and platform messaging.</p>
+                        <div class="tag-row">
+                            <span class="tag">SMTP</span>
+                            <span class="tag">Mail queue</span>
+                            <span class="tag">Templates</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Automation Heartbeat</h3>
+                        <p>Run cleanup, maintenance, queue work, and scheduled platform tasks through a centralized heartbeat cron instead of scattered job logic.</p>
+                        <div class="tag-row">
+                            <span class="tag">Cron</span>
+                            <span class="tag">Cleanup</span>
+                            <span class="tag">Maintenance</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Observability and Support</h3>
+                        <p>Track current downloads, inspect system status, review logs, and export sanitized diagnostics bundles when you need to debug a live install without leaking secrets.</p>
+                        <div class="tag-row">
+                            <span class="tag">Current downloads</span>
+                            <span class="tag">Status checks</span>
+                            <span class="tag">Sanitized export</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Abuse, DMCA, and Requests</h3>
+                        <p>Handle contact requests, abuse reports, DMCA actions, and uploader-facing moderation workflows from the same admin stack instead of bolting those processes on later.</p>
+                        <div class="tag-row">
+                            <span class="tag">Abuse reports</span>
+                            <span class="tag">DMCA queue</span>
+                            <span class="tag">Requests inbox</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Live Download Operations</h3>
+                        <p>Monitor active transfers in real time, review delivery behavior, and use that visibility for support, performance tuning, and abuse investigation.</p>
+                        <div class="tag-row">
+                            <span class="tag">Active transfers</span>
+                            <span class="tag">Delivery insight</span>
+                            <span class="tag">Ops visibility</span>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <h3>Install and Support Tools</h3>
+                        <p>The script includes a web installer, a post-install check page, support bundle export, and a documentation section for setup and admin workflows.</p>
+                        <div class="tag-row">
+                            <span class="tag">Installer</span>
+                            <span class="tag">Post-check</span>
+                            <span class="tag">Help docs</span>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="install">
+            <div class="site-shell grid two">
+                <article class="panel">
+                    <h2>Install flow</h2>
+                    <ol class="steps">
+                        <li>Confirm the server is Linux-based and has PHP 8.2+, MySQL or MariaDB, PDO MySQL, OpenSSL, cURL, sockets, and clean URL support such as Apache <code>mod_rewrite</code>.</li>
+                        <li>Raise your PHP upload and execution limits before launch if you plan to handle large files. A practical baseline for 2GB+ uploads is <code>upload_max_filesize = 256M</code>, <code>post_max_size = 300M</code>, <code>max_execution_time = 3600</code>, and <code>memory_limit = 512M</code>.</li>
+                        <li>Extract the package locally so you have the full project folders such as <code>public</code>, <code>src</code>, <code>config</code>, <code>storage</code>, <code>vendor</code>, and <code>docs</code>.</li>
+                        <li>Create an application folder above your public web root and upload the full script there instead of dropping everything straight into <code>public_html</code>.</li>
+                        <li>Create a MySQL database and database user in cPanel, DirectAdmin, or your server panel, then grant that user access to the database. The installer expects both to already exist.</li>
+                        <li>Point your domain or subdomain document root to the <code>public/</code> directory inside the installed project. On cPanel or DirectAdmin this usually means changing the domain path to something like <code>/home/yourusername/domain.com/fyuhls/public</code>.</li>
+                        <li>Visit <code>/install.php</code> in your browser and enter your database details, hidden config path, and initial admin account. For better security, put the hidden config path outside the public web directory.</li>
+                        <li>Run <code>/post_install_check.php</code> after setup to confirm database connection, schema version, storage permissions, GD, and optional SMTP readiness.</li>
+                        <li>Finish your first-run setup in the admin area by configuring packages, storage, uploads, downloads, security, email, SEO, monetization, and cron.</li>
+                        <li>Add the heartbeat cron job so cleanup, queue processing, and scheduled maintenance continue to run: <code>* * * * * php /home/yourusername/fyuhls/src/Cron/Run.php</code>.</li>
+                        <li>Delete <code>install.php</code>, <code>post_install_check.php</code>, and the schema file if they remain after setup.</li>
+                    </ol>
+                    <p class="muted">The installer does not create databases or database users for you. For better security, keep the hidden config file outside the public web directory and make sure only the project's <code>public/</code> folder is web-accessible.</p>
+                    <p><a href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">View the full detailed installation instructions on GitHub</a>.</p>
+                </article>
+                <article class="panel">
+                    <h2>Deployment baseline</h2>
+                    <ul class="checklist">
+                        <li>Linux-based web hosting environment</li>
+                        <li>PHP 8.2+ with PDO MySQL, OpenSSL, cURL, sockets, and common file/image extensions</li>
+                        <li>MySQL or MariaDB database already created</li>
+                        <li>Writable storage paths for uploads, cache, and logs</li>
+                        <li><code>mod_rewrite</code> or equivalent clean-URL support on your host</li>
+                        <li>Tuned PHP upload limits if you plan to accept large files, with a practical 2GB+ baseline for chunked uploads</li>
+                        <li>Cron access for scheduled cleanup, rewards, or maintenance jobs</li>
+                    </ul>
+                    <h3>Common Setup Reminders</h3>
+                    <ul class="checklist">
+                        <li>Do not upload the whole script directly into <code>public_html</code>.</li>
+                        <li>Only the installed project's <code>public/</code> directory should be exposed as the document root.</li>
+                        <li>SMTP is configured after installation from <code>Admin &gt; Config Hub &gt; Email</code>.</li>
+                        <li>Rewards and affiliate options are configured later from <code>Admin &gt; Config Hub &gt; Monetization</code>.</li>
+                        <li>Nginx users who need completed-download reward tracking should also apply the documented completion callback configuration.</li>
+                    </ul>
+                    <div class="button-row">
+                        <a class="button-secondary" href="documentation.html#installation">View Full Installation Guide</a>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="site-shell" id="guides">
+                <div class="section-header">
+                    <h2>Free deployment guides</h2>
+                    <p class="muted">These pages are written for people trying to launch or learn from a real self-hosted file hosting stack, not browse generic marketing copy.</p>
+                </div>
+                <div class="resource-grid">
+                    <a class="resource-card" href="free-file-hosting-script.html">
+                        <span class="eyebrow">Free Script</span>
+                        <h3>Free File Hosting Script</h3>
+                        <p>Why fyuhls fits the search for a free self-hosted file hosting script, plus the practical requirements, tradeoffs, and features that matter before install.</p>
+                    </a>
+                    <a class="resource-card" href="self-hosted-file-hosting-software.html">
+                        <span class="eyebrow">Self Hosted</span>
+                        <h3>Self-Hosted File Hosting Software</h3>
+                        <p>A guide to running your own file hosting platform with control over storage, branding, API access, and operational tooling.</p>
+                    </a>
+                    <a class="resource-card" href="how-to-make-a-file-hosting-website.html">
+                        <span class="eyebrow">How To</span>
+                        <h3>How to Make a File Hosting Website</h3>
+                        <p>A step-by-step article covering the real moving parts: hosting, storage, upload limits, cron, indexing, and file delivery.</p>
+                    </a>
+                    <a class="resource-card" href="cloudflare-r2-file-hosting-guide.html">
+                        <span class="eyebrow">Storage</span>
+                        <h3>Cloudflare R2 File Hosting Guide</h3>
+                        <p>How object storage changes large-file deployments and why R2 is a strong option for self-hosted file hosting projects.</p>
+                    </a>
+                    <a class="resource-card" href="large-file-upload-php-guide.html">
+                        <span class="eyebrow">Uploads</span>
+                        <h3>Large File Uploads in PHP</h3>
+                        <p>What actually breaks big uploads, how multipart uploads avoid those bottlenecks, and what to configure before launch.</p>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="site-shell">
+                <div class="callout">
+                    <div>
+                        <h2>Need the operator map?</h2>
+                        <p>The documentation page covers installation, storage setup, admin sections, rewards, file servers, and the day-to-day operational paths built into fyuhls.</p>
+                    </div>
+                    <a class="button" href="documentation.html">Open Documentation</a>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="faq">
+            <div class="site-shell">
+                <div class="section-header">
+                    <h2>Operator questions</h2>
+                    <p class="muted">Short answers to the questions people usually ask before they commit to a first deployment.</p>
+                </div>
+                <div class="grid two">
+                    <article class="faq-card">
+                        <h3>Does fyuhls run on shared hosting?</h3>
+                        <p>Yes. Fyuhls is built to run on Linux-based shared hosting as well as VPS and dedicated servers, as long as you have a MySQL database, writable storage, and the required PHP extensions. The tradeoff is that shared hosting usually gives you less control over PHP limits, cron reliability, background processing, and large-upload performance, so bigger or heavier-traffic installs will generally be better on a VPS or dedicated server.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Does the installer create the database for me?</h3>
+                        <p>No. Create the database and database user first in cPanel, Plesk, or your server panel, then enter those details during installation.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Can I use external file storage?</h3>
+                        <p>Yes. The script supports local storage as well as Cloudflare R2, Backblaze B2, Wasabi, and generic S3-compatible providers.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Does it support resumable large uploads?</h3>
+                        <p>Yes. Fyuhls includes app-managed multipart upload sessions with signed part URLs, resume-aware session inspection, and managed-upload shortcuts for third-party tools.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Why is FTP or SFTP not included?</h3>
+                        <p>fyuhls is currently focused on local storage and S3-compatible backends because they are a better fit for large resumable uploads, signed delivery, and CDN-friendly scaling. FTP and SFTP would require a different relay-style transfer path, so they are intentionally left out for now.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Is rewards support included?</h3>
+                        <p>Yes. Rewards, payouts, and affiliate-ready monetization are part of the core script. Admins can enable or disable those features in the admin area.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Can I run it without rewards enabled?</h3>
+                        <p>Yes. Rewards and affiliate behavior can be turned off. When disabled, related frontend options are hidden and the server-side routes are gated.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Where do I get updates and source files?</h3>
+                        <p>Use the GitHub repository for source access and release tracking: <a href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">github.com/softerfish/fyuhls</a>.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Does the script include SEO controls?</h3>
+                        <p>Yes. fyuhls includes an SEO command center for homepage metadata, public page templates, robots.txt, sitemap.xml, structured data, and search-engine verification tokens.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Is there a real API or just browser forms?</h3>
+                        <p>There is a real public API. Users can create personal API tokens and use them for multipart uploads, managed-upload flows, file metadata, and application-signed download links.</p>
+                    </article>
+                    <article class="faq-card">
+                        <h3>Can admins change indexing rules without editing files?</h3>
+                        <p>Yes. Search indexing rules, sitemap inclusion, file-page templates, and robots handling can be changed from the admin area instead of editing templates manually.</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="site-shell footer-grid">
+            <div>
+                <h3>fyuhls</h3>
+                <p>Self-hosted file hosting script for Linux-based shared hosting, VPS, and dedicated servers.</p>
+                    <p class="muted">Version v0.1.3</p>
+            </div>
+            <div>
+                <h3>Links</h3>
+                <p><a href="documentation.html">Documentation</a></p>
+                <p><a href="free-file-hosting-script.html">Free File Hosting Script</a></p>
+                <p><a href="how-to-make-a-file-hosting-website.html">How to Make a File Hosting Website</a></p>
+                <p><a href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

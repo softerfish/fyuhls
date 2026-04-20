@@ -1,0 +1,51 @@
+<?php
+
+return [
+    'app_name' => 'Fyuhls',
+    'base_url' => 'http://localhost',
+    'debug' => true,
+    'env' => 'development',
+
+    'security' => [
+        'proxycheck_api_key' => '',
+        'allowed_hosts' => ['localhost'],
+        'rate_limit' => [
+            'download' => [
+                'limit' => 5,
+                'window' => 600
+            ],
+            'login' => [
+                'limit' => 5,
+                'window' => 300
+            ]
+        ],
+    ],
+
+    'turnstile' => [
+        'site_key' => '',
+        'secret_key' => '',
+    ],
+
+    'upload' => [
+        'max_size' => 100 * 1024 * 1024
+    ],
+
+    'thumbnail' => [
+        'max_width' => 320,
+        'max_height' => 240,
+        'quality' => 80
+    ],
+
+    'video' => [
+        'ffmpeg_path' => ''
+    ],
+
+    'storage' => [
+        'local' => [
+            'path' => dirname(__DIR__) . '/storage/uploads'
+        ]
+    ],
+
+    // used for HMAC signing of download urls
+    'app_key' => 'change_this_to_a_random_string'
+];

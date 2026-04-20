@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Self-Hosted File Hosting Software | Run Your Own Upload Platform with fyuhls</title>
+    <meta name="description" content="Learn what matters when choosing self-hosted file hosting software, from storage backends and resumable uploads to API access, SEO controls, cron, and admin diagnostics.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="Self-Hosted File Hosting Software">
+    <meta property="og:description" content="What to look for in self-hosted file hosting software and how fyuhls approaches the problem.">
+    <meta property="og:site_name" content="fyuhls">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Self-Hosted File Hosting Software">
+    <meta name="twitter:description" content="Storage, uploads, delivery, and admin considerations for running your own file hosting platform.">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="site-shell topbar-inner">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">F</span>
+                <span>fyuhls</span>
+            </a>
+            <nav class="nav" aria-label="Primary navigation">
+                <a href="index.html">Main</a>
+                <a href="documentation.html">Documentation</a>
+                <a href="api.html">API</a>
+                <a href="free-file-hosting-script.html">Free Script</a>
+                <a href="https://github.com/softerfish/fyuhls" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="article-shell">
+        <div class="site-shell">
+            <section class="article-hero">
+                <span class="eyebrow">Self-Hosted File Hosting Software</span>
+                <h1>Running your own file hosting platform without guessing at the hard parts</h1>
+                <p class="lead">Self-hosted file hosting software gives you something cloud-only tools do not: control over where files live, how downloads are delivered, how users are limited, and how the site is indexed or customized.</p>
+                <p>That control only helps if the software also handles the operational reality of uploads, storage, cron jobs, diagnostics, and user-facing delivery. fyuhls is built around that more complete view.</p>
+            </section>
+
+            <div class="article-layout">
+                <article class="article-main article-prose">
+                    <section class="article-section" id="why-self-host">
+                        <h2>Why people choose self-hosted file hosting software</h2>
+                        <p>The main reason is ownership. With self-hosted software, you choose the domain, storage backend, server rules, indexing behavior, and branding. You also decide whether the project is optimized for private team sharing, public file pages, API uploads, or something in between.</p>
+                        <p>For many sites, cost control matters too. Object storage providers such as Cloudflare R2 or Backblaze B2 can be easier to predict than growing a single local server forever, and self-hosting lets you mix local and external storage based on your needs.</p>
+                    </section>
+
+                    <section class="article-section" id="what-to-evaluate">
+                        <h2>What to evaluate before choosing a platform</h2>
+                        <ul>
+                            <li><strong>Storage support:</strong> local storage is simple, but object storage is usually better for growth and large-file workloads.</li>
+                            <li><strong>Upload architecture:</strong> resumable multipart uploads are far more reliable than giant single-request uploads.</li>
+                            <li><strong>Delivery model:</strong> app-controlled links, CDN redirects, and server-assisted handoff all matter once traffic increases.</li>
+                            <li><strong>Administration:</strong> you want diagnostics, SEO settings, system status checks, and support tooling in one place.</li>
+                            <li><strong>API access:</strong> desktop tools and automation workflows benefit from personal tokens and stable upload endpoints.</li>
+                            <li><strong>Update safety:</strong> a previewable updater with backups and quarantine keeps live installs safer.</li>
+                        </ul>
+                    </section>
+
+                    <section class="article-section" id="how-fyuhls-approaches-it">
+                        <h2>How fyuhls approaches the problem</h2>
+                        <p>fyuhls combines the public site, upload logic, storage configuration, API, admin tools, and maintenance tasks into a single stack. It supports user accounts, packages, quotas, rewards controls, storage nodes, API tokens, and indexing controls without requiring you to bolt several different systems together.</p>
+                        <p>Recent releases also added a safer updater workflow with previews, backups, and stale-file quarantine, along with a structured download-page state system and richer file manager bulk actions.</p>
+                        <p>For operators who need large-file support, one of the most important design choices is the multipart direct-to-storage path. The app manages the upload session, part signing, reservations, and finalization, while the heavy file transfer can go straight to the storage provider.</p>
+                    </section>
+
+                    <section class="article-section" id="shared-hosting-vs-vps">
+                        <h2>Shared hosting versus VPS for self-hosted file hosting</h2>
+                        <p>fyuhls is intentionally built to work on Linux-based shared hosting as well as VPS and dedicated servers, but the experience is not identical across all environments. Shared hosting is a good entry point if you want to learn the stack or keep traffic modest. A VPS gives you more control over PHP limits, background processing, and web server tuning.</p>
+                        <p>If large uploads, heavier traffic, or more advanced delivery behavior matter to you, a VPS or dedicated server usually becomes the better long-term fit.</p>
+                    </section>
+
+                    <section class="article-section" id="next-steps">
+                        <h2>Where to go next</h2>
+                        <ul>
+                            <li>Read the <a href="documentation.html">installation and admin documentation</a>.</li>
+                            <li>Review the <a href="api.html">public API reference</a> if token-based uploads matter.</li>
+                            <li>See the <a href="cloudflare-r2-file-hosting-guide.html">Cloudflare R2 guide</a> for object-storage planning.</li>
+                            <li>Use the <a href="how-to-make-a-file-hosting-website.html">step-by-step site guide</a> for the broader deployment checklist.</li>
+                        </ul>
+                    </section>
+                </article>
+
+                <aside class="toc-card">
+                    <h2>On this page</h2>
+                    <nav class="toc-links">
+                        <a href="#why-self-host">Why self-host</a>
+                        <a href="#what-to-evaluate">What to evaluate</a>
+                        <a href="#how-fyuhls-approaches-it">How fyuhls works</a>
+                        <a href="#shared-hosting-vs-vps">Hosting options</a>
+                        <a href="#next-steps">Next steps</a>
+                    </nav>
+                </aside>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="site-shell footer-grid">
+            <div>
+                <h3>fyuhls</h3>
+                <p>Self-hosted file hosting software with object storage support, large upload flows, API access, and admin controls.</p>
+            </div>
+            <div>
+                <h3>Links</h3>
+                <p><a href="free-file-hosting-script.html">Free file hosting script</a></p>
+                <p><a href="documentation.html">Documentation</a></p>
+                <p><a href="api.html">API reference</a></p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

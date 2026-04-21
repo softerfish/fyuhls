@@ -22,9 +22,10 @@ final readonly class RequiresFunction extends Metadata
     private string $functionName;
 
     /**
+     * @param 0|1              $level
      * @param non-empty-string $functionName
      */
-    protected function __construct(Level $level, string $functionName)
+    protected function __construct(int $level, string $functionName)
     {
         parent::__construct($level);
 

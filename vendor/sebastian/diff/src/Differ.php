@@ -12,7 +12,6 @@ namespace SebastianBergmann\Diff;
 use const PHP_INT_SIZE;
 use const PREG_SPLIT_DELIM_CAPTURE;
 use const PREG_SPLIT_NO_EMPTY;
-use function array_any;
 use function array_shift;
 use function array_unshift;
 use function array_values;
@@ -31,11 +30,11 @@ use SebastianBergmann\Diff\Output\DiffOutputBuilderInterface;
 
 final class Differ
 {
-    public const int OLD                     = 0;
-    public const int ADDED                   = 1;
-    public const int REMOVED                 = 2;
-    public const int DIFF_LINE_END_WARNING   = 3;
-    public const int NO_LINE_END_EOF_WARNING = 4;
+    public const OLD                     = 0;
+    public const ADDED                   = 1;
+    public const REMOVED                 = 2;
+    public const DIFF_LINE_END_WARNING   = 3;
+    public const NO_LINE_END_EOF_WARNING = 4;
     private DiffOutputBuilderInterface $outputBuilder;
 
     public function __construct(DiffOutputBuilderInterface $outputBuilder)
@@ -85,11 +84,11 @@ final class Differ
         reset($to);
 
         foreach ($common as $token) {
-            while ((/* from-token */ reset($from)) !== $token) {
+            while (($fromToken = reset($from)) !== $token) {
                 $diff[] = [array_shift($from), self::REMOVED];
             }
 
-            while ((/* to-token */ reset($to)) !== $token) {
+            while (($toToken = reset($to)) !== $token) {
                 $diff[] = [array_shift($to), self::ADDED];
             }
 
@@ -138,7 +137,7 @@ final class Differ
         return new TimeEfficientLongestCommonSubsequenceCalculator;
     }
 
-    private function calculateEstimatedFootprint(array $from, array $to): int
+    private function calculateEstimatedFootprint(array $from, array $to): float|int
     {
         $itemSize = PHP_INT_SIZE === 4 ? 76 : 144;
 
@@ -168,14 +167,22 @@ final class Differ
         }
 
         // two-way compare
-        if (array_any($newLineBreaks, static fn (bool $set, string $break) => !isset($oldLineBreaks[$break]))) {
-            return true;
+        foreach ($newLineBreaks as $break => $set) {
+            if (!isset($oldLineBreaks[$break])) {
+                return true;
+            }
         }
 
-        return array_any($oldLineBreaks, static fn (bool $set, string $break) => !isset($newLineBreaks[$break]));
+        foreach ($oldLineBreaks as $break => $set) {
+            if (!isset($newLineBreaks[$break])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
-    private function getLinebreak(int|string $line): string
+    private function getLinebreak($line): string
     {
         if (!is_string($line)) {
             return '';

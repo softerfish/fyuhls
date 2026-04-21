@@ -126,17 +126,17 @@ $tabs = [
                         </div>
                         <div class="border rounded p-3 bg-light mb-4">
                             <div class="d-flex flex-wrap gap-2 mb-3">
-                                <button type="button" class="btn btn-outline-primary btn-sm" id="b2DiscoverBtn">Load My B2 Buckets</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm" id="b2ApplyCorsBtn">Apply Fyuhls CORS</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="b2DiscoverBtn">Step 1: Load My B2 Buckets</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="b2ApplyCorsBtn">Step 2: Apply Fyuhls CORS</button>
                             </div>
-                            <div class="text-muted extra-small mb-3">This saves time during setup. Fyuhls can validate your B2 credentials, load your buckets, auto-fill the bucket, region, and endpoint, and apply the recommended upload CORS rule for <code><?= htmlspecialchars($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?></code>. <strong>Important:</strong> clicking <strong>Verify &amp; Connect Server</strong> does not apply bucket CORS by itself. Use <strong>Apply Fyuhls CORS</strong> after the bucket name and current Application Key are filled in.</div>
+                            <div class="text-muted extra-small mb-3"><strong>Recommended order:</strong> first click <strong>Step 1: Load My B2 Buckets</strong> so Fyuhls can fill the bucket, region, and endpoint fields. Then click <strong>Step 2: Apply Fyuhls CORS</strong> to write the browser-upload CORS rule to the real B2 bucket. <strong>Verify &amp; Connect Server</strong> only tests the saved server record and does not apply bucket CORS for you.</div>
                             <div class="mb-3 d-none" id="b2BucketPickerWrap">
                                 <label class="form-label fw-bold small">Choose a Backblaze Bucket</label>
                                 <select class="form-select" id="b2BucketPicker"></select>
                                 <div class="text-muted extra-small mt-1">Selecting a bucket will automatically fill the bucket name, region, and endpoint fields above.</div>
                             </div>
                             <div class="alert alert-secondary border-0 small mb-0" id="b2AutomationStatus">
-                                Enter your B2 Key ID and Application Key, then click <strong>Load My B2 Buckets</strong>. Once your bucket is selected, click <strong>Apply Fyuhls CORS</strong> to write the recommended upload CORS rule to the real B2 bucket. Do this before testing large browser uploads.
+                                <strong>Step 1:</strong> enter your B2 Key ID and Application Key, then click <strong>Load My B2 Buckets</strong>.<br><strong>Step 2:</strong> once the bucket fields are filled in, click <strong>Apply Fyuhls CORS</strong> beside it to update the real B2 bucket before testing large browser uploads.
                             </div>
                         </div>
                     <?php endif; ?>
@@ -191,17 +191,17 @@ $tabs = [
                         </div>
                         <div class="border rounded p-3 bg-light mb-4">
                             <div class="d-flex flex-wrap gap-2 mb-3">
-                                <button type="button" class="btn btn-outline-primary btn-sm" id="wasabiDiscoverBtn">Load My Wasabi Buckets</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm" id="wasabiApplyCorsBtn">Apply Fyuhls CORS</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="wasabiDiscoverBtn">Step 1: Load My Wasabi Buckets</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="wasabiApplyCorsBtn">Step 2: Apply Fyuhls CORS</button>
                             </div>
-                            <div class="text-muted extra-small mb-3">This can validate your Wasabi credentials, load buckets that the current key can see, auto-fill the bucket, region, and endpoint, and apply the recommended upload CORS rule for <code><?= htmlspecialchars($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?></code>. <strong>Important:</strong> clicking <strong>Verify &amp; Connect Server</strong> does not apply bucket CORS by itself. Use <strong>Apply Fyuhls CORS</strong> after the bucket name and current secret key are filled in.</div>
+                            <div class="text-muted extra-small mb-3"><strong>Recommended order:</strong> first click <strong>Step 1: Load My Wasabi Buckets</strong> so Fyuhls can fill the bucket, region, and endpoint fields for the selected bucket. Then click <strong>Step 2: Apply Fyuhls CORS</strong> to write the browser-upload CORS rule to the real Wasabi bucket. <strong>Verify &amp; Connect Server</strong> only tests the saved server record and does not apply bucket CORS for you.</div>
                             <div class="mb-3 d-none" id="wasabiBucketPickerWrap">
                                 <label class="form-label fw-bold small">Choose a Wasabi Bucket</label>
                                 <select class="form-select" id="wasabiBucketPicker"></select>
                                 <div class="text-muted extra-small mt-1">Selecting a bucket will automatically fill the bucket name, region, and endpoint fields above.</div>
                             </div>
                             <div class="alert alert-secondary border-0 small mb-0" id="wasabiAutomationStatus">
-                                Enter your Wasabi Access Key and Secret Key, then click <strong>Load My Wasabi Buckets</strong>. Once your bucket is selected, click <strong>Apply Fyuhls CORS</strong> to write the recommended upload CORS rule to the real Wasabi bucket before testing large browser uploads.
+                                <strong>Step 1:</strong> enter your Wasabi Access Key and Secret Key, then click <strong>Load My Wasabi Buckets</strong>.<br><strong>Step 2:</strong> once the bucket fields are filled in, click <strong>Apply Fyuhls CORS</strong> beside it to update the real Wasabi bucket before testing large browser uploads.
                             </div>
                         </div>
                     <?php endif; ?>
@@ -314,7 +314,7 @@ $tabs = [
                             <br><br>
                             <strong>Nginx completion log requirements:</strong> To let Nginx honor <code>ppd_min_download_percent</code> for standard files, configure a dedicated Nginx <code>access_log</code> entry that records Fyuhls' download ID, file ID, original URI, final status, and bytes sent. Then set the same log path in <strong>Config Hub &gt; Downloads &gt; Nginx Completion Log Path</strong>.
                             <br><br>
-                            <strong>Filesystem handoff note:</strong> Apache and LiteSpeed handoff tests only make sense when the selected storage server resolves to a real filesystem path that the web server can read. Remote object-storage connectors should use the normal connection check plus a real download test instead of assuming a handoff header proves the cloud path.
+                            <strong>Filesystem handoff note:</strong> Apache and LiteSpeed handoff tests only make sense when the selected storage server resolves to a real filesystem path that the web server can read. Nginx can still run a basic download test against remote object storage, but that fallback only proves Fyuhls can fetch and stream the object. It does <strong>not</strong> prove <code>X-Accel-Redirect</code> handoff for remote storage.
                             <br><br>
                             <strong>Cloudflare note:</strong> If this site runs behind Cloudflare, also configure Nginx real-IP restoration so the completion log records the real visitor IP instead of the proxy IP. Fyuhls Cloudflare trust fixes PHP-side IP handling, but the Nginx log still depends on Nginx's own <code>real_ip_header</code> and <code>set_real_ip_from</code> configuration.
                             <br><br>
@@ -614,7 +614,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const setBusy = (busy) => {
         discoverBtn.disabled = busy;
         applyCorsBtn.disabled = busy;
-        discoverBtn.textContent = busy ? 'Working...' : 'Load My B2 Buckets';
+        discoverBtn.textContent = busy ? 'Working...' : 'Step 1: Load My B2 Buckets';
     };
 
     const fillBucketDetails = (bucket) => {
@@ -772,7 +772,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const setBusy = (busy) => {
         discoverBtn.disabled = busy;
         applyCorsBtn.disabled = busy;
-        discoverBtn.textContent = busy ? 'Working...' : 'Load My Wasabi Buckets';
+        discoverBtn.textContent = busy ? 'Working...' : 'Step 1: Load My Wasabi Buckets';
     };
 
     const fillBucketDetails = (bucket) => {

@@ -29,7 +29,7 @@ final class Timer
      */
     public function stop(): Duration
     {
-        if ($this->startTimes === []) {
+        if (empty($this->startTimes)) {
             throw new NoActiveTimerException(
                 'Timer::start() has to be called before Timer::stop()',
             );

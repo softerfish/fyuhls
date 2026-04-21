@@ -323,11 +323,15 @@ class ConfigurationController
         $demoAdmin = DemoModeService::currentViewerIsDemoAdmin();
         $migrationService = new EncryptionMigrationService();
         
-        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login','captcha_admin_login'];
+        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login'];
         $captchaPlacements = [];
         foreach ($captchaKeys as $ck) {
             $captchaPlacements[$ck] = Setting::get($ck, '0');
         }
+        $captchaPlacements['captcha_user_login'] = (
+            ($captchaPlacements['captcha_user_login'] ?? '0') === '1'
+            || Setting::get('captcha_admin_login', '0') === '1'
+        ) ? '1' : '0';
 
         return [
             'migrationService' => $migrationService,
@@ -505,7 +509,10 @@ class ConfigurationController
             'uploadChunkSizeMb' => Setting::get('upload_chunk_size_mb', '100'),
             'uploadLoginRequired' => Setting::get('upload_login_required', '0'),
             'uploadDetectDuplicates' => Setting::get('upload_detect_duplicates', '1'),
-            'uploadAllowedExtensions' => Setting::get('upload_allowed_extensions', 'jpg,jpeg,png,gif,pdf,doc,docx,xls,xlsx,txt,zip,mp4,mp3,ipa,apk')
+            'uploadAllowedExtensions' => Setting::get('upload_allowed_extensions', 'jpg,jpeg,png,gif,pdf,doc,docx,xls,xlsx,txt,zip,mp4,mp3,ipa,apk'),
+            'downloadPageSaveFree' => Setting::get('download_page_save_free', '1'),
+            'downloadPageSavePremium' => Setting::get('download_page_save_premium', '1'),
+            'downloadPageSaveAdmin' => Setting::get('download_page_save_admin', '1'),
         ];
     }
 
@@ -901,10 +908,11 @@ class ConfigurationController
             $this->logActivity('update_setting', 'captcha_secret_key', '********');
         }
 
-        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login','captcha_admin_login'];
+        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login'];
         foreach ($captchaKeys as $ck) {
             $this->updateSetting($ck, isset($_POST[$ck]) ? '1' : '0', 'captcha');
         }
+        $this->updateSetting('captcha_admin_login', isset($_POST['captcha_user_login']) ? '1' : '0', 'captcha');
     }
 
     private function saveDownloadSettings(): void
@@ -932,6 +940,9 @@ class ConfigurationController
         $this->updateSetting('upload_login_required', isset($_POST['upload_login_required']) ? '1' : '0', 'uploads');
         $this->updateSetting('upload_detect_duplicates', isset($_POST['upload_detect_duplicates']) ? '1' : '0', 'uploads');
         $this->updateSetting('upload_allowed_extensions', $_POST['upload_allowed_extensions'] ?? '', 'uploads');
+        $this->updateSetting('download_page_save_free', isset($_POST['download_page_save_free']) ? '1' : '0', 'uploads');
+        $this->updateSetting('download_page_save_premium', isset($_POST['download_page_save_premium']) ? '1' : '0', 'uploads');
+        $this->updateSetting('download_page_save_admin', isset($_POST['download_page_save_admin']) ? '1' : '0', 'uploads');
     }
 
     private function saveMonetizationSettings(): void
@@ -949,6 +960,7 @@ class ConfigurationController
             $this->updateSetting('enabled_models', implode(',', $enabledModels), 'rewards');
             $this->updateSetting('global_model_status', empty($enabledModels) ? 'disabled' : 'enabled', 'rewards');
             $this->updateSetting('pps_commission_percent', (string) (int) ($_POST['pps_commission_percent'] ?? 0), 'rewards');
+            $this->updateSetting('affiliate_hold_days', (string) max(0, min(90, (int) ($_POST['affiliate_hold_days'] ?? 5))), 'rewards');
             $this->updateSetting('mixed_ppd_percent', (string) (int) ($_POST['mixed_ppd_percent'] ?? 30), 'rewards');
             $this->updateSetting('mixed_pps_percent', (string) (int) ($_POST['mixed_pps_percent'] ?? 30), 'rewards');
             $this->updateSetting('ppd_ip_reward_limit', (string) max(1, (int) ($_POST['ppd_ip_reward_limit'] ?? 1)), 'rewards');

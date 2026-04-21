@@ -9,6 +9,7 @@ use App\Service\StandardFilePayoutPolicy;
 use App\Core\Auth;
 use App\Core\Csrf;
 use App\Core\Logger;
+use App\Core\View;
 use App\Model\File;
 use App\Model\Package;
 use App\Model\Setting;
@@ -629,32 +630,123 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
 
     public function delete()
     {
+        header('Content-Type: application/json');
+
         if (!Auth::check()) {
             http_response_code(401);
-            die("Login required");
+            echo json_encode(['status' => 'error', 'message' => 'Login required']);
+            return;
         }
 
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST')
-            die("Method Not Allowed");
-        if (!Csrf::verify($_POST['csrf_token'] ?? ''))
-            die("CSRF Mismatch");
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['status' => 'error', 'message' => 'Method not allowed']);
+            return;
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['status' => 'error', 'message' => 'Security token mismatch']);
+            return;
+        }
 
         $fileId = $_POST['file_id'] ?? $_POST['id'] ?? 0;
         $file = File::find($fileId);
 
-        if (!$file)
-            die("File Not Found");
+        if (!$file) {
+            http_response_code(404);
+            echo json_encode(['status' => 'error', 'message' => 'File not found']);
+            return;
+        }
 
         // idor check
         if ($file['user_id'] !== Auth::id() && !Auth::isAdmin()) {
             http_response_code(403);
-            die("Unauthorized");
+            echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
+            return;
         }
 
-        File::hardDelete((int)$file['id']);
-        Auth::logActivity('delete', "Deleted file: " . $file['filename'] . " (ID: " . $file['id'] . ")");
-        Logger::info('file deleted', ['file_id' => $file['id'], 'user_id' => Auth::id()]);
-        echo json_encode(['status' => 'success', 'message' => 'File Deleted']);
+        $adminAction = Auth::isAdmin();
+        $deleteReason = trim((string)($_POST['delete_reason'] ?? ''));
+        if ($adminAction && $deleteReason === '') {
+            http_response_code(422);
+            echo json_encode(['status' => 'error', 'message' => 'A delete reason is required for admin removals.']);
+            return;
+        }
+
+        File::hardDelete((int)$file['id'], [
+            'deleted_by_user_id' => Auth::id(),
+            'deleted_by_role' => $adminAction ? 'admin' : 'user',
+            'deleted_by_label' => $this->currentActorLabel($adminAction),
+            'delete_reason' => $deleteReason,
+        ]);
+        $activityMessage = "Deleted file: " . $file['filename'] . " (ID: " . $file['id'] . ")";
+        Auth::logActivity('delete', $activityMessage);
+        Logger::info('file deleted', ['file_id' => $file['id'], 'user_id' => Auth::id(), 'admin_action' => $adminAction]);
+        echo json_encode(['status' => 'success', 'message' => 'File deleted', 'redirect_url' => '/']);
+    }
+
+    public function saveToAccount()
+    {
+        header('Content-Type: application/json');
+
+        if (!Auth::check()) {
+            http_response_code(401);
+            echo json_encode(['status' => 'error', 'message' => 'Login required']);
+            return;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['status' => 'error', 'message' => 'Method not allowed']);
+            return;
+        }
+
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['status' => 'error', 'message' => 'Security token mismatch']);
+            return;
+        }
+
+        $fileId = (int)($_POST['file_id'] ?? 0);
+        $file = File::find($fileId);
+        if (!$file) {
+            http_response_code(404);
+            echo json_encode(['status' => 'error', 'message' => 'File not found']);
+            return;
+        }
+
+        $this->enforceFileAccess($file);
+
+        $userId = (int)(Auth::id() ?? 0);
+        $package = Package::getUserPackage($userId);
+        if (!$this->canCurrentUserSaveDownloadedFile($file, $package)) {
+            http_response_code(403);
+            echo json_encode(['status' => 'error', 'message' => 'Saving files from the download page is disabled for your account level.']);
+            return;
+        }
+
+        if (File::userHasStoredFile($userId, (int)$file['stored_file_id'])) {
+            echo json_encode(['status' => 'success', 'message' => 'This file is already in your account.', 'already_saved' => true]);
+            return;
+        }
+
+        $newFileId = File::createSavedCopyForUser((int)$file['id'], $userId, null, (int)($package['max_storage_bytes'] ?? 0));
+        if (!$newFileId) {
+            http_response_code(409);
+            $quotaExceeded = (int)($package['max_storage_bytes'] ?? 0) > 0
+                && ((int)($file['file_size'] ?? 0) > 0)
+                && !File::userHasStoredFile($userId, (int)$file['stored_file_id']);
+            echo json_encode([
+                'status' => 'error',
+                'message' => $quotaExceeded
+                    ? 'Saving this file would exceed your storage limit.'
+                    : 'This file is already in your account.'
+            ]);
+            return;
+        }
+
+        Auth::logActivity('save_file', 'Saved file to account: ' . $file['filename'] . ' (Source ID: ' . $file['id'] . ', New ID: ' . $newFileId . ')');
+        echo json_encode(['status' => 'success', 'message' => 'File added to your account.', 'file_id' => $newFileId]);
     }
 
     public function remoteUpload()
@@ -904,6 +996,49 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         return max(0, $limit);
     }
 
+    private function resolveDownloadActionTier(?array $package): ?string
+    {
+        if (!Auth::check()) {
+            return null;
+        }
+
+        if (Auth::isAdmin()) {
+            return 'admin';
+        }
+
+        $levelType = strtolower((string)($package['level_type'] ?? 'free'));
+        return $levelType === 'paid' ? 'premium' : 'free';
+    }
+
+    private function canCurrentUserSaveDownloadedFile(array $file, ?array $package): bool
+    {
+        if (!Auth::check() || empty($file['id']) || empty($file['stored_file_id'])) {
+            return false;
+        }
+
+        $tier = $this->resolveDownloadActionTier($package);
+        $settingMap = [
+            'free' => 'download_page_save_free',
+            'premium' => 'download_page_save_premium',
+            'admin' => 'download_page_save_admin',
+        ];
+        $settingKey = $tier !== null ? ($settingMap[$tier] ?? null) : null;
+        if ($settingKey === null) {
+            return false;
+        }
+
+        return Setting::get($settingKey, '1') === '1';
+    }
+
+    private function currentActorLabel(bool $adminAction): string
+    {
+        if (!$adminAction) {
+            return 'You';
+        }
+
+        return 'Administrator';
+    }
+
     public function emptyTrash()
     {
         if (!Auth::check()) {
@@ -942,7 +1077,12 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
 
         foreach ($filesToEmpty as $file) {
             try {
-                \App\Model\File::hardDelete($file['id']);
+                \App\Model\File::hardDelete((int)$file['id'], [
+                    'deleted_by_user_id' => $userId,
+                    'deleted_by_role' => Auth::isAdmin() ? 'admin' : 'user',
+                    'deleted_by_label' => $this->currentActorLabel(Auth::isAdmin()),
+                    'delete_reason' => 'Removed from trash.',
+                ]);
             } catch (\Exception $e) {
                 // Ignore silent errors for individual files so others continue
                 \App\Core\Logger::error("Failed to empty trash file ID: " . $file['id'], ['error' => $e->getMessage()]);
@@ -1125,476 +1265,50 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             }
         }
         
-        // start rendering the page
-        require_once dirname(__DIR__, 1) . '/View/home/header.php';
-
-        echo '<style>
-            .download-page-shell{display:flex;justify-content:center;align-items:center;flex:1;padding:2rem;gap:2rem;max-width:1400px;margin:0 auto;width:100%}
-            .download-page-sidebar{flex:0 0 300px;max-width:300px;display:none;align-self:center}
-            .download-page-sidebar-card{background:#f1f5f9;padding:1rem;border-radius:8px;text-align:center;overflow-wrap:anywhere;word-break:break-all}
-            .download-page-center{flex:1 1 auto;max-width:560px;min-width:0;width:100%}
-            .download-page-card{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:2.5rem;width:100%;box-sizing:border-box}
-            .download-page-top-ad{background:#f1f5f9;padding:.75rem;text-align:center;border-radius:8px;margin-bottom:1.5rem;overflow-wrap:anywhere;word-break:break-all}
-            .download-page-title{font-size:1.25rem;font-weight:700;margin:0 0 .25rem;overflow-wrap:anywhere;word-break:break-all}
-            .download-page-meta{color:#64748b;font-size:.875rem;margin:0 0 2rem}
-            .download-stream-card{margin:0 0 1.5rem;padding:1rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px}
-            .download-stream-title{font-weight:700;color:#1d4ed8;margin-bottom:.5rem}
-            .download-stream-copy{margin:0 0 .75rem;color:#334155;font-size:.9rem}
-            .download-stream-video{width:100%;max-height:420px;border-radius:10px;background:#000}
-            .download-stream-status{margin-top:.65rem;font-size:.85rem;color:#475569}
-            .download-stream-disabled{margin:0 0 1.5rem;padding:1rem;background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;color:#475569;font-size:.9rem}
-            .download-captcha-wrap{margin-bottom:1.5rem}
-            .download-captcha-copy{font-size:.875rem;color:#475569;margin:0 0 .75rem}
-            .download-timer-wrap{display:none;margin-bottom:1.5rem}
-            .download-timer-copy{color:#475569;font-size:.9375rem;margin-bottom:1rem}
-            .download-primary-button{width:100%;padding:.875rem;background:var(--primary-color,#2563eb);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:not-allowed;opacity:.5;transition:opacity .2s}
-            .download-primary-button--auto-width{width:auto}
-            .download-primary-button--enabled{cursor:pointer;opacity:1}
-            .download-overlay-wrap{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center}
-            .download-overlay-card{position:relative;max-width:90%;max-height:90%;background:#fff;padding:2rem;border-radius:12px;overflow:auto}
-            .download-overlay-close{position:absolute;top:10px;right:10px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;font-weight:700}
-            .download-overlay-body{overflow-wrap:anywhere;word-break:break-all}
-            .download-page-bottom-ad{background:#f1f5f9;padding:.75rem;text-align:center;border-radius:8px;margin-top:1.5rem;overflow-wrap:anywhere;word-break:break-all}
-            .download-share-panel{margin-top:1.5rem;padding:1rem;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}
-            .download-share-heading{font-size:1rem;font-weight:700;color:#0f172a;margin:0 0 .75rem}
-            .download-share-row{margin-bottom:.875rem}
-            .download-share-row:last-child{margin-bottom:0}
-            .download-share-label{display:block;font-size:.85rem;font-weight:600;color:#334155;margin-bottom:.4rem}
-            .download-share-control{display:flex;gap:.5rem;align-items:stretch}
-            .download-share-input{flex:1;min-width:0;padding:.75rem .875rem;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font-size:.88rem}
-            .download-share-copy{padding:.75rem 1rem;border:0;border-radius:8px;background:#e2e8f0;color:#0f172a;font-weight:600;cursor:pointer;white-space:nowrap}
-            .download-share-copy:hover{background:#cbd5e1}
-            .download-share-toggle{margin-top:.25rem;padding:0;background:none;border:0;color:#2563eb;font-size:.875rem;font-weight:600;cursor:pointer}
-            .download-share-toggle:hover{text-decoration:underline}
-            .download-share-extra{margin-top:.875rem;padding-top:.875rem;border-top:1px solid #e2e8f0}
-            .download-abuse-trigger-wrap{margin-top:1rem;text-align:left}
-            .download-abuse-trigger{background:none;border:none;color:#94a3b8;cursor:pointer;font-size:.8125rem;font-weight:500;transition:color .2s}
-            .download-abuse-status{display:none;margin-top:1rem}
-            @media (max-width: 640px){.download-share-control{flex-direction:column}.download-share-copy{width:100%}}
-        </style>';
-
         $adLeft = $package['show_ads'] ? Setting::get('ad_download_left', '') : '';
         $adRight = $package['show_ads'] ? Setting::get('ad_download_right', '') : '';
+        $adTop = $package['show_ads'] ? Setting::get('ad_download_top', '') : '';
+        $adBottom = $package['show_ads'] ? Setting::get('ad_download_bottom', '') : '';
         $adOverlay = $package['show_ads'] ? Setting::get('ad_download_overlay', '') : '';
+        $reportCaptchaEnabled = Setting::get('captcha_report_file', '0') === '1';
+        $reportCaptchaSiteKey = Setting::get('captcha_site_key', Config::get('turnstile.site_key'));
+        $abuseReportsEnabled = Setting::get('enable_abuse_reports', '1') === '1';
+        $displayMimeType = $this->resolveDisplayMimeType($file);
+        $downloadActionVisible = $this->canCurrentUserSaveDownloadedFile($file, $package);
+        $downloadAlreadySaved = Auth::check()
+            ? File::userHasStoredFile((int)(Auth::id() ?? 0), (int)$file['stored_file_id'])
+            : false;
+        $canDeleteFile = Auth::check() && ((int)($file['user_id'] ?? 0) === (int)(Auth::id() ?? 0) || Auth::isAdmin());
+        $deleteRequiresReason = Auth::isAdmin();
+        $showAds = (bool)($package['show_ads'] ?? false);
 
-        // Overlay Ad
-        if ($adOverlay) {
-            echo '<div id="adOverlayWrap" class="download-overlay-wrap">';
-            echo '<div class="download-overlay-card">';
-            echo '<button type="button" id="closeAdOverlayBtn" class="download-overlay-close">&times;</button>';
-            echo '<div class="download-overlay-body">' . $adOverlay . '</div>';
-            echo '</div></div>';
-        }
-
-        // Main 3-column Layout Wrapper
-        // Changed align-items from flex-start to center to push sidebars down to the middle
-        echo '<div class="download-page-shell">';
-
-        // Left Ad Column (hidden on mobile)
-        if ($adLeft) {
-            echo '<div class="download-ad-sidebar download-page-sidebar">';
-            echo '<div class="download-page-sidebar-card">' . $adLeft . '</div>';
-            echo '</div>';
-        }
-
-        // Center Download Card
-        echo '<div class="download-page-center">'; // Added min-width:0 to allow shrinking without blowing out flex layout
-        echo '<div class="download-page-card">';
-
-        // anti-adblock
-        if ($package['block_adblock'] ?? 0) {
-            echo (new SecurityService())->getAntiAdblockScript();
-        }
-
-        // ad top
-        if ($package['show_ads']) {
-            echo '<div class="download-page-top-ad">';
-            echo Setting::get('ad_download_top', '<!-- Ad Space Top -->');
-            echo '</div>';
-        }
-
-        echo '<h1 class="download-page-title">' . htmlspecialchars($file['filename']) . '</h1>';
-        echo '<p class="download-page-meta">' . round($file['file_size'] / 1024 / 1024, 2) . ' MB</p>';
-
-        if ($streamUrl !== null) {
-            echo '<div class="download-stream-card">';
-            echo '<div class="download-stream-title">Streaming Preview Enabled</div>';
-            echo '<p class="download-stream-copy">This video can be streamed directly in the browser. Reward credit only counts after the configured watch thresholds are met.</p>';
-            echo '<video id="rewardStreamPlayer" class="download-stream-video" controls preload="metadata">';
-            echo '<source src="' . htmlspecialchars($streamUrl) . '" type="' . htmlspecialchars($this->resolveDisplayMimeType($file)) . '">';
-            echo '</video>';
-            echo '<div id="rewardStreamStatus" class="download-stream-status">Playback progress is being tracked for fraud protection.</div>';
-            echo '</div>';
-        } elseif ($streamingEligible) {
-            echo '<div class="download-stream-disabled">Streaming support is enabled for this video, but the browser player is hidden when countdown or captcha gates are active. The standard download flow below still works.</div>';
-        }
-
-        // the download form
-        echo '<form method="POST" action="/file/generate-link" id="downloadForm">';
-        echo Csrf::field();
-        echo '<input type="hidden" name="file_id" value="' . $file['id'] . '">';
-        echo '<input type="hidden" name="timezone_offset" id="rfTimezoneOffset" value="">';
-        echo '<input type="hidden" name="platform_bucket" id="rfPlatformBucket" value="">';
-        echo '<input type="hidden" name="screen_bucket" id="rfScreenBucket" value="">';
-
-        if ($captchaDownload && $captchaSiteKey) {
-            // Captcha section - must be solved before countdown starts
-            echo '<div id="captchaWrap" class="download-captcha-wrap">';
-            echo '<p class="download-captcha-copy">Please complete the check below to continue.</p>';
-            echo '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>';
-            echo '<div class="cf-turnstile" data-sitekey="' . htmlspecialchars($captchaSiteKey) . '" data-callback="onCaptchaSolved"></div>';
-            echo '</div>';
-
-            if ($waitTime > 0) {
-                // Countdown - hidden until captcha solved
-                echo '<div id="timerWrap" class="download-timer-wrap">';
-                echo '<p class="download-timer-copy" id="timerMsg">Please wait <strong id="count">' . $waitTime . '</strong> seconds...</p>';
-                echo '</div>';
-            }
-
-            echo '<button type="submit" id="dlBtn" class="download-primary-button" disabled>Download Now</button>';
-
-            echo '<script>
-var waitTime = ' . $waitTime . ';
-var captchaDone = false;
-function onCaptchaSolved(token) {
-    captchaDone = true;
-    if (waitTime > 0) {
-        document.getElementById("captchaWrap").querySelector("p").textContent = "Captcha verified!";
-        document.getElementById("timerWrap").style.display = "block";
-        startCountdown();
-    } else {
-        enableBtn();
-    }
-}
-function startCountdown() {
-    var count = waitTime;
-    var el = document.getElementById("count");
-    var timer = setInterval(function() {
-        count--;
-        el.textContent = count;
-        if (count <= 0) {
-            clearInterval(timer);
-            document.getElementById("timerMsg").textContent = "Ready!";
-            enableBtn();
-        }
-    }, 1000);
-}
-function enableBtn() {
-    var btn = document.getElementById("dlBtn");
-    btn.disabled = false;
-    btn.classList.add("download-primary-button--enabled");
-}
-</script>';
-
-        } else {
-            // No captcha - just show countdown or immediately active button
-            if ($waitTime > 0) {
-                echo '<p class="download-timer-copy" id="timerMsg">Please wait <strong id="count">' . $waitTime . '</strong> seconds...</p>';
-                echo '<button type="submit" id="dlBtn" class="download-primary-button download-primary-button--auto-width btn btn-block" disabled>Download Now</button>';
-                echo '<script>
-var count = ' . $waitTime . ';
-var el = document.getElementById("count");
-var timer = setInterval(function() {
-    count--;
-    el.textContent = count;
-    if (count <= 0) {
-        clearInterval(timer);
-        document.getElementById("timerMsg").textContent = "Ready!";
-        var btn = document.getElementById("dlBtn");
-        btn.disabled = false;
-        btn.classList.add("download-primary-button--enabled");
-    }
-}, 1000);
-</script>';
-            } else {
-                echo '<button type="submit" class="download-primary-button download-primary-button--enabled download-primary-button--auto-width btn btn-block">Download Now</button>';
-            }
-        }
-
-        echo '</form>';
-
-
-        // ad bottom
-        if ($package['show_ads']) {
-            echo '<div class="download-page-bottom-ad">';
-            echo Setting::get('ad_download_bottom', '<!-- Ad Space Bottom -->');
-            echo '</div>';
-        }
-
-        $this->renderDownloadSharePanel($shareFields);
-
-        // abuse reporting
-        if (Setting::get('enable_abuse_reports', '1') === '1') {
-            $reportCaptchaEnabled = Setting::get('captcha_report_file', '0') === '1';
-            $reportCaptchaSiteKey = Setting::get('captcha_site_key', Config::get('turnstile.site_key'));
-            echo '<div class="download-abuse-trigger-wrap">';
-            echo '<button type="button" id="openAbuseModalBtn" class="download-abuse-trigger">Report Abuse</button>';
-            echo '</div>';
-            
-            // The Modal
-            echo '
-            <div id="abuseModal" class="modal-overlay">
-                <div class="modal-container">
-                    <div class="modal-header">
-                        <h3>Report Abuse</h3>
-                        <button type="button" class="modal-close" id="closeAbuseModalBtn">&times;</button>
-                    </div>
-                    <form id="abuseForm">
-                        <input type="hidden" name="file_id" value="' . $file['id'] . '">
-                        ' . Csrf::field() . '
-                        <div class="modal-body">
-                            <div class="form-group">
-                                <label for="abuseReason">Reason for Report</label>
-                                <select id="abuseReason" name="reason" class="form-control" required>
-                                    <option value="" disabled selected>Select a reason...</option>
-                                    <option value="copyright">Copyright Infringement (DMCA)</option>
-                                    <option value="illegal">Illegal Materials</option>
-                                    <option value="spam">Spam or Scam</option>
-                                    <option value="other">Other Violation</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="abuseDetails">Additional Details (Optional)</label>
-                                <textarea id="abuseDetails" name="details" class="form-control" placeholder="Please provide any additional context..."></textarea>
-                            </div>
-                            ' . (($reportCaptchaEnabled && $reportCaptchaSiteKey)
-                                ? '<div class="form-group"><label class="d-block">Spam Protection</label><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script><div class="cf-turnstile" data-sitekey="' . htmlspecialchars($reportCaptchaSiteKey) . '"></div></div>'
-                                : '') . '
-                            <div id="abuseStatus" class="download-abuse-status"></div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" id="cancelAbuseModalBtn">Cancel</button>
-                            <button type="submit" class="btn btn-primary" id="abuseSubmitBtn">Submit Report</button>
-                        </div>
-                    </form>
-                </div>
-            </div>';
-
-            echo '<script>
-            function toggleAbuseModal(show) {
-                const modal = document.getElementById("abuseModal");
-                modal.style.display = show ? "flex" : "none";
-                if (!show) {
-                    document.getElementById("abuseForm").reset();
-                    document.getElementById("abuseStatus").style.display = "none";
-                    document.getElementById("abuseSubmitBtn").disabled = false;
-                }
-            }
-
-            function submitAbuse(e) {
-                e.preventDefault();
-                const btn = document.getElementById("abuseSubmitBtn");
-                const status = document.getElementById("abuseStatus");
-                
-                btn.disabled = true;
-                status.style.display = "block";
-                status.innerHTML = "<span style=\'color: var(--text-muted); font-size: 0.875rem;\'>Submitting...</span>";
-
-                const fd = new FormData(e.target);
-
-                fetch("/file/report", {
-                    method: "POST",
-                    body: fd
-                })
-                .then(r => r.text())
-                .then(txt => {
-                    if (txt.includes("Success")) {
-                        status.innerHTML = "<span style=\'color: var(--success-color); font-size: 0.875rem;\'>" + txt.replace("Success: ", "") + "</span>";
-                        setTimeout(() => toggleAbuseModal(false), 2000);
-                    } else {
-                        status.innerHTML = "<span style=\'color: var(--error-color); font-size: 0.875rem;\'>" + txt + "</span>";
-                        btn.disabled = false;
-                    }
-                })
-                .catch(err => {
-                    status.innerHTML = "<span style=\'color: var(--error-color); font-size: 0.875rem;\'>Network error. Please try again.</span>";
-                    btn.disabled = false;
-                });
-            }
-
-            const closeAdOverlayBtn = document.getElementById("closeAdOverlayBtn");
-            if (closeAdOverlayBtn) {
-                closeAdOverlayBtn.addEventListener("click", function() {
-                    const overlay = document.getElementById("adOverlayWrap");
-                    if (overlay) {
-                        overlay.style.display = "none";
-                    }
-                });
-            }
-
-            const openAbuseModalBtn = document.getElementById("openAbuseModalBtn");
-            if (openAbuseModalBtn) {
-                openAbuseModalBtn.addEventListener("click", function() {
-                    toggleAbuseModal(true);
-                });
-                openAbuseModalBtn.addEventListener("mouseenter", function() {
-                    openAbuseModalBtn.style.color = "#64748b";
-                });
-                openAbuseModalBtn.addEventListener("mouseleave", function() {
-                    openAbuseModalBtn.style.color = "#94a3b8";
-                });
-            }
-
-            const abuseModal = document.getElementById("abuseModal");
-            if (abuseModal) {
-                abuseModal.addEventListener("click", function(event) {
-                    if (event.target === abuseModal) {
-                        toggleAbuseModal(false);
-                    }
-                });
-            }
-
-            const abuseForm = document.getElementById("abuseForm");
-            if (abuseForm) {
-                abuseForm.addEventListener("submit", submitAbuse);
-            }
-
-            const closeAbuseModalBtn = document.getElementById("closeAbuseModalBtn");
-            if (closeAbuseModalBtn) {
-                closeAbuseModalBtn.addEventListener("click", function() {
-                    toggleAbuseModal(false);
-                });
-            }
-
-            const cancelAbuseModalBtn = document.getElementById("cancelAbuseModalBtn");
-            if (cancelAbuseModalBtn) {
-                cancelAbuseModalBtn.addEventListener("click", function() {
-                    toggleAbuseModal(false);
-                });
-            }
-
-document.querySelectorAll("[data-copy-target]").forEach(function(button) {
-    button.addEventListener("click", async function() {
-        const target = document.getElementById(button.getAttribute("data-copy-target"));
-                    if (!target) {
-                        return;
-                    }
-
-                    try {
-                        await navigator.clipboard.writeText(target.value);
-                        const original = button.textContent;
-                        button.textContent = "Copied";
-                        setTimeout(function() {
-                            button.textContent = original;
-                        }, 1400);
-                    } catch (err) {
-                        target.focus();
-            target.select();
-        }
-    });
-});
-document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
-    button.addEventListener("click", function() {
-        const target = document.getElementById(button.getAttribute("data-share-toggle"));
-        if (!target) {
-            return;
-        }
-        const expanded = button.getAttribute("aria-expanded") === "true";
-        target.hidden = expanded;
-        button.setAttribute("aria-expanded", expanded ? "false" : "true");
-        button.textContent = expanded ? "More share options" : "Fewer share options";
-    });
-});
-</script>';
-        }
-
-        echo '</div>'; // end inner card
-        echo '</div>'; // end center column
-
-        // Right Ad Column (hidden on mobile)
-        if ($adRight) {
-            echo '<div class="download-ad-sidebar download-page-sidebar">';
-            echo '<div class="download-page-sidebar-card">' . $adRight . '</div>';
-            echo '</div>';
-        }
-
-        echo '</div>'; // end 3-column wrapper
-
-        // Add small style block to manage sidebar ad visibility based on screen width
-        echo '<style>
-            @media (min-width: 1024px) {
-                .download-ad-sidebar { display: block !important; }
-            }
-        </style>';
-
-        echo '<script>
-(function() {
-    var tz = document.getElementById("rfTimezoneOffset");
-    var platform = document.getElementById("rfPlatformBucket");
-    var screenBucket = document.getElementById("rfScreenBucket");
-    if (tz) {
-        tz.value = String(new Date().getTimezoneOffset());
-    }
-    if (platform) {
-        var ua = navigator.userAgent || "";
-        var platformLabel = navigator.platform || "unknown";
-        platform.value = platformLabel.substring(0, 64) + "|" + ua.substring(0, 24);
-    }
-    if (screenBucket && window.screen) {
-        var width = Math.min(9999, window.screen.width || 0);
-        var height = Math.min(9999, window.screen.height || 0);
-        screenBucket.value = width + "x" + height;
-    }
-})();
-</script>';
-
-        if ($streamUrl !== null && $streamSessionId !== null) {
-            echo '<script>
-(function() {
-    const player = document.getElementById("rewardStreamPlayer");
-    const status = document.getElementById("rewardStreamStatus");
-    if (!player) return;
-    const sessionId = ' . json_encode($streamSessionId) . ';
-    const fileId = ' . (int)$file['id'] . ';
-    const csrfToken = ' . json_encode($streamCsrf) . ';
-    let lastReported = 0;
-    let completed = false;
-
-    function sendUpdate(state) {
-        if (!player.duration || !isFinite(player.duration)) return;
-        const current = Math.max(0, player.currentTime || 0);
-        const percent = Math.min(100, (current / player.duration) * 100);
-        const payload = new URLSearchParams();
-        payload.set("csrf_token", csrfToken);
-        payload.set("file_id", String(fileId));
-        payload.set("session_id", sessionId);
-        payload.set("state", state);
-        payload.set("watch_seconds", String(Math.floor(current)));
-        payload.set("watch_percent", String(percent.toFixed(2)));
-        payload.set("current_time", String(current.toFixed(2)));
-        payload.set("duration", String(player.duration.toFixed(2)));
-
-        fetch("/file/stream-heartbeat", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            credentials: "same-origin",
-            body: payload.toString()
-        }).then(function(resp) {
-            return resp.json();
-        }).then(function(data) {
-            if (status && data && data.message) {
-                status.textContent = data.message;
-            }
-        }).catch(function() {});
-    }
-
-    player.addEventListener("timeupdate", function() {
-        if ((player.currentTime - lastReported) >= 10) {
-            lastReported = player.currentTime;
-            sendUpdate("progress");
-        }
-    });
-
-    player.addEventListener("ended", function() {
-        if (completed) return;
-        completed = true;
-        sendUpdate("complete");
-    });
-})();
-</script>';
-        }
-
+        require_once dirname(__DIR__, 1) . '/View/home/header.php';
+        View::render('home/partials/download_show_page.php', compact(
+            'file',
+            'package',
+            'showAds',
+            'adLeft',
+            'adRight',
+            'adTop',
+            'adBottom',
+            'adOverlay',
+            'streamUrl',
+            'displayMimeType',
+            'streamingEligible',
+            'captchaDownload',
+            'captchaSiteKey',
+            'waitTime',
+            'shareFields',
+            'abuseReportsEnabled',
+            'reportCaptchaEnabled',
+            'reportCaptchaSiteKey',
+            'streamSessionId',
+            'streamCsrf',
+            'downloadActionVisible',
+            'downloadAlreadySaved',
+            'canDeleteFile',
+            'deleteRequiresReason'
+        ));
         require_once dirname(__DIR__, 1) . '/View/home/footer.php';
     }
 
@@ -2204,7 +1918,12 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
                 if ($item['type'] === 'file') {
                     $file = File::find($rawId);
                     if ($file && ($file['user_id'] === Auth::id() || Auth::isAdmin())) {
-                        File::hardDelete((int)$file['id']);
+                        File::hardDelete((int)$file['id'], [
+                            'deleted_by_user_id' => Auth::id(),
+                            'deleted_by_role' => Auth::isAdmin() ? 'admin' : 'user',
+                            'deleted_by_label' => $this->currentActorLabel(Auth::isAdmin()),
+                            'delete_reason' => 'Deleted from bulk action.',
+                        ]);
                         $deletedCount++;
                         Auth::logActivity('delete_file', "Bulk deleted file: " . $file['filename']);
                     }

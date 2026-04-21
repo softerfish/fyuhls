@@ -22,9 +22,10 @@ final readonly class CoversTrait extends Metadata
     private string $traitName;
 
     /**
+     * @param 0|1          $level
      * @param trait-string $traitName
      */
-    protected function __construct(Level $level, string $traitName)
+    protected function __construct(int $level, string $traitName)
     {
         parent::__construct($level);
 
@@ -40,6 +41,16 @@ final readonly class CoversTrait extends Metadata
      * @return trait-string
      */
     public function traitName(): string
+    {
+        return $this->traitName;
+    }
+
+    /**
+     * @return trait-string
+     *
+     * @internal This method is not covered by the backward compatibility promise for PHPUnit
+     */
+    public function asStringForCodeUnitMapper(): string
     {
         return $this->traitName;
     }

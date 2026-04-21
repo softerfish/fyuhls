@@ -18,7 +18,10 @@ final readonly class After extends Metadata
 {
     private int $priority;
 
-    protected function __construct(Level $level, int $priority)
+    /**
+     * @param 0|1 $level
+     */
+    protected function __construct(int $level, int $priority)
     {
         parent::__construct($level);
 

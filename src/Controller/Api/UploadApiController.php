@@ -263,6 +263,56 @@ class UploadApiController
         }
     }
 
+    public function uploadPartBinary(string $sessionId, string $partNumber)
+    {
+        $context = $this->resolveApiContext(true, 'files.upload', true);
+        $this->apiAuth->enforceRateLimit($context, 'api_upload_part_binary', 240, 60);
+        $session = $this->service->getSessionForActor($sessionId, $context['user_id'], $context['guest_session_id']);
+        if (!$session) {
+            $this->jsonResponse(['error' => 'Upload session not found.'], 404);
+        }
+
+        $partNumber = (int)$partNumber;
+        if ($partNumber <= 0 || $partNumber > 10000) {
+            $this->jsonResponse(['error' => 'Invalid part number.'], 422);
+        }
+
+        $db = \App\Core\Database::getInstance()->getConnection();
+        $provider = \App\Core\StorageManager::getProviderById($session['storage_server_id'] ? (int)$session['storage_server_id'] : null, $db);
+        if (!method_exists($provider, 'writeMultipartPart')) {
+            $this->jsonResponse(['error' => 'The selected storage backend does not support app-routed multipart uploads.'], 422);
+        }
+
+        $input = fopen('php://input', 'rb');
+        if (!$input) {
+            $this->jsonResponse(['error' => 'Could not read upload body.'], 500);
+        }
+
+        try {
+            $result = $provider->writeMultipartPart((string)$session['object_key'], (string)$session['multipart_upload_id'], $partNumber, $input);
+        } catch (\Throwable $e) {
+            fclose($input);
+            $this->reportUploadFailure('upload_part_binary', $e);
+            return;
+        }
+        fclose($input);
+
+        $etag = (string)($result['etag'] ?? '');
+        $size = (int)($result['part_size'] ?? 0);
+        if ($etag === '') {
+            $this->jsonResponse(['error' => 'Local part upload did not return an ETag.'], 500);
+        }
+
+        header('Content-Type: application/json');
+        header('ETag: "' . $etag . '"');
+        echo json_encode([
+            'status' => 'ok',
+            'etag' => $etag,
+            'part_size' => $size,
+        ]);
+        exit;
+    }
+
     public function complete(string $sessionId)
     {
         $context = $this->resolveApiContext(true, 'files.upload', true);

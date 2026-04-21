@@ -70,6 +70,7 @@ $router->post('/upload/cancel', [FileController::class, 'cancelUpload']);
 $router->post('/upload/remote', [FileController::class, 'remoteUpload']);
 $router->post('/upload/remote/cancel', [FileController::class, 'cancelRemoteUpload']);
 $router->post('/file/delete', [FileController::class, 'delete']);
+$router->post('/file/save-to-account', [FileController::class, 'saveToAccount']);
 $router->post('/file/report', [FileController::class, 'reportAbuse']);
 $router->post('/bulk/delete', [FileController::class, 'bulkDelete']);
 $router->post('/bulk/move', [FileController::class, 'bulkMove']);
@@ -183,6 +184,7 @@ $router->post('/api/callback/nginx-completed', [FileController::class, 'nginxDow
 $router->post('/api/v1/uploads/sessions', [UploadApiController::class, 'createSession']);
 $router->post('/api/v1/uploads/managed', [UploadApiController::class, 'createManagedUpload']);
 $router->get('/api/v1/uploads/sessions/{id}', [UploadApiController::class, 'showSession']);
+$router->post('/api/v1/uploads/sessions/{id}/parts/upload/{part}', [UploadApiController::class, 'uploadPartBinary']);
 $router->post('/api/v1/uploads/sessions/{id}/parts/sign', [UploadApiController::class, 'signParts']);
 $router->post('/api/v1/uploads/sessions/{id}/parts/report', [UploadApiController::class, 'reportPart']);
 $router->post('/api/v1/uploads/sessions/{id}/complete', [UploadApiController::class, 'complete']);

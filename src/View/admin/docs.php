@@ -37,6 +37,8 @@
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#status">System Status</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#monitoring">Server Monitoring</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#support">Support Center</a>
+                    <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#file-manager">File Manager</a>
+                    <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#delivery">Downloads And Delivery</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#api">API And Integrations</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#search">Admin Search</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#storage">Storage Nodes</a>
@@ -270,6 +272,30 @@
                         </div>
                         <div class="card-body pt-0">
                             <?php include 'help/support.php'; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 doc-module" id="file-manager" data-keywords="file manager trash restore folders search filters grid list quota uploads sharing user support">
+                    <div class="card page-guide-card border-0 shadow-sm overflow-hidden">
+                        <div class="card-header bg-white py-3 border-0 d-flex align-items-center">
+                            <i class="bi bi-folder2-open text-primary me-2 fs-5"></i>
+                            <h5 class="mb-0 fw-bold">File Manager</h5>
+                        </div>
+                        <div class="card-body pt-0">
+                            <?php include 'help/file_manager.php'; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 doc-module" id="delivery" data-keywords="downloads cdn delivery methods nginx x-sendfile litespeed object storage redirects completion log tracking">
+                    <div class="card page-guide-card border-0 shadow-sm overflow-hidden">
+                        <div class="card-header bg-white py-3 border-0 d-flex align-items-center">
+                            <i class="bi bi-cloud-arrow-down text-primary me-2 fs-5"></i>
+                            <h5 class="mb-0 fw-bold">Downloads And Delivery</h5>
+                        </div>
+                        <div class="card-body pt-0">
+                            <?php include 'help/download_delivery.php'; ?>
                         </div>
                     </div>
                 </div>

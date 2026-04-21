@@ -9,6 +9,11 @@
  */
 namespace PHPUnit\Framework\MockObject;
 
+use function assert;
+use PHPUnit\Event\Code\NoTestCaseObjectOnCallStackException;
+use PHPUnit\Event\Code\TestMethodBuilder;
+use PHPUnit\Event\Facade as EventFacade;
+use PHPUnit\Framework\MockObject\Builder\InvocationMocker as InvocationMockerBuilder;
 use PHPUnit\Framework\MockObject\Rule\InvocationOrder;
 
 /**
@@ -18,14 +23,9 @@ use PHPUnit\Framework\MockObject\Rule\InvocationOrder;
  */
 trait MockObjectApi
 {
-    public function __phpunit_hasInvocationCountRule(): bool
+    public function __phpunit_hasMatchers(): bool
     {
-        return $this->__phpunit_getInvocationHandler()->hasInvocationCountRule();
-    }
-
-    public function __phpunit_hasParametersRule(): bool
-    {
-        return $this->__phpunit_getInvocationHandler()->hasParametersRule();
+        return $this->__phpunit_getInvocationHandler()->hasMatchers();
     }
 
     public function __phpunit_verify(bool $unsetInvocationMocker = true): void
@@ -43,8 +43,31 @@ trait MockObjectApi
 
     abstract public function __phpunit_unsetInvocationMocker(): void;
 
-    public function expects(InvocationOrder $matcher): InvocationMocker
+    public function expects(InvocationOrder $matcher): InvocationMockerBuilder
     {
+        assert($this instanceof StubInternal);
+
+        if (!$this->__phpunit_wasGeneratedAsMockObject()) {
+            $message = 'Expectations configured on test doubles that are created as test stubs are no longer verified since PHPUnit 10. Test doubles that are created as test stubs will no longer have the expects() method in PHPUnit 12. Update your test code to use createMock() instead of createStub(), for example.';
+
+            try {
+                $test = TestMethodBuilder::fromCallStack();
+
+                if (!$this->__phpunit_state()->wasDeprecationAlreadyEmittedFor($test->id())) {
+                    EventFacade::emitter()->testTriggeredPhpunitDeprecation(
+                        $test,
+                        $message,
+                    );
+
+                    $this->__phpunit_state()->deprecationWasEmittedFor($test->id());
+                }
+                // @codeCoverageIgnoreStart
+            } catch (NoTestCaseObjectOnCallStackException) {
+                EventFacade::emitter()->testRunnerTriggeredPhpunitDeprecation($message);
+                // @codeCoverageIgnoreEnd
+            }
+        }
+
         return $this->__phpunit_getInvocationHandler()->expects($matcher);
     }
 }

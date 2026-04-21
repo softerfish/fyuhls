@@ -29,10 +29,11 @@ final readonly class DependsOnMethod extends Metadata
     private bool $shallowClone;
 
     /**
+     * @param 0|1              $level
      * @param class-string     $className
      * @param non-empty-string $methodName
      */
-    protected function __construct(Level $level, string $className, string $methodName, bool $deepClone, bool $shallowClone)
+    protected function __construct(int $level, string $className, string $methodName, bool $deepClone, bool $shallowClone)
     {
         parent::__construct($level);
 

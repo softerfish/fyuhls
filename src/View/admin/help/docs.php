@@ -11,6 +11,7 @@
     <ul class="mb-4">
         <li><strong>Header page coverage:</strong> Dashboard, Packages, Users, Files, Requests, Live Downloads, Withdrawals, Rewards Fraud, Subscriptions, Plugins, Config Hub, Resources, System Status, Server Monitoring, and Support Center.</li>
         <li><strong>Configuration references:</strong> General, Security, Email, Storage, Monetization, SEO, Cron Jobs, Downloads, and Uploads.</li>
+        <li><strong>New operator guides:</strong> The docs page now includes dedicated long-form sections for file-manager support work and download/CDN/delivery troubleshooting.</li>
         <li><strong>Storage setup references:</strong> The Storage Nodes section includes the live add-node and edit-node guidance, including the current Backblaze B2 bucket-discovery and CORS-automation workflow.</li>
         <li><strong>Nginx payout health notes:</strong> The Storage Nodes section now explains the admin Nginx warning banner, what skipped completion reasons such as <code>missing_viewer_identity</code> and <code>missing_client_ip</code> mean, and where to fix them.</li>
         <li><strong>Searchable sections:</strong> Use the docs page search field to filter by topic, option name, or feature area.</li>

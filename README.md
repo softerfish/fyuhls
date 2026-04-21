@@ -1,50 +1,48 @@
-# fyuhls v0.1.2: High-Performance File Hosting Platform (Beta)
+# fyuhls v0.1.4: High-Performance File Hosting Platform
+
+Does the project look interesting or has it helped you out at all? A star for the project helps a lot.
 
 > Beta notice:
-> fyuhls is still a beta release. You should expect errors, rough edges, and incomplete behavior. It is **not** intended to be treated as a fully polished or fully functional production website at this time. 
+> fyuhls is still a beta release. You should expect errors, rough edges, and incomplete behavior.
 
 > If you find bugs or broken flows, please send them through the built-in Bug Report area using the sanitized error log export so the issue can be reviewed safely and reproduced faster. You can also e-mail logs to **fyuhls.script@gmail.com** and I will support best I can when available. Keep in mind, this is a passion project, not a full time job. 
 
+Note: This project may use affiliate links occasionally. Any revenue earned helps keep this script free and actively maintained, at no extra cost to you.
+
 Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a modern PHP 8.2+ MVC architecture, fyuhls is aimed at operators who want a self-hosted file hosting platform with real control over storage, packages, uploads, downloads, monetization, diagnostics, and admin operations.
 
-## v0.1.2
+## v0.1.4
 
-### Security Hardening
-- Generated unique per-install `app_key` values, added runtime warnings for older installs still using insecure defaults, and auto-rotated the key when the hidden config file is writable.
-- Hardened installer and trust-boundary behavior by enforcing HTTPS outside local development, generating safe hidden config paths automatically, and restricting hidden config targets to absolute `.php` files outside the webroot and config directories.
-- Tightened proxy, host, and URL trust handling so trusted base URLs, password reset links, verification links, payment/share links, secure-cookie behavior, and forwarded HTTPS detection no longer trust arbitrary request hosts or unsafe proxy headers.
-- Revalidated authenticated users against the database on every request and moved maintenance-mode and VPN-block admin bypass checks onto that revalidated auth path.
-- Strengthened plugin and upload safety by confining plugin autoload paths to the expected plugin base, requiring real MIME detection, and adding extra storage `.htaccess` defense-in-depth for legacy PHP handlers.
-- Standardized CSRF, validation, and other security-sensitive error exits onto proper HTTP status codes and shared 4xx handling, rotated CSRF tokens after successful verification, and limited CSRF debug logging to debug mode.
-- Added direct endpoint throttling for signed/public downloads, abuse reports, forgot-password requests, contact and DMCA forms, plus an extra IP-wide login spray limit on top of the username-specific login limiter.
-- Hardened payment and transfer edges with fresher Stripe callback validation, replay tracking, safer transaction transitions, and cleaner remote-upload errors that keep sensitive transport details in logs instead of user-facing responses.
-- Whitelisted admin ad-slot keys, required clean absolute `https://` CDN download origins, restricted configurable Nginx completion log paths to safe absolute log-style files with matching runtime validation, and limited updater downloads to trusted GitHub hosts.
-- Expanded default Apache hardening headers with Permissions-Policy, COOP/CORP, and X-Permitted-Cross-Domain-Policies, and moved HSTS delivery into `.htaccess`.
+### Storage Server Reliability
+- Fixed admin file-server delivery tests and related storage helper paths so file-server configs now load correctly whether the `config` payload is still an encrypted JSON string from the database or has already been decoded into an array by the admin UI. This prevents `json_decode()` type errors during `/admin/file-server/test-delivery/{id}` and keeps nearby download and rewards storage checks using the same tolerant config handling.
+- Fixed local-storage uploads in the modern browser uploader by adding app-routed multipart part handling for local file servers. This means installs using Local Storage no longer fail with the old multipart-support error just because global chunked uploads are enabled, and Apache/X-SendFile delivery mode is no longer a red herring for that upload path.
 
-### Updater Safety
-- Reworked the one-click updater around a local manifest of core-owned release files, structured JSON preview/apply reports under `storage/cache/`, and guarded overwrite backups under `storage/update_backups/`.
-- Added preview and apply flows that show pending updates, quarantine stale unchanged core files under `storage/update_quarantine/`, and leave locally modified stale files alone instead of blindly overwriting or deleting them.
-- Tightened release archive handling by sticking to the latest release archive flow, validating ZIP entries before extraction, handling directory/file shape conflicts more safely during apply, and documenting an explicit `/storage/` deny block in the Nginx example config.
+### Rewards and Affiliate Cleanup
+- Removed legacy numeric internal referral attribution from the public `?ref=` flow so Fyuhls now only accepts the non-guessable public user referral IDs for account-side affiliate tracking.
+- Added a configurable affiliate commission hold window with a default of 5 days, so referred package-sale commission can stay held long enough to absorb normal refund and chargeback risk before it becomes withdrawable.
+- Fixed payment status handling so completed transactions can still transition into `refunded` or `denied`, and those later gateway states now cancel or reverse the related affiliate commission instead of leaving it cleared forever.
+- Corrected affiliate and rewards messaging so PPD users are no longer told that sharing their referral link will earn package-sale commission unless they switch to a PPS-capable model first.
+- Replaced the inflated raw-signup referral counter with a buyer-focused referral metric and stopped held affiliate commission clears from polluting download analytics.
 
-### Download Page Architecture
-- Refactored the public download page and download state pages onto a shared internal rendering path while keeping existing routes, signed-link behavior, and package-driven gating compatible with live installs.
-- Moved shared download-page data preparation into a dedicated service and reusable partials so countdown, captcha, share links, ads, streaming blocks, and state messages can evolve together without rewriting the controller each time.
+### Installer and Post-Install Fixes
+- Made the hidden config path editable again during install, with validation.
+- Stopped `.htaccess` from blocking `post_install_check.php`.
+- Bootstrapped sessions correctly in `post_install_check.php`.
+- Softened and fixed the installer cleanup warning logic.
 
-### File Manager UX
-- Expanded bulk workflows with bulk copy, selection summaries, single-click public/private actions, and toast notifications with undo for move and trash.
-- Improved in-page discovery and control with search, type/visibility/status filter chips, largest-first sorting, visible-item selection shortcuts, and keyboard shortcuts for search, trash, permanent delete, move, rename, select-all, and clear selection.
-- Reduced full-page refreshes by letting trash, move, folder creation, and permanent delete update the current view live instead of forcing a reload.
-- Added double-click inline rename, unified dropdown/context/mobile action handling, and fixed asset cache-busting by switching file-manager CSS and JS versioning from `time()` to `filemtime()`.
-- Added a sidebar storage quota bar with warning states near capacity, upgraded daily download bandwidth into a visual progress bar, and fixed trash handling so soft-deleted folders appear correctly and drag-out restore works as expected.
-
-### Admin Dashboard
-- Reworked the admin dashboard into a more action-focused control center with a new top-left default layout for Support and Diagnostics, cleaner widget spacing, and improved readability in dense cards like Top Content and System Automation.
-- Added an Attention Needed strip and a What changed today summary for recent errors, overdue automation, moderation backlog, storage pressure, SMTP gaps, and daily movement.
-- Made key operational metric chips clickable, added light healthy/warning/danger state styling, and introduced a Reset layout button to restore the default widget order and collapse state.
+### Download Page Actions and Audit Logging
+- Added the download-page action bar so eligible signed-in users can save a file into their account as a deduplicated logical copy without re-uploading it.
+- Added admin Uploads settings to control whether the download-page save action is available for Free users, Premium users, and Admin users.
+- Added uploader-facing deleted-file history in account settings, with encrypted-at-rest deletion reasons and actor labels.
+- Required delete reasons for admin file removals and wired that requirement through the public download page and the normal file manager delete flow.
+- Centralized file deletion history through the shared hard-delete path so single delete, bulk delete, trash empty, folder tree deletion, pending-purge jobs, and cleanup jobs all log consistently.
+- Fixed save-to-account race conditions by moving dedupe and storage-quota enforcement under the same locked transaction, preventing parallel requests from creating duplicate logical copies or overshooting account storage limits.
+- Stopped uploader-visible deletion history from exposing real admin usernames by using the fixed public label `Administrator`.
+- Encrypted generic user activity log descriptions at rest.
 
 
 ## Table of Contents
-- [Advanced Features (Beta)](#advanced-features-beta)
+- [Advanced Features](#advanced-features-beta)
 - [What You'll Need Before Starting](#what-youll-need-before-starting)
 - [Hosting Partnerships & Testing](#hosting-partnerships--testing)
 - [Server Requirements](#server-requirements)
@@ -58,7 +56,7 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 - [Troubleshooting](#troubleshooting)
 - [Security Reminders](#security-reminders)
 
-## Advanced Features (Beta)
+## Advanced Features
 - **Full-Coverage AES-256 Encryption**: 100% of sensitive user data (IPs, Emails, Filenames, Payment Details) is stored using AES-256 encryption with a fresh random IV per value.
 - **Multi-Server Object Storage Architecture**: Connect Local, Backblaze B2, Cloudflare R2, Wasabi, and generic S3-compatible nodes through one storage layer with setup guidance in the admin area.
 - **Direct Multipart Upload Pipeline**: Large uploads use direct-to-storage multipart sessions instead of PHP-side chunk assembly, with resumable sessions, quota reservations, and signed part URLs.
@@ -78,10 +76,10 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 
 | What You Need | Where to Get It |
 |---|---|
-| A domain name (e.g. `myfiles.com`) | Your domain registrar (PorkBun, CloudFlare, etc.) |
-| A VPS or Shared hosting account | Your hosting provider |
-| Your MySQL database details | You'll create these in Step 3 |
-| **SMTP Details** (Host, Port, User) | Your mail provider (Postmark, Brevo, or cPanel) |
+| Domain name | Your domain registrar (PorkBun, CloudFlare, etc.) |
+| Web hosting | [Hostinger web hosting](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "additional 20% off with the provided link") and an extra 20% off on top of current discounts with the provided link |
+| MySQL | You'll create these in Step 3 |
+| SMTP | [Hostinger Starter E-mail](https://www.hostinger.com?REFERRALCODE=PHXCORRECHKN "additional 20% off with the provided link") and an extra 20% off with the provided link |
 
 ## Hosting Partnerships & Testing
 
@@ -99,10 +97,14 @@ Your hosting account must support:
 |---|---|
 | PHP Version | **8.2 or higher** |
 | Database | MySQL 5.7+ or MariaDB 10.3+ |
-| PHP Extensions | PDO, PDO MySQL, OpenSSL (Required), cURL, Sockets |
+| PHP Extensions | PDO, PDO MySQL, OpenSSL, JSON, cURL, Sockets |
 | Apache Module | mod_rewrite (enabled by default on cPanel/DirectAdmin) |
 
 Your database and database user must already exist before you run the installer. Create them first in cPanel, DirectAdmin, or your server control panel and grant the user access to the database.
+
+Recommended or feature-dependent PHP extensions:
+- `gd` for image thumbnails and related diagnostics.
+- `zip` / `ZipArchive` for plugin ZIP uploads and the in-app updater.
 
 ---
 
@@ -212,12 +214,19 @@ Upload the **entire contents** of the extracted folder into `/home/yourusername/
 ## Step 4 - Run the Installer
 
 1. Open your browser and go to: `https://yourdomain.com/install.php`
-2. Follow the 4-step walkthrough to connect your database and create your Admin account.
-3. **Pro Tip:** In the **Absolute Config Path** field, enter a path completely outside of your public web directory (e.g., `/home/yourusername/fyuhls_secure/config.php`). This keeps your encryption keys off-grid.
+2. Follow the installer to connect your database and create your Admin account.
+3. Fyuhls now generates a hidden config path automatically outside the webroot when possible, so your database credentials, encryption key, and app key are stored away from the public site by default.
+4. If the installer warns that it cannot create or write to the secure config directory, create that directory manually and grant the PHP user temporary write access so setup can finish cleanly.
 
 ---
 
 ## Step 5 - Post-Install Configuration
+
+### Post-Install Self-Test
+Right after installation:
+1. Open `/post_install_check.php`.
+2. Review the self-test results for writable paths, extensions, and basic environment health.
+3. If the installer or self-test files still exist after setup, remove them manually once you are done.
 
 ### Config Hub
 Most day-to-day setup now lives in **Admin > Config Hub**.
@@ -293,8 +302,20 @@ The export is:
 ## Safe Template Customization
 
 If you want to modify any part of the website, follow these steps so your changes are **never overwritten** during updates:
-1. Copy the file from `src/View/home/page.php` to `themes/custom/home/page.php`.
-2. Edit your new file. The system will prioritize `themes/custom/` automatically.
+1. Find the core view you want to override under `src/View/`.
+2. Copy it into `themes/custom/` using the same relative path.
+3. Example: copy `src/View/home/index.php` to `themes/custom/home/index.php`.
+4. Edit the copied file. Fyuhls checks `themes/custom/` first, then the active theme, then the core views.
+
+---
+
+## Installing From Source
+
+If you are deploying directly from this repository instead of a packaged release:
+1. Run `composer install --no-dev --optimize-autoloader` on the server so `vendor/` is present.
+2. Make sure your writable runtime directories exist and are writable by the web server/PHP user, especially `storage/` and `src/Plugin/`.
+3. Point your domain to `public/` exactly as shown above, then continue with the normal installer flow.
+4. If you want to run the project test scripts in a development environment, use `composer install` and then run `php tests/run_all.php`.
 
 ---
 
@@ -333,6 +354,11 @@ Your PHP installation is missing the `pdo_mysql` extension. Contact your host to
 - Make sure you're typing the database **name**, **username**, and **password** exactly as created in Step 3.
 - On cPanel, the full username is often `yourusername_dbusername` - include the prefix.
 - The installer does not create databases or database users for you. Create both first in your hosting panel and assign the user to the database with the required privileges.
+
+### Installer says it cannot create the secure config directory
+- Create the secure directory shown by the installer manually.
+- Grant the PHP user temporary write access to that directory.
+- Re-run the installer so it can write the hidden config file outside the webroot.
 
 ### "System is already installed"
 The installer detected an existing config. To reinstall, delete `config/database.php` and run `install.php` again.

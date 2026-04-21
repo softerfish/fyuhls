@@ -13,11 +13,8 @@ use function array_diff;
 use function array_key_exists;
 use function array_keys;
 use function array_merge;
-use function assert;
-use function class_exists;
 use function in_array;
 use function is_array;
-use function property_exists;
 use ReflectionClass;
 use ReflectionProperty;
 
@@ -55,9 +52,6 @@ final class Restorer
 
         foreach ($snapshot->staticProperties() as $className => $staticProperties) {
             foreach ($staticProperties as $name => $value) {
-                assert(class_exists($className));
-                assert(property_exists($className, $name));
-
                 $reflector = new ReflectionProperty($className, $name);
                 $reflector->setValue(null, $value);
             }
@@ -101,9 +95,7 @@ final class Restorer
             );
 
             foreach ($keys as $key) {
-                assert(isset($GLOBALS[$superGlobalArray]) && is_array($GLOBALS[$superGlobalArray]));
-
-                if (array_key_exists($key, $superGlobalVariables[$superGlobalArray])) {
+                if (isset($superGlobalVariables[$superGlobalArray][$key])) {
                     $GLOBALS[$superGlobalArray][$key] = $superGlobalVariables[$superGlobalArray][$key];
                 } else {
                     unset($GLOBALS[$superGlobalArray][$key]);

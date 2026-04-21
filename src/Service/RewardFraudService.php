@@ -871,7 +871,7 @@ class RewardFraudService
         $this->ensureSchema();
         $db = Database::getInstance()->getConnection();
         $stmt = $db->query("
-            SELECT id, user_id, amount, created_at
+            SELECT id, user_id, amount, type, created_at
             FROM earnings
             WHERE status = 'held' AND hold_until IS NOT NULL AND hold_until <= NOW()
             ORDER BY id ASC
@@ -885,7 +885,7 @@ class RewardFraudService
         $update = $db->prepare("UPDATE earnings SET status = 'cleared' WHERE id = ?");
         foreach ($rows as $row) {
             $update->execute([(int)$row['id']]);
-            $this->applyClearedStats((int)$row['user_id'], (float)$row['amount'], (string)$row['created_at']);
+            $this->applyClearedStats((int)$row['user_id'], (float)$row['amount'], (string)$row['created_at'], (string)($row['type'] ?? ''));
         }
 
         return count($rows);
@@ -926,7 +926,7 @@ class RewardFraudService
         $update->execute([$targetStatus, $adminId, $note, $holdUntil, $earningId]);
 
         if ($targetStatus === 'cleared') {
-            $this->applyClearedStats((int)$earning['user_id'], (float)$earning['amount'], (string)$earning['created_at']);
+            $this->applyClearedStats((int)$earning['user_id'], (float)$earning['amount'], (string)$earning['created_at'], (string)($earning['type'] ?? ''));
         }
 
         return true;
@@ -1314,16 +1314,37 @@ class RewardFraudService
             return null;
         }
 
-        $rawConfig = (string)($server['config'] ?? '{}');
-        if ($rawConfig !== '' && !str_starts_with($rawConfig, '{')) {
-            try {
-                $rawConfig = EncryptionService::decrypt($rawConfig);
-            } catch (\Throwable $e) {
-                $rawConfig = '{}';
-            }
-        }
-        $server['_config'] = json_decode($rawConfig, true) ?: [];
+        $server['_config'] = $this->normalizeRemoteServerConfig($server['config'] ?? []);
         return $server;
+    }
+
+    private function normalizeRemoteServerConfig(mixed $rawConfig): array
+    {
+        if (is_array($rawConfig)) {
+            return $rawConfig;
+        }
+
+        if (!is_string($rawConfig) || $rawConfig === '') {
+            return [];
+        }
+
+        $decoded = json_decode($rawConfig, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        try {
+            $decrypted = EncryptionService::decrypt($rawConfig);
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        if (!is_string($decrypted) || $decrypted === '') {
+            return [];
+        }
+
+        $decoded = json_decode($decrypted, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function buildRemoteReceiptSignature(array $payload, array $server): string
@@ -1474,8 +1495,12 @@ class RewardFraudService
         return false;
     }
 
-    private function applyClearedStats(int $userId, float $amount, string $createdAt): void
+    private function applyClearedStats(int $userId, float $amount, string $createdAt, string $earningType): void
     {
+        if ($earningType !== 'download_reward') {
+            return;
+        }
+
         $db = Database::getInstance()->getConnection();
         $day = date('Y-m-d', strtotime($createdAt));
         $stmt = $db->prepare("

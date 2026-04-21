@@ -9,17 +9,13 @@
  */
 namespace PHPUnit\TextUI\Configuration;
 
-use const DIRECTORY_SEPARATOR;
 use const PHP_EOL;
 use function assert;
 use function count;
-use function dirname;
-use function file;
 use function is_dir;
 use function is_file;
 use function realpath;
 use function str_ends_with;
-use function trim;
 use PHPUnit\Event\Facade as EventFacade;
 use PHPUnit\Exception;
 use PHPUnit\Framework\TestSuite;
@@ -45,42 +41,17 @@ final readonly class TestSuiteBuilder
      */
     public function build(Configuration $configuration): TestSuite
     {
-        if ($configuration->hasCliArguments() || $configuration->hasTestFilesFile()) {
+        if ($configuration->hasCliArguments()) {
             $arguments = [];
 
-            if ($configuration->hasCliArguments()) {
-                foreach ($configuration->cliArguments() as $cliArgument) {
-                    $argument = realpath($cliArgument);
+            foreach ($configuration->cliArguments() as $cliArgument) {
+                $argument = realpath($cliArgument);
 
-                    if (!$argument) {
-                        throw new TestFileNotFoundException($cliArgument);
-                    }
-
-                    $arguments[] = $argument;
-                }
-            }
-
-            if ($configuration->hasTestFilesFile()) {
-                if (!is_file($configuration->testFilesFile())) {
-                    throw new RuntimeException('Cannot read from ' . $configuration->testFilesFile());
+                if (!$argument) {
+                    throw new TestFileNotFoundException($cliArgument);
                 }
 
-                $directory = dirname($configuration->testFilesFile()) . DIRECTORY_SEPARATOR;
-
-                foreach (file($configuration->testFilesFile()) as $file) {
-                    $file     = trim($file);
-                    $argument = realpath($file);
-
-                    if (!$argument) {
-                        $argument = realpath($directory . $file);
-                    }
-
-                    if (!$argument) {
-                        throw new TestFileNotFoundException($file);
-                    }
-
-                    $arguments[] = $argument;
-                }
+                $arguments[] = $argument;
             }
 
             if (count($arguments) === 1) {
@@ -99,13 +70,13 @@ final readonly class TestSuiteBuilder
         if (!isset($testSuite)) {
             $xmlConfigurationFile = $configuration->hasConfigurationFile() ? $configuration->configurationFile() : 'Root Test Suite';
 
-            assert($xmlConfigurationFile !== '');
+            assert(!empty($xmlConfigurationFile));
 
             $testSuite = (new TestSuiteMapper)->map(
                 $xmlConfigurationFile,
                 $configuration->testSuite(),
-                $configuration->ignoreTestSelectionInXmlConfiguration() ? [] : $configuration->includeTestSuites(),
-                $configuration->ignoreTestSelectionInXmlConfiguration() ? [] : $configuration->excludeTestSuites(),
+                $configuration->includeTestSuite(),
+                $configuration->excludeTestSuite(),
             );
         }
 
@@ -123,10 +94,7 @@ final readonly class TestSuiteBuilder
     private function testSuiteFromPath(string $path, array $suffixes, ?TestSuite $suite = null): TestSuite
     {
         if (str_ends_with($path, '.phpt') && is_file($path)) {
-            if ($suite === null) {
-                $suite = TestSuite::empty($path);
-            }
-
+            $suite = $suite ?: TestSuite::empty($path);
             $suite->addTestFile($path);
 
             return $suite;
@@ -135,10 +103,7 @@ final readonly class TestSuiteBuilder
         if (is_dir($path)) {
             $files = (new FileIteratorFacade)->getFilesAsArray($path, $suffixes);
 
-            if ($suite === null) {
-                $suite = TestSuite::empty('CLI Arguments');
-            }
-
+            $suite = $suite ?: TestSuite::empty('CLI Arguments');
             $suite->addTestFiles($files);
 
             return $suite;
@@ -152,7 +117,7 @@ final readonly class TestSuiteBuilder
             exit(1);
         }
 
-        if ($suite === null) {
+        if (!$suite) {
             return TestSuite::fromClassReflector($testClass);
         }
 

@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.1.4
+
+### Storage Server Reliability
+- Fixed admin file-server delivery tests and related storage helper paths so file-server configs now load correctly whether the `config` payload is still an encrypted JSON string from the database or has already been decoded into an array by the admin UI. This prevents `json_decode()` type errors during `/admin/file-server/test-delivery/{id}` and keeps nearby download and rewards storage checks using the same tolerant config handling.
+- Fixed local-storage uploads in the modern browser uploader by adding app-routed multipart part handling for local file servers. This means installs using Local Storage no longer fail with the old multipart-support error just because global chunked uploads are enabled, and Apache/X-SendFile delivery mode is no longer a red herring for that upload path.
+
+### Rewards and Affiliate Cleanup
+- Removed legacy numeric internal referral attribution from the public `?ref=` flow so Fyuhls now only accepts the non-guessable public user referral IDs for account-side affiliate tracking.
+- Added a configurable affiliate commission hold window with a default of 5 days, so referred package-sale commission can stay held long enough to absorb normal refund and chargeback risk before it becomes withdrawable.
+- Fixed payment status handling so completed transactions can still transition into `refunded` or `denied`, and those later gateway states now cancel or reverse the related affiliate commission instead of leaving it cleared forever.
+- Corrected affiliate and rewards messaging so PPD users are no longer told that sharing their referral link will earn package-sale commission unless they switch to a PPS-capable model first.
+- Replaced the inflated raw-signup referral counter with a buyer-focused referral metric and stopped held affiliate commission clears from polluting download analytics.
+
+### Installer and Post-Install Fixes
+- Made the hidden config path editable again during install, with validation.
+- Stopped `.htaccess` from blocking `post_install_check.php`.
+- Bootstrapped sessions correctly in `post_install_check.php`.
+- Softened and fixed the installer cleanup warning logic.
+
+### Download Page Actions and Audit Logging
+- Added the download-page action bar so eligible signed-in users can save a file into their account as a deduplicated logical copy without re-uploading it.
+- Added admin Uploads settings to control whether the download-page save action is available for Free users, Premium users, and Admin users.
+- Added uploader-facing deleted-file history in account settings, with encrypted-at-rest deletion reasons and actor labels.
+- Required delete reasons for admin file removals and wired that requirement through the public download page and the normal file manager delete flow.
+- Centralized file deletion history through the shared hard-delete path so single delete, bulk delete, trash empty, folder tree deletion, pending-purge jobs, and cleanup jobs all log consistently.
+- Fixed save-to-account race conditions by moving dedupe and storage-quota enforcement under the same locked transaction, preventing parallel requests from creating duplicate logical copies or overshooting account storage limits.
+- Stopped uploader-visible deletion history from exposing real admin usernames by using the fixed public label `Administrator`.
+- Encrypted generic user activity log descriptions at rest.
+
+## v0.1.3
+
+### Packaging and PHP Compatibility
+- Fixed Composer packaging drift so fyuhls once again installs cleanly on the intended `PHP 8.2+` target instead of inheriting an accidental `PHP 8.4` requirement from a newer lockfile resolution environment.
+- Added a Composer platform target for PHP 8.2, re-resolved the lockfile against that floor, and downgraded the locked `symfony/filesystem` and PHPUnit dependency stack to PHP-8.2-compatible versions.
+- This means operators on normal PHP 8.2 and 8.3 VPS installs should no longer see Composer incorrectly report that fyuhls requires PHP 8.4 just to install dependencies.
+
+### Admin Documentation
+- Expanded the in-app admin documentation and page guides for the Dashboard, Cron Jobs, and Support Center so operational alerts, heartbeat health, support-bundle handling, and updater expectations are explained more clearly from inside the admin area.
+- Added new long-form admin docs coverage for File Manager support workflows and Downloads/Delivery troubleshooting so page guides and `/admin/docs` now better reflect the current product surface.
+
 ## v0.1.2
 
 ### Security Hardening

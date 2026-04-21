@@ -141,26 +141,18 @@ final class Runtime
     public function getNameWithVersionAndCodeCoverageDriver(): string
     {
         if ($this->hasPCOV()) {
-            $version = phpversion('pcov');
-
-            assert($version !== false);
-
             return sprintf(
                 '%s with PCOV %s',
                 $this->getNameWithVersion(),
-                $version,
+                phpversion('pcov'),
             );
         }
 
         if ($this->hasXdebug()) {
-            $version = phpversion('xdebug');
-
-            assert($version !== false);
-
             return sprintf(
                 '%s with Xdebug %s',
                 $this->getNameWithVersion(),
-                $version,
+                phpversion('xdebug'),
             );
         }
 
@@ -226,7 +218,7 @@ final class Runtime
      */
     public function hasPCOV(): bool
     {
-        return $this->isPHP() && extension_loaded('pcov') && ini_get('pcov.enabled') === '1';
+        return $this->isPHP() && extension_loaded('pcov') && ini_get('pcov.enabled');
     }
 
     /**
@@ -248,19 +240,15 @@ final class Runtime
         $diff  = [];
         $files = [];
 
-        $file = php_ini_loaded_file();
-
-        if ($file !== false) {
+        if ($file = php_ini_loaded_file()) {
             $files[] = $file;
         }
 
-        $scanned = php_ini_scanned_files();
-
-        if ($scanned !== false) {
+        if ($scanned = php_ini_scanned_files()) {
             $files = array_merge(
                 $files,
                 array_map(
-                    trim(...),
+                    'trim',
                     explode(",\n", $scanned),
                 ),
             );
@@ -272,7 +260,7 @@ final class Runtime
             foreach ($values as $value) {
                 $set = ini_get($value);
 
-                if ($set === false || $set === '') {
+                if (empty($set)) {
                     continue;
                 }
 
@@ -285,7 +273,7 @@ final class Runtime
         return $diff;
     }
 
-    public function isOpcacheActive(): bool
+    private function isOpcacheActive(): bool
     {
         if (!extension_loaded('Zend OPcache')) {
             return false;

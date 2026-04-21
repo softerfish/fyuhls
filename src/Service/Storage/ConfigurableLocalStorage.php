@@ -136,15 +136,22 @@ class ConfigurableLocalStorage implements StorageProvider {
 
     public function getCapabilities(): array {
         return [
-            'multipart' => false,
+            'multipart' => true,
             'presigned_part_upload' => false,
+            'app_part_upload' => true,
             'presigned_download' => false,
             'head' => true,
         ];
     }
 
     public function createMultipartUpload(string $destinationPath, array $options = []): ?array {
-        return null;
+        $uploadId = bin2hex(random_bytes(16));
+        $dir = $this->multipartRoot($uploadId);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        return ['upload_id' => $uploadId];
     }
 
     public function createMultipartPartUrl(string $destinationPath, string $uploadId, int $partNumber, int $expiry = 3600, array $options = []): ?string {
@@ -156,11 +163,94 @@ class ConfigurableLocalStorage implements StorageProvider {
     }
 
     public function completeMultipartUpload(string $destinationPath, string $uploadId, array $parts): bool {
-        return false;
+        $partsDir = $this->multipartRoot($uploadId);
+        if (!is_dir($partsDir)) {
+            return false;
+        }
+
+        $fullPath = $this->rootPath . '/' . $destinationPath;
+        $dir = dirname($fullPath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $target = fopen($fullPath, 'wb');
+        if (!$target) {
+            return false;
+        }
+
+        try {
+            foreach ($parts as $part) {
+                $partPath = $this->multipartPartPath($uploadId, (int)$part['part_number']);
+                if (!is_file($partPath)) {
+                    fclose($target);
+                    return false;
+                }
+
+                $source = fopen($partPath, 'rb');
+                if (!$source) {
+                    fclose($target);
+                    return false;
+                }
+
+                stream_copy_to_stream($source, $target);
+                fclose($source);
+            }
+        } finally {
+            fclose($target);
+        }
+
+        $this->removeDirectory($partsDir);
+        return true;
     }
 
     public function abortMultipartUpload(string $destinationPath, string $uploadId): bool {
-        return false;
+        $partsDir = $this->multipartRoot($uploadId);
+        if (!is_dir($partsDir)) {
+            return true;
+        }
+
+        $this->removeDirectory($partsDir);
+        return true;
+    }
+
+    public function writeMultipartPart(string $destinationPath, string $uploadId, int $partNumber, $stream): array {
+        $partsDir = $this->multipartRoot($uploadId);
+        if (!is_dir($partsDir)) {
+            mkdir($partsDir, 0755, true);
+        }
+
+        $partPath = $this->multipartPartPath($uploadId, $partNumber);
+        $target = fopen($partPath, 'wb');
+        if (!$target) {
+            throw new \RuntimeException('Could not open local part destination for writing.');
+        }
+
+        $hash = hash_init('sha256');
+        $size = 0;
+        while (!feof($stream)) {
+            $chunk = fread($stream, 8192);
+            if ($chunk === false) {
+                fclose($target);
+                throw new \RuntimeException('Could not read uploaded part data.');
+            }
+            if ($chunk === '') {
+                continue;
+            }
+            $written = fwrite($target, $chunk);
+            if ($written === false) {
+                fclose($target);
+                throw new \RuntimeException('Could not write uploaded part data.');
+            }
+            $size += $written;
+            hash_update($hash, substr($chunk, 0, $written));
+        }
+        fclose($target);
+
+        return [
+            'etag' => hash_final($hash),
+            'part_size' => $size,
+        ];
     }
 
     public function head(string $path): ?array {
@@ -184,5 +274,44 @@ class ConfigurableLocalStorage implements StorageProvider {
             str_starts_with($path, '\\\\') ||
             str_starts_with($path, '/')
         );
+    }
+
+    private function multipartRoot(string $uploadId): string
+    {
+        $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 3);
+        return rtrim($root, '/\\') . '/storage/framework/multipart-local/' . preg_replace('/[^a-zA-Z0-9_-]/', '', $uploadId);
+    }
+
+    private function multipartPartPath(string $uploadId, int $partNumber): string
+    {
+        return $this->multipartRoot($uploadId) . '/part-' . $partNumber . '.bin';
+    }
+
+    private function removeDirectory(string $path): void
+    {
+        if (!is_dir($path)) {
+            return;
+        }
+
+        $items = scandir($path);
+        if (!is_array($items)) {
+            @rmdir($path);
+            return;
+        }
+
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+
+            $full = $path . '/' . $item;
+            if (is_dir($full)) {
+                $this->removeDirectory($full);
+            } elseif (is_file($full)) {
+                @unlink($full);
+            }
+        }
+
+        @rmdir($path);
     }
 }

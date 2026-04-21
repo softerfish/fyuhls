@@ -20,7 +20,10 @@ final readonly class RequiresPhp extends Metadata
 {
     private Requirement $versionRequirement;
 
-    protected function __construct(Level $level, Requirement $versionRequirement)
+    /**
+     * @param 0|1 $level
+     */
+    protected function __construct(int $level, Requirement $versionRequirement)
     {
         parent::__construct($level);
 

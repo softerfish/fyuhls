@@ -18,7 +18,10 @@ final readonly class BackupStaticProperties extends Metadata
 {
     private bool $enabled;
 
-    protected function __construct(Level $level, bool $enabled)
+    /**
+     * @param 0|1 $level
+     */
+    protected function __construct(int $level, bool $enabled)
     {
         parent::__construct($level);
 

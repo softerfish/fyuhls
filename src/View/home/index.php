@@ -596,6 +596,7 @@ $extraBottom = "
 <script>window.UPLOAD_CONFIG = " . json_encode($uploadConfig) . ";</script>
 <script>window.FILE_MANAGER_CONFIG = " . json_encode([
     'baseUrl' => rtrim(\App\Service\SeoService::trustedBaseUrl(), '/'),
+    'isAdmin' => \App\Core\Auth::isAdmin(),
 ]) . ";</script>
 <script src=\"/assets/js/filemanager.js?v=" . filemtime(BASE_PATH . '/public/assets/js/filemanager.js') . "\"></script>
 ";

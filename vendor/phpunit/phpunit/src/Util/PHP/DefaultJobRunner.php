@@ -11,10 +11,8 @@ namespace PHPUnit\Util\PHP;
 
 use const PHP_BINARY;
 use const PHP_SAPI;
-use function array_any;
 use function array_keys;
 use function array_merge;
-use function array_values;
 use function assert;
 use function fclose;
 use function file_put_contents;
@@ -130,7 +128,7 @@ final readonly class DefaultJobRunner extends JobRunner
             // @codeCoverageIgnoreEnd
         }
 
-        Facade::emitter()->childProcessStarted();
+        Facade::emitter()->testRunnerStartedChildProcess();
 
         fwrite($pipes[0], $job->code());
         fclose($pipes[0]);
@@ -167,10 +165,19 @@ final readonly class DefaultJobRunner extends JobRunner
      */
     private function buildCommand(Job $job, ?string $file): array
     {
-        $runtime                        = new Runtime;
-        $command                        = [PHP_BINARY];
-        $phpSettings                    = $job->phpSettings();
-        $xdebugModeConfiguredExplicitly = array_any($phpSettings, static fn (string $phpSetting) => str_starts_with($phpSetting, 'xdebug.mode'));
+        $runtime     = new Runtime;
+        $command     = [PHP_BINARY];
+        $phpSettings = $job->phpSettings();
+
+        $xdebugModeConfiguredExplicitly = false;
+
+        foreach ($phpSettings as $phpSetting) {
+            if (str_starts_with($phpSetting, 'xdebug.mode')) {
+                $xdebugModeConfiguredExplicitly = true;
+
+                break;
+            }
+        }
 
         if ($runtime->hasPCOV()) {
             $pcovSettings = ini_get_all('pcov');
@@ -208,7 +215,7 @@ final readonly class DefaultJobRunner extends JobRunner
             }
         }
 
-        $command = array_merge($command, $this->settingsToParameters(array_values($phpSettings)));
+        $command = array_merge($command, $this->settingsToParameters($phpSettings));
 
         if (PHP_SAPI === 'phpdbg') {
             $command[] = '-qrr';

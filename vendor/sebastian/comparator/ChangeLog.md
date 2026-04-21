@@ -2,47 +2,11 @@
 
 All notable changes are documented in this file using the [Keep a CHANGELOG](http://keepachangelog.com/) principles.
 
-## [8.0.0] - 2026-02-06
-
-### Removed
-
-* Removed support for PHP 8.3
-
-## [7.1.3] - 2025-08-20
+## [6.3.3] - 2026-01-24
 
 ### Changed
 
-* [#130](https://github.com/sebastianbergmann/comparator/pull/130): Provide a diff when `ClosureComparator` fails
-
-## [7.1.2] - 2025-08-10
-
-### Fixed
-
-* `SebastianBergmann\Comparator\Comparator` should not have been marked as private implementation detail of this library
-
-## [7.1.1] - 2025-08-10
-
-### Changed
-
-* Do not use `SplObjectStorage` methods that will be deprecated in PHP 8.5
-
-## [7.1.0] - 2025-06-17
-
-### Added
-
-* [#127](https://github.com/sebastianbergmann/comparator/issues/127): Support for comparing `Closure` objects
-
-## [7.0.1] - 2025-03-07
-
-### Fixed
-
-* [#122](https://github.com/sebastianbergmann/comparator/issues/122): `INF` is considered equal to `-INF`
-
-## [7.0.0] - 2025-02-07
-
-### Removed
-
-* Removed support for PHP 8.2
+* [#134](https://github.com/sebastianbergmann/comparator/issues/134): Suppress warning introduced in PHP 8.5
 
 ## [6.3.2] - 2025-08-10
 
@@ -104,12 +68,6 @@ All notable changes are documented in this file using the [Keep a CHANGELOG](htt
 
 * Removed support for PHP 8.1
 
-## [5.0.5] - 2026-01-24
-
-### Changed
-
-* [#134](https://github.com/sebastianbergmann/comparator/issues/134): Suppress warning introduced in PHP 8.5
-
 ## [5.0.4] - 2025-09-07
 
 ### Changed
@@ -149,18 +107,6 @@ All notable changes are documented in this file using the [Keep a CHANGELOG](htt
 * Removed `$identical` parameter from `ComparisonFailure::__construct()`
 * Removed `Comparator::$exporter`
 * Removed support for PHP 7.3, PHP 7.4, and PHP 8.0
-
-## [4.0.10] - 2026-01-24
-
-### Changed
-
-* [#134](https://github.com/sebastianbergmann/comparator/issues/134): Suppress warning introduced in PHP 8.5
-
-## [4.0.9] - 2025-08-10
-
-### Changed
-
-* Do not use `SplObjectStorage` methods that will be deprecated in PHP 8.5
 
 ## [4.0.8] - 2022-09-14
 
@@ -215,18 +161,6 @@ All notable changes are documented in this file using the [Keep a CHANGELOG](htt
 ### Removed
 
 * Removed support for PHP 7.1 and PHP 7.2
-
-## [3.0.7] - 2026-01-24
-
-### Changed
-
-* [#134](https://github.com/sebastianbergmann/comparator/issues/134): Suppress warning introduced in PHP 8.5
-
-## [3.0.6] - 2025-08-10
-
-### Changed
-
-* Do not use `SplObjectStorage` methods that will be deprecated in PHP 8.5
 
 ## [3.0.5] - 2022-09-14
 
@@ -294,13 +228,7 @@ All notable changes are documented in this file using the [Keep a CHANGELOG](htt
 * Added `SebastianBergmann\Comparator\Factory::reset()` to unregister all non-default comparators
 * Added support for `phpunit/phpunit-mock-objects` version `^5.0`
 
-[8.0.0]: https://github.com/sebastianbergmann/comparator/compare/7.1...8.0.0
-[7.1.3]: https://github.com/sebastianbergmann/comparator/compare/7.1.2...7.1.3
-[7.1.2]: https://github.com/sebastianbergmann/comparator/compare/7.1.1...7.1.2
-[7.1.1]: https://github.com/sebastianbergmann/comparator/compare/7.1.0...7.1.1
-[7.1.0]: https://github.com/sebastianbergmann/comparator/compare/7.0.1...7.1.0
-[7.0.1]: https://github.com/sebastianbergmann/comparator/compare/7.0.0...7.0.1
-[7.0.0]: https://github.com/sebastianbergmann/comparator/compare/6.3...7.0.0
+[6.3.3]: https://github.com/sebastianbergmann/comparator/compare/6.3.2...6.3.3
 [6.3.2]: https://github.com/sebastianbergmann/comparator/compare/6.3.1...6.3.2
 [6.3.1]: https://github.com/sebastianbergmann/comparator/compare/6.3.0...6.3.1
 [6.3.0]: https://github.com/sebastianbergmann/comparator/compare/6.2.1...6.3.0
@@ -311,11 +239,14 @@ All notable changes are documented in this file using the [Keep a CHANGELOG](htt
 [6.0.2]: https://github.com/sebastianbergmann/comparator/compare/6.0.1...6.0.2
 [6.0.1]: https://github.com/sebastianbergmann/comparator/compare/6.0.0...6.0.1
 [6.0.0]: https://github.com/sebastianbergmann/comparator/compare/5.0...6.0.0
+[5.0.5]: https://github.com/sebastianbergmann/comparator/compare/5.0.4...5.0.5
 [5.0.4]: https://github.com/sebastianbergmann/comparator/compare/5.0.3...5.0.4
 [5.0.3]: https://github.com/sebastianbergmann/comparator/compare/5.0.2...5.0.3
 [5.0.2]: https://github.com/sebastianbergmann/comparator/compare/5.0.1...5.0.2
 [5.0.1]: https://github.com/sebastianbergmann/comparator/compare/5.0.0...5.0.1
-[5.0.0]: https://github.com/sebastianbergmann/comparator/compare/4.0.8...5.0.0
+[5.0.0]: https://github.com/sebastianbergmann/comparator/compare/4.0...5.0.0
+[4.0.10]: https://github.com/sebastianbergmann/comparator/compare/4.0.9...4.0.10
+[4.0.9]: https://github.com/sebastianbergmann/comparator/compare/4.0.8...4.0.9
 [4.0.8]: https://github.com/sebastianbergmann/comparator/compare/4.0.7...4.0.8
 [4.0.7]: https://github.com/sebastianbergmann/comparator/compare/4.0.6...4.0.7
 [4.0.6]: https://github.com/sebastianbergmann/comparator/compare/4.0.5...4.0.6
@@ -324,7 +255,9 @@ All notable changes are documented in this file using the [Keep a CHANGELOG](htt
 [4.0.3]: https://github.com/sebastianbergmann/comparator/compare/4.0.2...4.0.3
 [4.0.2]: https://github.com/sebastianbergmann/comparator/compare/4.0.1...4.0.2
 [4.0.1]: https://github.com/sebastianbergmann/comparator/compare/4.0.0...4.0.1
-[4.0.0]: https://github.com/sebastianbergmann/comparator/compare/3.0.5...4.0.0
+[4.0.0]: https://github.com/sebastianbergmann/comparator/compare/3.0...4.0.0
+[3.0.7]: https://github.com/sebastianbergmann/comparator/compare/3.0.6...3.0.7
+[3.0.6]: https://github.com/sebastianbergmann/comparator/compare/3.0.5...3.0.6
 [3.0.5]: https://github.com/sebastianbergmann/comparator/compare/3.0.4...3.0.5
 [3.0.4]: https://github.com/sebastianbergmann/comparator/compare/3.0.3...3.0.4
 [3.0.3]: https://github.com/sebastianbergmann/comparator/compare/3.0.2...3.0.3

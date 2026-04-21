@@ -9,8 +9,6 @@
  */
 namespace SebastianBergmann;
 
-use const DIRECTORY_SEPARATOR;
-use function assert;
 use function end;
 use function explode;
 use function fclose;
@@ -62,7 +60,7 @@ final readonly class Version
 
         $git = $this->getGitInformation($path);
 
-        if ($git === false) {
+        if (!$git) {
             return $version;
         }
 
@@ -77,8 +75,6 @@ final readonly class Version
 
     /**
      * @param non-empty-string $path
-     *
-     * @return false|non-empty-string
      */
     private function getGitInformation(string $path): false|string
     {
@@ -86,7 +82,7 @@ final readonly class Version
             return false;
         }
 
-        $process = @proc_open(
+        $process = proc_open(
             ['git', 'describe', '--tags'],
             [
                 1 => ['pipe', 'w'],
@@ -100,9 +96,6 @@ final readonly class Version
             return false;
         }
 
-        assert(isset($pipes[1]) && is_resource($pipes[1]));
-        assert(isset($pipes[2]) && is_resource($pipes[2]));
-
         $result = trim((string) stream_get_contents($pipes[1]));
 
         fclose($pipes[1]);
@@ -113,8 +106,6 @@ final readonly class Version
         if ($returnCode !== 0) {
             return false;
         }
-
-        assert($result !== '');
 
         return $result;
     }

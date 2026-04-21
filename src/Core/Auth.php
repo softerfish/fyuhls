@@ -12,18 +12,21 @@ class Auth {
         
         $db = Database::getInstance()->getConnection();
         
+        $encDescription = $description !== null && $description !== ''
+            ? \App\Service\EncryptionService::encrypt($description)
+            : null;
         $encIp = \App\Service\EncryptionService::encrypt($ip);
         $encUa = \App\Service\EncryptionService::encrypt($ua);
         
         try {
             $stmt = $db->prepare("INSERT INTO user_activity_log (user_id, activity_type, description, ip_address, user_agent) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$userId, $type, $description, $encIp, $encUa]);
+            $stmt->execute([$userId, $type, $encDescription, $encIp, $encUa]);
         } catch (\PDOException $e) {
             // If table doesn't exist, create it and retry
             if ($e->getCode() === '42S02') {
                 self::createActivityLogTable($db);
                 $stmt = $db->prepare("INSERT INTO user_activity_log (user_id, activity_type, description, ip_address, user_agent) VALUES (?, ?, ?, ?, ?)");
-                $stmt->execute([$userId, $type, $description, $encIp, $encUa]);
+                $stmt->execute([$userId, $type, $encDescription, $encIp, $encUa]);
             } else {
                 throw $e;
             }

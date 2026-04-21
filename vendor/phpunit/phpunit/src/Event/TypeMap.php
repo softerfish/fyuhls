@@ -9,7 +9,6 @@
  */
 namespace PHPUnit\Event;
 
-use function array_any;
 use function array_key_exists;
 use function class_exists;
 use function class_implements;
@@ -54,10 +53,13 @@ final class TypeMap
 
     public function isKnownSubscriberType(Subscriber $subscriber): bool
     {
-        return array_any(
-            class_implements($subscriber),
-            fn (string $interface) => array_key_exists($interface, $this->mapping),
-        );
+        foreach (class_implements($subscriber) as $interface) {
+            if (array_key_exists($interface, $this->mapping)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function isKnownEventType(Event $event): bool

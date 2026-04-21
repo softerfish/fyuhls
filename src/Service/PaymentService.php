@@ -14,6 +14,7 @@ class PaymentService
     public const DEFAULT_PRICE = 9.99;
     public const DEFAULT_CURRENCY = 'USD';
     public const DEFAULT_BILLING_PERIOD = 'monthly';
+    private const DEFAULT_AFFILIATE_HOLD_DAYS = 5;
     private const STRIPE_WEBHOOK_TOLERANCE = 300;
 
     public static function ensureTablesExist(): void
@@ -386,6 +387,9 @@ class PaymentService
             if ($status === 'completed') {
                 self::activateSubscription($db, $transaction, $gateway);
                 self::awardAffiliateCommission($db, $transaction, $gateway);
+            } elseif (in_array($status, ['refunded', 'denied'], true)) {
+                self::revokeSubscription($db, $transaction, $gateway);
+                self::reverseAffiliateCommission($db, $transaction, $gateway, $status);
             }
 
             $db->commit();
@@ -443,6 +447,8 @@ class PaymentService
             return;
         }
 
+        (new RewardFraudService())->ensureSchema();
+
         $buyerStmt = $db->prepare("SELECT id, referrer_id FROM users WHERE id = ? LIMIT 1");
         $buyerStmt->execute([(int)$transaction['user_id']]);
         $buyer = $buyerStmt->fetch();
@@ -477,11 +483,7 @@ class PaymentService
             return;
         }
 
-        $description = sprintf(
-            'Affiliate commission for %s purchase %s',
-            strtoupper($gateway),
-            (string)$transaction['gateway_reference']
-        );
+        $description = self::affiliateCommissionDescription($gateway, (string)$transaction['gateway_reference']);
 
         $exists = $db->prepare("SELECT id FROM earnings WHERE user_id = ? AND type = 'referral' AND description = ? LIMIT 1");
         $exists->execute([$referrerId, $description]);
@@ -494,14 +496,108 @@ class PaymentService
             return;
         }
 
+        $holdDays = max(0, (int)Setting::get('affiliate_hold_days', (string)self::DEFAULT_AFFILIATE_HOLD_DAYS, 'rewards'));
+        $status = $holdDays > 0 ? 'held' : 'cleared';
+        $holdUntil = $holdDays > 0 ? date('Y-m-d H:i:s', strtotime("+{$holdDays} days")) : null;
+        $description = $holdDays > 0
+            ? $description . sprintf(' (Held %d days)', $holdDays)
+            : $description;
+
         $db->prepare("
-            INSERT INTO earnings (user_id, amount, type, status, description)
-            VALUES (?, ?, 'referral', 'cleared', ?)
+            INSERT INTO earnings (user_id, amount, type, status, description, hold_until)
+            VALUES (?, ?, 'referral', ?, ?, ?)
         ")->execute([
             $referrerId,
             $commission,
+            $status,
             $description,
+            $holdUntil,
         ]);
+    }
+
+    private static function reverseAffiliateCommission($db, array $transaction, string $gateway, string $status): void
+    {
+        $description = self::affiliateCommissionDescription($gateway, (string)$transaction['gateway_reference']);
+        $stmt = $db->prepare("
+            SELECT id, status
+            FROM earnings
+            WHERE type = 'referral'
+              AND description LIKE ?
+            ORDER BY id DESC
+        ");
+        $stmt->execute([$description . '%']);
+        $rows = $stmt->fetchAll();
+        if (empty($rows)) {
+            return;
+        }
+
+        $cancel = $db->prepare("UPDATE earnings SET status = 'cancelled', hold_until = NULL WHERE id = ?");
+        $reverse = $db->prepare("UPDATE earnings SET status = 'reversed', hold_until = NULL WHERE id = ?");
+
+        foreach ($rows as $row) {
+            $earningStatus = (string)($row['status'] ?? '');
+            if (in_array($earningStatus, ['reversed', 'cancelled'], true)) {
+                continue;
+            }
+
+            if (in_array($earningStatus, ['held', 'pending'], true)) {
+                $cancel->execute([(int)$row['id']]);
+            } else {
+                $reverse->execute([(int)$row['id']]);
+            }
+        }
+    }
+
+    private static function revokeSubscription($db, array $transaction, string $gateway): void
+    {
+        $db->prepare("
+            UPDATE subscriptions
+            SET status = 'cancelled'
+            WHERE user_id = ? AND gateway = ? AND gateway_reference = ? AND status IN ('active', 'pending')
+        ")->execute([
+            (int)$transaction['user_id'],
+            $gateway,
+            (string)$transaction['gateway_reference'],
+        ]);
+
+        self::restoreUserPackageFromActiveSubscriptionOrGuest($db, (int)$transaction['user_id']);
+    }
+
+    private static function restoreUserPackageFromActiveSubscriptionOrGuest($db, int $userId): void
+    {
+        $activeStmt = $db->prepare("
+            SELECT package_id, expires_at
+            FROM subscriptions
+            WHERE user_id = ? AND status = 'active'
+            ORDER BY expires_at DESC, id DESC
+            LIMIT 1
+        ");
+        $activeStmt->execute([$userId]);
+        $active = $activeStmt->fetch();
+
+        if ($active) {
+            $db->prepare("UPDATE users SET package_id = ?, premium_expiry = ? WHERE id = ?")
+                ->execute([(int)$active['package_id'], $active['expires_at'], $userId]);
+            return;
+        }
+
+        $guestPackage = Package::getGuestPackage();
+        if ($guestPackage) {
+            $db->prepare("UPDATE users SET package_id = ?, premium_expiry = NULL WHERE id = ?")
+                ->execute([(int)$guestPackage['id'], $userId]);
+        } else {
+            $db->prepare("UPDATE users SET premium_expiry = NULL WHERE id = ?")
+                ->execute([$userId]);
+        }
+    }
+
+    private static function affiliateCommissionDescription(string $gateway, string $reference): string
+    {
+        return sprintf(
+            'Affiliate commission for %s purchase %s',
+            strtoupper($gateway),
+            $reference
+        );
     }
 
     private static function sendPaymentStatusEmail(array $transaction, string $status, string $previousStatus, string $gateway): void
@@ -605,7 +701,11 @@ class PaymentService
             return true;
         }
 
-        $terminalStatuses = ['completed', 'refunded', 'denied'];
+        if ($previousStatus === 'completed') {
+            return in_array($newStatus, ['refunded', 'denied'], true);
+        }
+
+        $terminalStatuses = ['refunded', 'denied'];
         if (in_array($previousStatus, $terminalStatuses, true)) {
             return false;
         }

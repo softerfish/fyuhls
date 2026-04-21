@@ -192,7 +192,10 @@ class UserController
             'package_id' => $packageId,
         ]);
 
-        if ($status !== 'active') {
+        if ($status === 'active') {
+            $db->prepare("UPDATE users SET status = 'active', email_verified = 1, verification_token = NULL WHERE id = ?")
+               ->execute([$userId]);
+        } else {
             $db->prepare("UPDATE users SET status = ? WHERE id = ?")->execute([$status, $userId]);
         }
 
@@ -242,7 +245,7 @@ class UserController
                 $stmt->execute([$userId]);
             }
             elseif ($action === 'unban') {
-                $stmt = $db->prepare("UPDATE users SET status = 'active' WHERE id = ?");
+                $stmt = $db->prepare("UPDATE users SET status = 'active', email_verified = 1, verification_token = NULL WHERE id = ?");
                 $stmt->execute([$userId]);
             }
             elseif ($action === 'make_admin') {
@@ -358,8 +361,13 @@ class UserController
 
                         if (empty($error)) {
                             // Update basic attributes
-                            $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, role = ?, status = ?, package_id = ? WHERE id = ?");
-                            $stmt->execute([$encUsername, $encEmail, $role, $status, $packageId, $userId]);
+                            if ($status === 'active') {
+                                $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, role = ?, status = ?, package_id = ?, email_verified = 1, verification_token = NULL WHERE id = ?");
+                                $stmt->execute([$encUsername, $encEmail, $role, $status, $packageId, $userId]);
+                            } else {
+                                $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, role = ?, status = ?, package_id = ? WHERE id = ?");
+                                $stmt->execute([$encUsername, $encEmail, $role, $status, $packageId, $userId]);
+                            }
 
                             if ($role !== 'admin' || $status !== 'active') {
                                 $this->clearDemoAdminIfMatches($userId);

@@ -29,17 +29,23 @@ class WasabiService
                 continue;
             }
 
+            $bucketRegion = $this->resolveBucketRegion($client, $bucketName, $resolvedRegion);
+            $bucketEndpoint = $this->normalizeEndpoint('', $bucketRegion);
+
             $buckets[] = [
                 'bucket_name' => $bucketName,
                 'bucket_type' => 'private',
-                'region' => $resolvedRegion,
-                'endpoint' => $resolvedEndpoint,
+                'region' => $bucketRegion,
+                'endpoint' => $bucketEndpoint,
             ];
         }
 
+        $defaultRegion = $buckets[0]['region'] ?? $resolvedRegion;
+        $defaultEndpoint = $buckets[0]['endpoint'] ?? $resolvedEndpoint;
+
         return [
-            'region' => $resolvedRegion,
-            'endpoint' => $resolvedEndpoint,
+            'region' => $defaultRegion,
+            'endpoint' => $defaultEndpoint,
             'buckets' => $buckets,
         ];
     }
@@ -126,6 +132,30 @@ class WasabiService
         return $region !== '' ? $region : 'us-east-1';
     }
 
+    private function parseLocationConstraintValue(mixed $location, string $fallbackRegion): string
+    {
+        if (!is_string($location) || trim($location) === '') {
+            return $fallbackRegion;
+        }
+
+        $value = trim($location);
+
+        // Some Wasabi responses surface the raw XML payload instead of a plain region token.
+        if (str_contains($value, '<')) {
+            $stripped = trim(strip_tags($value));
+            if ($stripped !== '') {
+                $value = $stripped;
+            }
+        }
+
+        if (preg_match('/([a-z]{2,}-[a-z0-9-]+-\d+)/i', $value, $matches) === 1) {
+            return $this->normalizeRegion($matches[1]);
+        }
+
+        $value = trim($value, " \t\n\r\0\x0B\"'>");
+        return $value !== '' ? $this->normalizeRegion($value) : $fallbackRegion;
+    }
+
     private function normalizeEndpoint(string $endpoint, string $region): string
     {
         $endpoint = trim($endpoint);
@@ -155,6 +185,24 @@ class WasabiService
         }
 
         return array_values(array_unique($normalizedOrigins));
+    }
+
+    private function resolveBucketRegion(S3Client $client, string $bucketName, string $fallbackRegion): string
+    {
+        try {
+            $response = $client->getBucketLocation([
+                'Bucket' => $bucketName,
+            ]);
+        } catch (AwsException $e) {
+            return $fallbackRegion;
+        }
+
+        $location = $response['LocationConstraint'] ?? null;
+        if ($location === null || $location === '') {
+            return $fallbackRegion;
+        }
+
+        return $this->parseLocationConstraintValue($location, $fallbackRegion);
     }
 
     private function getExistingCorsRules(S3Client $client, string $bucketName): array

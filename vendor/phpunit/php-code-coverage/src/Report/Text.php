@@ -21,16 +21,35 @@ use SebastianBergmann\CodeCoverage\CodeCoverage;
 use SebastianBergmann\CodeCoverage\Node\File;
 use SebastianBergmann\CodeCoverage\Util\Percentage;
 
-final readonly class Text
+final class Text
 {
-    private const string COLOR_GREEN  = "\x1b[30;42m";
-    private const string COLOR_YELLOW = "\x1b[30;43m";
-    private const string COLOR_RED    = "\x1b[37;41m";
-    private const string COLOR_HEADER = "\x1b[1;37;40m";
-    private const string COLOR_RESET  = "\x1b[0m";
-    private Thresholds $thresholds;
-    private bool $showUncoveredFiles;
-    private bool $showOnlySummary;
+    /**
+     * @var string
+     */
+    private const COLOR_GREEN = "\x1b[30;42m";
+
+    /**
+     * @var string
+     */
+    private const COLOR_YELLOW = "\x1b[30;43m";
+
+    /**
+     * @var string
+     */
+    private const COLOR_RED = "\x1b[37;41m";
+
+    /**
+     * @var string
+     */
+    private const COLOR_HEADER = "\x1b[1;37;40m";
+
+    /**
+     * @var string
+     */
+    private const COLOR_RESET = "\x1b[0m";
+    private readonly Thresholds $thresholds;
+    private readonly bool $showUncoveredFiles;
+    private readonly bool $showOnlySummary;
 
     public function __construct(Thresholds $thresholds, bool $showUncoveredFiles = false, bool $showOnlySummary = false)
     {
@@ -41,7 +60,7 @@ final readonly class Text
 
     public function process(CodeCoverage $coverage, bool $showColors = false): string
     {
-        $hasBranchCoverage = $coverage->getData(true)->functionCoverage() !== [];
+        $hasBranchCoverage = !empty($coverage->getData(true)->functionCoverage());
 
         $output = PHP_EOL . PHP_EOL;
         $report = $coverage->getReport();
@@ -141,7 +160,7 @@ final readonly class Text
             $report->numberOfExecutableLines(),
         );
 
-        $padding = max(array_map(strlen(...), [$classes, $methods, $lines]));
+        $padding = max(array_map('strlen', [$classes, $methods, $lines]));
 
         if ($this->showOnlySummary) {
             $title   = 'Code Coverage Report Summary:';
@@ -190,28 +209,26 @@ final readonly class Text
                 $coveredMethods          = 0;
                 $classMethods            = 0;
 
-                foreach ($class->methods as $method) {
-                    /** @phpstan-ignore equal.notAllowed */
-                    if ($method->executableLines == 0) {
+                foreach ($class['methods'] as $method) {
+                    if ($method['executableLines'] == 0) {
                         continue;
                     }
 
                     $classMethods++;
-                    $classExecutableLines    += $method->executableLines;
-                    $classExecutedLines      += $method->executedLines;
-                    $classExecutableBranches += $method->executableBranches;
-                    $classExecutedBranches   += $method->executedBranches;
-                    $classExecutablePaths    += $method->executablePaths;
-                    $classExecutedPaths      += $method->executedPaths;
+                    $classExecutableLines    += $method['executableLines'];
+                    $classExecutedLines      += $method['executedLines'];
+                    $classExecutableBranches += $method['executableBranches'];
+                    $classExecutedBranches   += $method['executedBranches'];
+                    $classExecutablePaths    += $method['executablePaths'];
+                    $classExecutedPaths      += $method['executedPaths'];
 
-                    /** @phpstan-ignore equal.notAllowed */
-                    if ($method->coverage == 100) {
+                    if ($method['coverage'] == 100) {
                         $coveredMethods++;
                     }
                 }
 
                 $classCoverage[$className] = [
-                    'namespace'         => $class->namespace,
+                    'namespace'         => $class['namespace'],
                     'className'         => $className,
                     'methodsCovered'    => $coveredMethods,
                     'methodCount'       => $classMethods,
@@ -234,7 +251,6 @@ final readonly class Text
         $resetColor    = '';
 
         foreach ($classCoverage as $fullQualifiedPath => $classInfo) {
-            /** @phpstan-ignore notEqual.notAllowed */
             if ($this->showUncoveredFiles || $classInfo['statementsCovered'] != 0) {
                 if ($showColors) {
                     $methodColor   = $this->coverageColor($classInfo['methodsCovered'], $classInfo['methodCount']);

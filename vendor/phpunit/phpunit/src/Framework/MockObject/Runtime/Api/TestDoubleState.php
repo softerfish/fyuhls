@@ -9,6 +9,8 @@
  */
 namespace PHPUnit\Framework\MockObject;
 
+use function assert;
+
 /**
  * @no-named-arguments Parameter names are not covered by the backward compatibility promise for PHPUnit
  *
@@ -17,21 +19,25 @@ namespace PHPUnit\Framework\MockObject;
 final class TestDoubleState
 {
     /**
+     * @var array<non-empty-string, true>
+     */
+    private static array $deprecationEmittedForTest = [];
+
+    /**
      * @var list<ConfigurableMethod>
      */
     private readonly array $configurableMethods;
     private readonly bool $generateReturnValues;
-    private readonly bool $isMockObject;
     private ?InvocationHandler $invocationHandler = null;
+    private ?object $proxyTarget                  = null;
 
     /**
      * @param list<ConfigurableMethod> $configurableMethods
      */
-    public function __construct(array $configurableMethods, bool $generateReturnValues, bool $isMockObject = false)
+    public function __construct(array $configurableMethods, bool $generateReturnValues)
     {
         $this->configurableMethods  = $configurableMethods;
         $this->generateReturnValues = $generateReturnValues;
-        $this->isMockObject         = $isMockObject;
     }
 
     public function invocationHandler(): InvocationHandler
@@ -43,7 +49,6 @@ final class TestDoubleState
         $this->invocationHandler = new InvocationHandler(
             $this->configurableMethods,
             $this->generateReturnValues,
-            $this->isMockObject,
         );
 
         return $this->invocationHandler;
@@ -61,6 +66,34 @@ final class TestDoubleState
     public function unsetInvocationHandler(): void
     {
         $this->invocationHandler = null;
+    }
+
+    public function setProxyTarget(object $proxyTarget): void
+    {
+        $this->proxyTarget = $proxyTarget;
+    }
+
+    public function proxyTarget(): object
+    {
+        assert($this->proxyTarget !== null);
+
+        return $this->proxyTarget;
+    }
+
+    /**
+     * @param non-empty-string $testId
+     */
+    public function deprecationWasEmittedFor(string $testId): void
+    {
+        self::$deprecationEmittedForTest[$testId] = true;
+    }
+
+    /**
+     * @param non-empty-string $testId
+     */
+    public function wasDeprecationAlreadyEmittedFor(string $testId): bool
+    {
+        return isset(self::$deprecationEmittedForTest[$testId]);
     }
 
     /**

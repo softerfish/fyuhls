@@ -22,9 +22,10 @@ final readonly class RequiresOperatingSystem extends Metadata
     private string $operatingSystem;
 
     /**
+     * @param 0|1              $level
      * @param non-empty-string $operatingSystem
      */
-    protected function __construct(Level $level, string $operatingSystem)
+    protected function __construct(int $level, string $operatingSystem)
     {
         parent::__construct($level);
 

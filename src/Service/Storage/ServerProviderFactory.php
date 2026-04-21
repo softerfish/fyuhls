@@ -15,19 +15,7 @@ class ServerProviderFactory {
 
     public static function make(array $server): StorageProvider {
         $type   = $server['server_type'];
-        $rawConfig = $server['config'] ?? '{}';
-        
-        // Decrypt if it looks like an encrypted blob (not starting with {)
-        if (!empty($rawConfig) && !str_starts_with($rawConfig, '{')) {
-            try {
-                $rawConfig = \App\Service\EncryptionService::decrypt($rawConfig);
-            } catch (\Exception $e) {
-                error_log('[ServerProviderFactory] Decryption failed for server ' . ($server['id'] ?? 'unknown'));
-                $rawConfig = '{}';
-            }
-        }
-
-        $config = json_decode($rawConfig, true) ?? [];
+        $config = self::normalizeConfig($server['config'] ?? [], $server['id'] ?? null);
 
         switch ($type) {
             case 's3':
@@ -44,6 +32,35 @@ class ServerProviderFactory {
             default:
                 return self::makeLocal($server);
         }
+    }
+
+    private static function normalizeConfig(mixed $rawConfig, mixed $serverId = null): array {
+        if (is_array($rawConfig)) {
+            return $rawConfig;
+        }
+
+        if (!is_string($rawConfig) || $rawConfig === '') {
+            return [];
+        }
+
+        $decoded = json_decode($rawConfig, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        try {
+            $decrypted = \App\Service\EncryptionService::decrypt($rawConfig);
+        } catch (\Exception $e) {
+            error_log('[ServerProviderFactory] Decryption failed for server ' . ($serverId ?? 'unknown'));
+            return [];
+        }
+
+        if (!is_string($decrypted) || $decrypted === '') {
+            return [];
+        }
+
+        $decoded = json_decode($decrypted, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private static function makeLocal(array $server): StorageProvider {

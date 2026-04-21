@@ -167,16 +167,30 @@ include __DIR__ . '/header.php';
         <p class="affiliate-tier-copy">The rates above are pulled from the live admin configuration and can change as the operator updates tiers or payout strategy.</p>
     </div>
 
-    <div class="cta-box">
+        <div class="cta-box">
         <?php if ($user): ?>
             <h2>Your referral link</h2>
-            <p class="affiliate-cta-copy">Share this link when you want signups and eligible purchases credited to your account under the current reward rules.</p>
+            <?php $affiliateCommissionEligible = in_array((string)($userModel ?? 'ppd'), ['pps', 'mixed'], true); ?>
+            <?php if ($affiliateCommissionEligible): ?>
+                <p class="affiliate-cta-copy">Share this link when you want signups and eligible purchases credited to your account under the current reward rules.</p>
+            <?php else: ?>
+                <p class="affiliate-cta-copy">This link can still attribute referrals, but your current PPD model does not earn package-sale commission. Switch to PPS or Mixed before promoting it if you want affiliate sales to pay you.</p>
+            <?php endif; ?>
             <div class="affiliate-cta-row">
                 <?php $refCode = trim((string)($user['public_id'] ?? '')); ?>
                 <?php $refLink = $refCode !== '' ? (\App\Service\SeoService::trustedBaseUrl() . '/?ref=' . rawurlencode($refCode)) : ''; ?>
                 <input type="text" value="<?= htmlspecialchars($refLink !== '' ? $refLink : 'Referral link unavailable. Please contact support if this persists.') ?>" readonly class="affiliate-cta-input">
                 <button class="btn affiliate-cta-copy-btn" type="button" data-copy-previous data-copy-success="Copied!" <?= $refLink === '' ? 'disabled' : '' ?>>Copy</button>
             </div>
+            <?php if (!$affiliateCommissionEligible): ?>
+                <div class="mt-3">
+                    <form method="POST" action="/settings/update-monetization">
+                        <?= \App\Core\Csrf::field() ?>
+                        <input type="hidden" name="model" value="<?= in_array('mixed', $enabledModels, true) ? 'mixed' : 'pps' ?>">
+                        <button type="submit" class="btn btn-outline-primary">Switch to <?= in_array('mixed', $enabledModels, true) ? 'Mixed' : 'PPS' ?></button>
+                    </form>
+                </div>
+            <?php endif; ?>
         <?php else: ?>
             <h2>Create an account to start earning</h2>
             <p class="affiliate-cta-copy">Register for an account to access rewards, referral tools, and the account-side dashboard used to track cleared earnings and payout requests.</p>

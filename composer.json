@@ -15,9 +15,12 @@
         }
     },
     "config": {
-        "optimize-autoloader": true
+        "optimize-autoloader": true,
+        "platform": {
+            "php": "8.2.0"
+        }
     },
     "require-dev": {
-        "phpunit/phpunit": "^13.0"
+        "phpunit/phpunit": "^11.5"
     }
 }

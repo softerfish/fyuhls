@@ -203,20 +203,7 @@ class StorageManager {
     }
 
     private static function makeLegacyS3Provider(array $server): StorageProvider {
-        $rawConfig = $server['config'] ?? '{}';
-
-        if (!empty($rawConfig) && !str_starts_with($rawConfig, '{')) {
-            try {
-                $rawConfig = \App\Service\EncryptionService::decrypt($rawConfig);
-            } catch (\Exception $e) {
-                \App\Core\Logger::warning('[StorageManager] Storage config decryption failed for fallback provider.', [
-                    'server_id' => (int)($server['id'] ?? 0),
-                ]);
-                $rawConfig = '{}';
-            }
-        }
-
-        $config = json_decode($rawConfig, true) ?? [];
+        $config = self::normalizeLegacyServerConfig($server['config'] ?? [], $server);
         $endpoint = $config['s3_endpoint'] ?? '';
         $key = $config['s3_key'] ?? '';
         $secret = $config['s3_secret'] ?? '';
@@ -268,6 +255,37 @@ class StorageManager {
             || str_contains((string)$endpoint, 'backblazeb2.com');
 
         return new S3StorageProvider($client, (string)$bucket, $server['public_url'] ?? '', $isB2);
+    }
+
+    private static function normalizeLegacyServerConfig(mixed $rawConfig, array $server): array {
+        if (is_array($rawConfig)) {
+            return $rawConfig;
+        }
+
+        if (!is_string($rawConfig) || $rawConfig === '') {
+            return [];
+        }
+
+        $decoded = json_decode($rawConfig, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        try {
+            $decrypted = \App\Service\EncryptionService::decrypt($rawConfig);
+        } catch (\Exception $e) {
+            \App\Core\Logger::warning('[StorageManager] Storage config decryption failed for fallback provider.', [
+                'server_id' => (int)($server['id'] ?? 0),
+            ]);
+            return [];
+        }
+
+        if (!is_string($decrypted) || $decrypted === '') {
+            return [];
+        }
+
+        $decoded = json_decode($decrypted, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private static function isAbsolutePath(string $path): bool {

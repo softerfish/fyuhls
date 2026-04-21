@@ -56,6 +56,9 @@ class RewardsController
 
         $db = Database::getInstance()->getConnection();
         $userId = Auth::id();
+        $user = Auth::user();
+        $userModel = (string)($user['monetization_model'] ?? 'ppd');
+        $affiliateCommissionEligible = in_array($userModel, ['pps', 'mixed'], true);
 
         $stmt = $db->prepare("SELECT SUM(amount) FROM earnings WHERE user_id = ? AND status IN ('pending', 'cleared')");
         $stmt->execute([$userId]);
@@ -107,6 +110,18 @@ class RewardsController
             $analytics[] = $match ?: ['day' => $date, 'downloads' => 0, 'earnings' => 0.00];
         }
 
+        $referralCount = 0;
+        if (FeatureService::affiliateEnabled()) {
+            $stmt = $db->prepare("
+                SELECT COUNT(DISTINCT t.user_id)
+                FROM transactions t
+                INNER JOIN users u ON u.id = t.user_id
+                WHERE u.referrer_id = ? AND t.status = 'completed'
+            ");
+            $stmt->execute([$userId]);
+            $referralCount = (int)$stmt->fetchColumn();
+        }
+
         View::render('home/rewards.php', [
             'totalEarned' => $totalEarned,
             'totalPaid' => $totalPaid,
@@ -114,6 +129,9 @@ class RewardsController
             'pendingRewards' => $pendingRewards,
             'recentEarnings' => $recentEarnings,
             'analytics' => $analytics,
+            'userModel' => $userModel,
+            'affiliateCommissionEligible' => $affiliateCommissionEligible,
+            'referralCount' => $referralCount,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary((int)$userId, \App\Model\Package::getUserPackage((int)$userId) ?: []),
         ]);
     }

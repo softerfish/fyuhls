@@ -139,17 +139,17 @@ if (!isset($tabs[$activeTab])) {
                         </div>
                         <div class="border rounded p-3 bg-light mb-4">
                             <div class="d-flex flex-wrap gap-2 mb-3">
-                                <button type="button" class="btn btn-outline-primary btn-sm" id="b2DiscoverBtn">Reload My B2 Buckets</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm" id="b2ApplyCorsBtn">Apply Fyuhls CORS</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="b2DiscoverBtn">Step 1: Reload My B2 Buckets</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="b2ApplyCorsBtn">Step 2: Apply Fyuhls CORS</button>
                             </div>
-                        <div class="text-muted extra-small mb-3">Use this if you want Fyuhls to confirm your B2 credentials, reload your buckets, refresh the region and endpoint, or re-apply the recommended upload CORS rule for <code><?= htmlspecialchars($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?></code>. <strong>Save Server Settings</strong> only saves the Fyuhls record. <strong>Apply Fyuhls CORS</strong> is the button that actually updates the real B2 bucket CORS rule.</div>
+                        <div class="text-muted extra-small mb-3"><strong>Recommended order:</strong> first click <strong>Step 1: Reload My B2 Buckets</strong> so Fyuhls can refresh the bucket, region, and endpoint details from Backblaze. Then click <strong>Step 2: Apply Fyuhls CORS</strong> to rewrite the browser-upload CORS rule on the real B2 bucket. <strong>Save Server Settings</strong> only updates the Fyuhls record and does not touch bucket CORS by itself.</div>
                             <div class="mb-3 d-none" id="b2BucketPickerWrap">
                                 <label class="form-label fw-bold small">Choose a Backblaze Bucket</label>
                                 <select class="form-select" id="b2BucketPicker"></select>
                                 <div class="text-muted extra-small mt-1">Selecting a bucket updates the bucket name, region, and endpoint fields above.</div>
                             </div>
                             <div class="alert alert-secondary border-0 small mb-0" id="b2AutomationStatus">
-                            If you want Fyuhls to automate the B2 checks here, re-enter your Application Key and click <strong>Reload My B2 Buckets</strong>. Use <strong>Apply Fyuhls CORS</strong> when you need Fyuhls to write the upload CORS rule to the real B2 bucket again, especially after a bucket change, key rotation, or multipart/preflight error.
+                            <strong>Step 1:</strong> re-enter your Application Key and click <strong>Reload My B2 Buckets</strong>.<br><strong>Step 2:</strong> after the bucket fields refresh, click <strong>Apply Fyuhls CORS</strong> beside it if you changed buckets, rotated keys, or hit a multipart/preflight error.
                             </div>
                         </div>
                     <?php endif; ?>
@@ -182,17 +182,17 @@ if (!isset($tabs[$activeTab])) {
                         </div>
                         <div class="border rounded p-3 bg-light mb-4">
                             <div class="d-flex flex-wrap gap-2 mb-3">
-                                <button type="button" class="btn btn-outline-primary btn-sm" id="wasabiDiscoverBtn">Reload My Wasabi Buckets</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm" id="wasabiApplyCorsBtn">Apply Fyuhls CORS</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="wasabiDiscoverBtn">Step 1: Reload My Wasabi Buckets</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="wasabiApplyCorsBtn">Step 2: Apply Fyuhls CORS</button>
                             </div>
-                            <div class="text-muted extra-small mb-3">Use this if you want Fyuhls to confirm your Wasabi credentials, reload visible buckets, refresh the region and endpoint, or re-apply the recommended upload CORS rule for <code><?= htmlspecialchars($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?></code>. <strong>Save Server Settings</strong> only saves the Fyuhls record. <strong>Apply Fyuhls CORS</strong> is the button that actually updates the real Wasabi bucket CORS rule.</div>
+                            <div class="text-muted extra-small mb-3"><strong>Recommended order:</strong> first click <strong>Step 1: Reload My Wasabi Buckets</strong> so Fyuhls can refresh the bucket, region, and endpoint details from Wasabi. Then click <strong>Step 2: Apply Fyuhls CORS</strong> to rewrite the browser-upload CORS rule on the real Wasabi bucket. <strong>Save Server Settings</strong> only updates the Fyuhls record and does not touch bucket CORS by itself.</div>
                             <div class="mb-3 d-none" id="wasabiBucketPickerWrap">
                                 <label class="form-label fw-bold small">Choose a Wasabi Bucket</label>
                                 <select class="form-select" id="wasabiBucketPicker"></select>
                                 <div class="text-muted extra-small mt-1">Selecting a bucket updates the bucket name, region, and endpoint fields above.</div>
                             </div>
                             <div class="alert alert-secondary border-0 small mb-0" id="wasabiAutomationStatus">
-                                If you want Fyuhls to automate the Wasabi checks here, re-enter your current Wasabi access key and secret key and click <strong>Reload My Wasabi Buckets</strong>. Use <strong>Apply Fyuhls CORS</strong> when you need Fyuhls to write the upload CORS rule to the real Wasabi bucket again, especially after a bucket change, key rotation, or multipart/preflight error.
+                                <strong>Step 1:</strong> re-enter your current Wasabi access key and secret key and click <strong>Reload My Wasabi Buckets</strong>.<br><strong>Step 2:</strong> after the bucket fields refresh, click <strong>Apply Fyuhls CORS</strong> beside it if you changed buckets, rotated keys, or hit a multipart/preflight error.
                             </div>
                         </div>
                     <?php endif; ?>
@@ -313,7 +313,7 @@ if (!isset($tabs[$activeTab])) {
                             <br><br>
                             <strong>Nginx completion log requirements:</strong> To let Nginx honor <code>ppd_min_download_percent</code> for standard files, configure a dedicated Nginx <code>access_log</code> entry that records Fyuhls' download ID, file ID, original URI, final status, and bytes sent. Then set the same log path in <strong>Config Hub &gt; Downloads &gt; Nginx Completion Log Path</strong>.
                             <br><br>
-                            <strong>Filesystem handoff note:</strong> Apache and LiteSpeed handoff tests only make sense when this storage server resolves to a real filesystem path that the web server can read. Remote object-storage connectors should use the normal connection check plus a real download test instead of assuming a handoff header proves the cloud path.
+                            <strong>Filesystem handoff note:</strong> Apache and LiteSpeed handoff tests only make sense when this storage server resolves to a real filesystem path that the web server can read. Nginx can still run a basic download test against remote object storage, but that fallback only proves Fyuhls can fetch and stream the object. It does <strong>not</strong> prove <code>X-Accel-Redirect</code> handoff for remote storage.
                             <br><br>
                             <strong>Cloudflare note:</strong> If the site is behind Cloudflare, also configure Nginx real-IP restoration so the completion log records the real visitor IP. Fyuhls Cloudflare trust fixes PHP-side IP handling, but the Nginx completion log still depends on Nginx's own <code>real_ip_header</code> and <code>set_real_ip_from</code> configuration.
                             <br><br>
@@ -488,7 +488,7 @@ Invoke-RestMethod -Method Post -Uri ($apiUrl + "/b2api/v3/b2_update_bucket") -He
                     <strong>How to read results:</strong>
                     <ul class="mb-0 ps-3 mt-1">
                         <li><strong>Success:</strong> A file downloads named <code>fyuhls_test.txt</code>.</li>
-                        <li><strong>Fail:</strong> You see a 404 or 500 error from your web server.</li>
+                        <li><strong>Fail:</strong> You see a 404, 422, or 500 error from your web server or from Fyuhls.</li>
                     </ul>
                 </div>
                 <?php if (in_array($server['delivery_method'], ['apache', 'litespeed'], true)): ?>
@@ -501,7 +501,7 @@ Invoke-RestMethod -Method Post -Uri ($apiUrl + "/b2api/v3/b2_update_bucket") -He
                 <?php endif; ?>
                 <?php if ($server['delivery_method'] === 'nginx'): ?>
                     <div class="alert alert-light border small mt-3 mb-0">
-                        <strong>Nginx completion note:</strong> This test confirms the delivery handoff itself. It does <strong>not</strong> prove the completion log pipeline is fully wired. For Nginx threshold-based PPD, your Nginx config must also write the dedicated completion access log, and Fyuhls must be pointed at the same path in <strong>Config Hub &gt; Downloads</strong>.
+                        <strong>Nginx completion note:</strong> For local filesystem storage, this test confirms the Nginx handoff itself. For remote object storage, Fyuhls falls back to a normal streamed download so you still get a usable test file, but that fallback does <strong>not</strong> prove <code>X-Accel-Redirect</code> handoff. For Nginx threshold-based PPD, your Nginx config must also write the dedicated completion access log, and Fyuhls must be pointed at the same path in <strong>Config Hub &gt; Downloads</strong>.
                     </div>
                     <div class="alert alert-light border small mt-3 mb-0">
                         <strong>Cloudflare real-IP note:</strong> If the site is behind Cloudflare, make sure Nginx is also configured with <code>real_ip_header CF-Connecting-IP;</code> and the current Cloudflare <code>set_real_ip_from</code> ranges. Otherwise the completion log may contain a Cloudflare proxy IP instead of the real visitor IP.
@@ -539,7 +539,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const setBusy = (busy) => {
         discoverBtn.disabled = busy;
         applyCorsBtn.disabled = busy;
-        discoverBtn.textContent = busy ? 'Working...' : 'Reload My B2 Buckets';
+        discoverBtn.textContent = busy ? 'Working...' : 'Step 1: Reload My B2 Buckets';
     };
 
     const fillBucketDetails = (bucket) => {
@@ -697,7 +697,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const setBusy = (busy) => {
         discoverBtn.disabled = busy;
         applyCorsBtn.disabled = busy;
-        discoverBtn.textContent = busy ? 'Working...' : 'Reload My Wasabi Buckets';
+        discoverBtn.textContent = busy ? 'Working...' : 'Step 1: Reload My Wasabi Buckets';
     };
 
     const fillBucketDetails = (bucket) => {

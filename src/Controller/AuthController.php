@@ -9,6 +9,7 @@ use App\Core\Logger;
 use App\Core\View;
 use App\Core\Config;
 use App\Model\ApiToken;
+use App\Model\FileDeletionLog;
 use App\Model\Setting;
 use App\Service\FeatureService;
 use App\Service\PackageAllowanceService;
@@ -125,10 +126,11 @@ class AuthController {
             exit;
         }
 
-        $captchaUserLogin  = Setting::get('captcha_user_login', '0') === '1';
-        $captchaAdminLogin = Setting::get('captcha_admin_login', '0') === '1';
+        $captchaUserLogin  = Setting::get('captcha_user_login', '0') === '1'
+            || Setting::get('captcha_admin_login', '0') === '1';
+        $captchaAdminLogin = false;
         $captchaSiteKey    = Setting::get('captcha_site_key', '');
-        $needCaptcha       = ($captchaUserLogin || $captchaAdminLogin) && $captchaSiteKey;
+        $needCaptcha       = $captchaUserLogin && $captchaSiteKey;
 
         $error = '';
         $success = ($_GET['registered'] ?? false) ? 'Account created! You can now login.' : '';
@@ -511,6 +513,7 @@ class AuthController {
             'apiTokens' => $apiTokens,
             'newApiToken' => $newApiToken,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary((int)$userId, \App\Model\Package::getUserPackage((int)$userId) ?: []),
+            'fileDeletionHistory' => FileDeletionLog::getByUploader((int)$userId, 20),
         ]);
     }
 

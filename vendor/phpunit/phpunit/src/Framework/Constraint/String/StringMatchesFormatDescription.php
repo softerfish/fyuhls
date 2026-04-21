@@ -11,7 +11,6 @@ namespace PHPUnit\Framework\Constraint;
 
 use const DIRECTORY_SEPARATOR;
 use const PHP_EOL;
-use function assert;
 use function explode;
 use function implode;
 use function preg_match;
@@ -126,11 +125,7 @@ final class StringMatchesFormatDescription extends Constraint
 
     private function convertNewlines(string $text): string
     {
-        $result = preg_replace('/\r\n/', "\n", $text);
-
-        assert($result !== null);
-
-        return $result;
+        return preg_replace('/\r\n/', "\n", $text);
     }
 
     private function differ(): Differ

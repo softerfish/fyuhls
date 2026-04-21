@@ -679,8 +679,19 @@ class AdminController
             ],
             [
                 'title' => 'Hosting Partners',
-                'description' => 'Reserved for future web-host and infrastructure partnerships that can help new Fyuhls operators launch faster.',
-                'items' => [],
+                'description' => 'Hosting and operator services that can help new Fyuhls admins launch faster, keep overhead lower, and get the basics in place without piecing everything together from scratch.',
+                'items' => [
+                    [
+                        'name' => 'Hostinger Shared and VPS Web Hosting',
+                        'url' => 'https://www.hostinger.com/?REFERRALCODE=PHXCORRECHKN',
+                        'description' => 'Shared hosting and VPS options worth considering if you want a simple starting point for launching Fyuhls on a normal commercial host. Using the supplied link can get you an additional 20% off any prepaid period.',
+                    ],
+                    [
+                        'name' => 'Hostinger Business Email',
+                        'url' => 'https://www.hostinger.com/?REFERRALCODE=PHXCORRECHKN',
+                        'description' => 'Business email packages for operators who want branded mailbox coverage for support, alerts, and transactional admin communication. Packages start at $0.39/month before coupon, and using the supplied link can get you an additional 20% off.',
+                    ],
+                ],
             ],
         ];
 
@@ -1488,21 +1499,28 @@ class AdminController
             exit('Failed to write the delivery test file to the selected storage server.');
         }
         
-        header('Content-Type: text/plain');
-        header('Content-Disposition: attachment; filename="fyuhls_test.txt"');
-        header('Content-Length: ' . strlen($content));
-        
-        // Disable caching
-        header('Cache-Control: no-cache, no-store, must-revalidate');
-        header('Pragma: no-cache');
-        header('Expires: 0');
-
         $method = $server['delivery_method'] ?? 'php';
         $path = $provider->getAbsolutePath($testPath);
         $looksLikeFilesystemPath = preg_match('/^[A-Za-z]:[\\\\\\/]|^\/|^\\\\\\\\/', (string)$path) === 1;
 
         if ($method === 'nginx') {
+            if (!$looksLikeFilesystemPath) {
+                header('Content-Type: text/plain');
+                header('Content-Disposition: attachment; filename="fyuhls_test.txt"');
+                header('Content-Length: ' . strlen($content));
+                header('Cache-Control: no-cache, no-store, must-revalidate');
+                header('Pragma: no-cache');
+                header('Expires: 0');
+                $provider->stream($testPath);
+                exit;
+            }
             $safePath = preg_replace('/[^a-zA-Z0-9\/\._-]/', '', $testPath);
+            header('Content-Type: text/plain');
+            header('Content-Disposition: attachment; filename="fyuhls_test.txt"');
+            header('Content-Length: ' . strlen($content));
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            header('Pragma: no-cache');
+            header('Expires: 0');
             header('X-Accel-Redirect: /protected_uploads/' . $safePath);
             exit;
         }
@@ -1512,6 +1530,12 @@ class AdminController
                 http_response_code(422);
                 exit('Apache handoff delivery tests require a filesystem-backed storage path. This server currently resolves to an object-storage key instead of a local file path, so this test cannot safely verify X-SendFile.');
             }
+            header('Content-Type: text/plain');
+            header('Content-Disposition: attachment; filename="fyuhls_test.txt"');
+            header('Content-Length: ' . strlen($content));
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            header('Pragma: no-cache');
+            header('Expires: 0');
             header('X-SendFile: ' . $path);
             exit;
         }
@@ -1521,10 +1545,22 @@ class AdminController
                 http_response_code(422);
                 exit('LiteSpeed handoff delivery tests require a filesystem-backed storage path. This server currently resolves to an object-storage key instead of a local file path, so this test cannot safely verify X-LiteSpeed-Location.');
             }
+            header('Content-Type: text/plain');
+            header('Content-Disposition: attachment; filename="fyuhls_test.txt"');
+            header('Content-Length: ' . strlen($content));
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            header('Pragma: no-cache');
+            header('Expires: 0');
             header('X-LiteSpeed-Location: ' . $path);
             exit;
         }
 
+        header('Content-Type: text/plain');
+        header('Content-Disposition: attachment; filename="fyuhls_test.txt"');
+        header('Content-Length: ' . strlen($content));
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
         $provider->stream($testPath);
         exit;
     }

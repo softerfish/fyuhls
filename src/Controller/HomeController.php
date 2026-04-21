@@ -53,14 +53,6 @@ class HomeController {
             return $user ? (int)($user['id'] ?? 0) : null;
         }
 
-        if (ctype_digit($ref) && (int)$ref > 0) {
-            $db = Database::getInstance()->getConnection();
-            $stmt = $db->prepare("SELECT id FROM users WHERE id = ? LIMIT 1");
-            $stmt->execute([(int)$ref]);
-            $refId = $stmt->fetchColumn();
-            return $refId ? (int)$refId : null;
-        }
-
         return null;
     }
 

@@ -11,10 +11,8 @@ namespace PHPUnit\Util;
 
 use const DIRECTORY_SEPARATOR;
 use const PHP_EOL;
-use function array_key_exists;
 use function array_map;
 use function array_walk;
-use function assert;
 use function count;
 use function explode;
 use function implode;
@@ -36,17 +34,17 @@ use function trim;
 final class Color
 {
     /**
-     * @var non-empty-array<non-empty-string, non-empty-string>
+     * @var array<string,string>
      */
-    private const array WHITESPACE_MAP = [
+    private const WHITESPACE_MAP = [
         ' '  => '·',
         "\t" => '⇥',
     ];
 
     /**
-     * @var non-empty-array<non-empty-string, non-empty-string>
+     * @var array<string,string>
      */
-    private const array WHITESPACE_EOL_MAP = [
+    private const WHITESPACE_EOL_MAP = [
         ' '  => '·',
         "\t" => '⇥',
         "\n" => '↵',
@@ -54,9 +52,9 @@ final class Color
     ];
 
     /**
-     * @var non-empty-array<non-empty-string, non-empty-string>
+     * @var array<string,string>
      */
-    private const array ANSI_CODES = [
+    private static array $ansiCodes = [
         'reset'      => '0',
         'bold'       => '1',
         'dim'        => '2',
@@ -82,44 +80,32 @@ final class Color
         'bg-white'   => '47',
     ];
 
-    /**
-     * @param non-empty-string $color
-     */
     public static function colorize(string $color, string $buffer): string
     {
         if (trim($buffer) === '') {
             return $buffer;
         }
 
-        if (array_key_exists($color, self::ANSI_CODES)) {
-            return self::optimizeColor(sprintf("\x1b[%sm%s\x1b[0m", self::ANSI_CODES[$color], $buffer));
-        }
-
+        $codes  = array_map('\trim', explode(',', $color));
         $styles = [];
 
-        foreach (explode(',', $color) as $code) {
-            $code = trim($code);
-
-            if (array_key_exists($code, self::ANSI_CODES)) {
-                $styles[] = self::ANSI_CODES[$code];
+        foreach ($codes as $code) {
+            if (isset(self::$ansiCodes[$code])) {
+                $styles[] = self::$ansiCodes[$code];
             }
         }
 
-        if ($styles === []) {
+        if (empty($styles)) {
             return $buffer;
         }
 
-        return self::optimizeColor(sprintf("\x1b[%sm%s\x1b[0m", implode(';', $styles), $buffer));
+        return self::optimizeColor(sprintf("\x1b[%sm", implode(';', $styles)) . $buffer . "\x1b[0m");
     }
 
-    /**
-     * @param non-empty-string  $color
-     * @param ?non-negative-int $columns
-     */
     public static function colorizeTextBox(string $color, string $buffer, ?int $columns = null): string
     {
         $lines       = preg_split('/\r\n|\r|\n/', $buffer);
-        $maxBoxWidth = max(array_map(\strlen(...), $lines));
+        $maxBoxWidth = max(array_map('\strlen', $lines));
 
         if ($columns !== null) {
             $maxBoxWidth = min($maxBoxWidth, $columns);
@@ -133,10 +119,6 @@ final class Color
         return implode(PHP_EOL, $lines);
     }
 
-    /**
-     * @param non-empty-string  $path
-     * @param ?non-empty-string $previousPath
-     */
     public static function colorizePath(string $path, ?string $previousPath = null, bool $colorizeFilename = false): string
     {
         if ($previousPath === null) {
@@ -156,7 +138,7 @@ final class Color
             $last        = count($path) - 1;
             $path[$last] = preg_replace_callback(
                 '/([\-_.]+|phpt$)/',
-                static fn (array $matches) => self::dim($matches[0]),
+                static fn ($matches) => self::dim($matches[0]),
                 $path[$last],
             );
         }
@@ -177,20 +159,16 @@ final class Color
     {
         $replaceMap = $visualizeEOL ? self::WHITESPACE_EOL_MAP : self::WHITESPACE_MAP;
 
-        $result = preg_replace_callback(
+        return preg_replace_callback(
             '/\s+/',
-            static fn (array $matches) => self::dim(strtr($matches[0], $replaceMap)),
+            static fn ($matches) => self::dim(strtr($matches[0], $replaceMap)),
             $buffer,
         );
-
-        assert($result !== null);
-
-        return $result;
     }
 
     private static function optimizeColor(string $buffer): string
     {
-        $result = preg_replace(
+        return preg_replace(
             [
                 "/\e\\[22m\e\\[2m/",
                 "/\e\\[([^m]*)m\e\\[([1-9][0-9;]*)m/",
@@ -203,9 +181,5 @@ final class Color
             ],
             $buffer,
         );
-
-        assert($result !== null);
-
-        return $result;
     }
 }

@@ -97,9 +97,14 @@ function defaultHiddenConfigPath(): string
     return normalizeInstallPath($parent . DIRECTORY_SEPARATOR . 'fyuhls_secure' . DIRECTORY_SEPARATOR . 'fyuhls_config.php');
 }
 
-function resolveHiddenConfigPath(): string
+function resolveHiddenConfigPath(?string $requestedPath = null): string
 {
-    return validateHiddenConfigPath(defaultHiddenConfigPath());
+    $candidate = trim((string)$requestedPath);
+    if ($candidate === '') {
+        $candidate = defaultHiddenConfigPath();
+    }
+
+    return validateHiddenConfigPath($candidate);
 }
 
 function getExistingInstallWarning(): ?string
@@ -192,8 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
         $adminUser = $_POST['admin_user'] ?? 'admin';
         $adminEmail = $_POST['admin_email'] ?? '';
         $adminPass = $_POST['admin_pass'] ?? '';
-
-        $configPath = defaultHiddenConfigPath();
+        $configPath = $_POST['config_path'] ?? defaultHiddenConfigPath();
 
         $formData = [
             'db_host' => $dbHost,
@@ -220,7 +224,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
             $configCreatedByInstaller = false;
 
             try {
-                $configPath = resolveHiddenConfigPath();
+                $configPath = resolveHiddenConfigPath($configPath);
+                $formData['config_path'] = $configPath;
                 $configDir = dirname($configPath);
                 if (!is_dir($configDir) && !mkdir($configDir, 0700, true) && !is_dir($configDir)) {
                     $error = "Warning: The secure config directory {$configDir} could not be created by the PHP user. Please create it manually and grant write access temporarily.";
@@ -321,11 +326,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
                             }
                         }
                         $installerDeleted = @unlink(__FILE__);
+                        clearstatcache();
 
-                        if ($schemaDeleted && $installerDeleted) {
+                        $remainingCleanupTargets = [];
+                        if (file_exists(SCHEMA_PATH) || is_dir(SCHEMA_DIR)) {
+                            $remainingCleanupTargets[] = 'the database/ setup folder';
+                        }
+                        if (file_exists(__FILE__)) {
+                            $remainingCleanupTargets[] = 'public/install.php';
+                        }
+
+                        if ($remainingCleanupTargets === []) {
                             $success .= "<br><br><em>Installer and setup schema folder were automatically deleted for security.</em>";
                         } else {
-                            $success .= "<br><br><strong class='install-warning-text'>Warning: Could not fully delete setup files. Please remove public/install.php and the database/ folder manually if they still exist.</strong>";
+                            $success .= "<br><br><strong class='install-warning-text'>Post-install cleanup was only partially completed. Please remove " . htmlspecialchars(implode(' and ', $remainingCleanupTargets), ENT_QUOTES, 'UTF-8') . " manually if they are still present.</strong>";
                         }
                     }
                 }
@@ -403,8 +417,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canInstall) {
                 <h3>Security & Configuration</h3>
                 <div class="group">
                     <label>Hidden Config Path</label>
-                    <p class="install-config-note">Fyuhls now generates and uses a safe hidden config path automatically outside the webroot when possible. This is where your database credentials, database encryption key, and application key will be stored.</p>
-                    <input type="text" name="config_path" value="<?= htmlspecialchars($formData['config_path']) ?>" readonly>
+                    <p class="install-config-note">Choose an absolute path outside the Fyuhls webroot and config directories. This file will store your database credentials, database encryption key, and application key.</p>
+                    <input type="text" name="config_path" value="<?= htmlspecialchars($formData['config_path']) ?>" required>
                 </div>
                 <h3>Admin Account</h3>
                 <div class="group"><label>Admin Username</label><input type="text" name="admin_user" placeholder="admin" value="<?= htmlspecialchars($formData['admin_user']) ?>" required></div>

@@ -67,6 +67,12 @@ $rewardsActive = true;
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">PPS Commission (%)</label>
                     <input type="number" class="form-control" name="pps_commission_percent" value="<?= htmlspecialchars($ppsCommission ?? '50') ?>">
+                    <div class="small text-muted mt-1">Base affiliate commission for PPS users before any Mixed reduction is applied.</div>
+                </div>
+                <div class="col-md-6 mb-4">
+                    <label class="form-label fw-bold">Affiliate Hold Days</label>
+                    <input type="number" class="form-control" name="affiliate_hold_days" value="<?= htmlspecialchars(\App\Model\Setting::get('affiliate_hold_days', '5', 'rewards')) ?>" min="0" max="90">
+                    <div class="small text-muted mt-1">How long affiliate commission stays held before it clears automatically. Use this to buffer refunds and chargebacks. Default: 5 days.</div>
                 </div>
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">Mixed PPD Percentage (%)</label>

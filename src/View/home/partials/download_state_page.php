@@ -7,8 +7,14 @@
     .download-page-top-ad,.download-page-bottom-ad{background:#f1f5f9;padding:.75rem;text-align:center;border-radius:8px;overflow-wrap:anywhere;word-break:break-all}
     .download-page-top-ad{margin-bottom:1.5rem}
     .download-page-bottom-ad{margin-top:1.5rem}
-    .download-page-title{font-size:1.25rem;font-weight:700;margin:0 0 .25rem;overflow-wrap:anywhere;word-break:break-all}
-    .download-page-meta{color:#64748b;font-size:.875rem;margin:0 0 2rem}
+    .download-page-title{font-size:1.18rem;font-weight:700;line-height:1.28;margin:0;overflow-wrap:anywhere;word-break:break-all}
+    .download-page-meta{color:#64748b;font-size:.875rem;margin:0}
+    .download-file-bar{display:flex;align-items:flex-start;gap:1rem;margin-bottom:1.5rem;padding:1rem;border:1px solid #dbe4f0;border-radius:14px;background:#f8fafc}
+    .download-file-bar__icon{flex:0 0 56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#3b82f6,#2563eb);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.5rem;font-weight:700}
+    .download-file-bar__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.55rem}
+    .download-file-bar__meta{display:flex;flex-wrap:wrap;gap:.8rem;font-size:.875rem;color:#64748b}
+    .download-file-bar__meta-item{display:inline-flex;align-items:center;gap:.35rem}
+    .download-state-panel{padding:1.25rem 1.1rem;border:1px solid #e2e8f0;border-radius:12px;background:#fff}
     .download-state-copy{color:#64748b;font-size:.95rem;margin:0;line-height:1.7;text-align:center}
     .download-share-panel{margin-top:1.5rem;padding:1rem;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}
     .download-share-heading{font-size:1rem;font-weight:700;color:#0f172a;margin:0 0 .75rem}
@@ -40,13 +46,23 @@
 
         <div class="download-page-card">
             <?php if (!empty($file)): ?>
-            <h1 class="download-page-title"><?= htmlspecialchars((string)($file['filename'] ?? $heading)) ?></h1>
-            <p class="download-page-meta"><?= round(((int)($file['file_size'] ?? 0)) / 1024 / 1024, 2) ?> MB</p>
+            <div class="download-file-bar">
+                <div class="download-file-bar__icon" aria-hidden="true">&#8681;</div>
+                <div class="download-file-bar__body">
+                    <h1 class="download-page-title"><?= htmlspecialchars((string)($file['filename'] ?? $heading)) ?></h1>
+                    <div class="download-file-bar__meta">
+                        <span class="download-file-bar__meta-item"><?= round(((int)($file['file_size'] ?? 0)) / 1024 / 1024, 2) ?> MB</span>
+                    </div>
+                </div>
+            </div>
             <?php else: ?>
             <h1 class="download-page-title"><?= htmlspecialchars((string)$heading) ?></h1>
+            <p class="download-page-meta">&nbsp;</p>
             <?php endif; ?>
 
-            <p class="download-state-copy"><?= htmlspecialchars((string)$message) ?></p>
+            <div class="download-state-panel">
+                <p class="download-state-copy"><?= htmlspecialchars((string)$message) ?></p>
+            </div>
             <?php \App\Core\View::render('home/partials/download_share_panel.php', ['shareFields' => $shareFields ?? []]); ?>
         </div>
 

@@ -9,7 +9,6 @@
  */
 namespace SebastianBergmann\FileIterator;
 
-use function array_all;
 use function assert;
 use function str_starts_with;
 use RecursiveDirectoryIterator;
@@ -48,7 +47,13 @@ final class ExcludeIterator extends RecursiveFilterIterator
             return false;
         }
 
-        return array_all($this->exclude, static fn (string $exclude) => !str_starts_with($path, $exclude));
+        foreach ($this->exclude as $exclude) {
+            if (str_starts_with($path, $exclude)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function hasChildren(): bool

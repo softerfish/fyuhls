@@ -11,7 +11,7 @@ Options -MultiViews -Indexes +FollowSymLinks
     RewriteBase /
 
     # Block setup helpers after the application has been installed.
-    RewriteCond %{REQUEST_URI} ^/(install|post_install_check)\.php$ [NC]
+    RewriteCond %{REQUEST_URI} ^/install\.php$ [NC]
     RewriteCond %{DOCUMENT_ROOT}/../config/database.php -f
     RewriteRule ^ - [F,L]
 

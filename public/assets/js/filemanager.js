@@ -1410,6 +1410,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 const fd = new FormData();
                 fd.append(type === 'file' ? 'id' : 'folder_id', id);
                 fd.append('csrf_token', csrfToken);
+                if (type === 'file' && window.FILE_MANAGER_CONFIG?.isAdmin) {
+                    const deleteReason = await showActionModal(
+                        'Delete Reason',
+                        'Enter a reason for deleting this file.',
+                        '',
+                        true
+                    );
+                    if (deleteReason === null) {
+                        return;
+                    }
+                    if (!String(deleteReason).trim()) {
+                        alert('A delete reason is required for admin file deletions.');
+                        return;
+                    }
+                    fd.append('delete_reason', String(deleteReason).trim());
+                }
                 fetch(type === 'file' ? '/file/delete' : '/folder/delete', { method: 'POST', body: fd })
                     .then(async r => {
                         const text = await r.text();
@@ -1421,7 +1437,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                     .then(data => {
                         if (data.status === 'success') reloadWithState();
-                        else alert(data.error || 'Action failed');
+                        else alert(data.error || data.message || 'Action failed');
                     })
                     .catch(err => {
                         console.error('Individual action failed:', err);
@@ -1532,7 +1548,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function getPartConcurrency(session) {
         const provider = String(session?.storage_provider || '').toLowerCase();
         // Backblaze B2 is more reliable with sequential browser part uploads.
-        if (provider === 'b2' || provider === 'backblaze') {
+        if (provider === 'b2' || provider === 'backblaze' || provider === 'local') {
             return 1;
         }
 
@@ -2364,6 +2380,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function uploadPart(task, signedUrl, blob, partNumber, partProgress, refreshProgress) {
+        const usesAppUploadEndpoint = typeof signedUrl === 'string' && signedUrl.startsWith('/api/v1/uploads/sessions/');
+        if (usesAppUploadEndpoint) {
+            return uploadAppPart(task, signedUrl, blob, partNumber, partProgress, refreshProgress);
+        }
+
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             task.xhrs.push(xhr);
@@ -2413,6 +2434,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
             xhr.send(blob);
         });
+    }
+
+    async function uploadAppPart(task, signedUrl, blob, partNumber, partProgress, refreshProgress) {
+        if (task.canceled || task.paused) {
+            throw new Error(task.paused ? 'Upload paused.' : 'Upload canceled.');
+        }
+
+        const response = await fetch(signedUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'X-CSRF-Token': csrfToken,
+                'Content-Type': 'application/octet-stream',
+                'Accept': 'application/json',
+            },
+            body: blob,
+        });
+
+        let payload = {};
+        try {
+            payload = await response.json();
+        } catch (err) {}
+
+        if (!response.ok) {
+            throw new Error(payload.error || `Part ${partNumber} failed (${response.status}).`);
+        }
+
+        const etag = typeof payload.etag === 'string' ? payload.etag : '';
+        if (!etag) {
+            throw new Error(`Part ${partNumber} uploaded, but the local upload endpoint did not return an ETag.`);
+        }
+
+        partProgress.set(partNumber, blob.size);
+        refreshProgress();
+        return etag.replace(/"/g, '');
     }
 
     function updateGlobalProgress() {

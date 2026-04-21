@@ -4,6 +4,20 @@ $score = (int)($seoHealth['score'] ?? 0);
 $rating = $seoHealth['rating'] ?? 'Needs Work';
 $robotsUrl = \App\Service\SeoService::trustedBaseUrl() . '/robots.txt';
 $sitemapUrl = \App\Service\SeoService::trustedBaseUrl() . '/sitemap.xml';
+$siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
+$seoDefaults = [
+    'title_template' => '%page_title% | %site_name%',
+    'default_meta_description' => 'Self-hosted file hosting platform with package controls, storage backends, admin tooling, and optional rewards.',
+    'canonical_base_url' => \App\Service\SeoService::detectInstallBaseUrl(),
+    'default_social_image' => '/assets/img/share-banner.jpg',
+    'organization_name' => $siteName,
+    'home_title' => $siteName . ' | Self-Hosted File Hosting',
+    'home_description' => 'Launch a self-hosted file hosting platform with package controls, storage backends, direct links, admin tooling, and optional rewards.',
+    'home_h1' => $siteName,
+    'home_intro' => 'Self-hosted file hosting with package controls, flexible storage providers, admin tooling, and optional monetization features.',
+    'file_title_template' => '%filename% - Download | %site_name%',
+    'file_description_template' => 'Download %filename% on %site_name%.',
+];
 ?>
 
 <div class="row">
@@ -118,12 +132,12 @@ $sitemapUrl = \App\Service\SeoService::trustedBaseUrl() . '/sitemap.xml';
                     <div class="row">
                         <div class="col-md-6 mb-4">
                             <label class="form-label fw-bold">Title Template</label>
-                            <input type="text" class="form-control" name="seo_title_template" value="<?= htmlspecialchars($seoConfig['seo_title_template']) ?>">
-                            <small class="text-muted">Use variables like <code>%page_title%</code> and <code>%site_name%</code>.</small>
+                            <input type="text" class="form-control" name="seo_title_template" value="<?= htmlspecialchars(trim((string)$seoConfig['seo_title_template']) !== '' ? $seoConfig['seo_title_template'] : $seoDefaults['title_template']) ?>" placeholder="<?= htmlspecialchars($seoDefaults['title_template']) ?>">
+                            <small class="text-muted">Use variables like <code>%page_title%</code> and <code>%site_name%</code>. Recommended default: <code><?= htmlspecialchars($seoDefaults['title_template']) ?></code>.</small>
                         </div>
                         <div class="col-md-6 mb-4">
                             <label class="form-label fw-bold">Canonical Base URL</label>
-                            <input type="url" class="form-control" name="seo_canonical_base_url" value="<?= htmlspecialchars($seoConfig['seo_canonical_base_url']) ?>" placeholder="https://example.com">
+                            <input type="url" class="form-control" name="seo_canonical_base_url" value="<?= htmlspecialchars(trim((string)$seoConfig['seo_canonical_base_url']) !== '' ? $seoConfig['seo_canonical_base_url'] : $seoDefaults['canonical_base_url']) ?>" placeholder="https://example.com">
                             <small class="text-muted">The production URL used for canonical tags, sitemap URLs, and robots.txt. If you leave this blank in storage, the script auto-detects the current install URL from the live request.</small>
                             <div class="small text-muted mt-1">Detected from this install: <code><?= htmlspecialchars(\App\Service\SeoService::detectInstallBaseUrl()) ?></code></div>
                         </div>
@@ -131,8 +145,8 @@ $sitemapUrl = \App\Service\SeoService::trustedBaseUrl() . '/sitemap.xml';
 
                     <div class="mb-4">
                         <label class="form-label fw-bold">Default Meta Description</label>
-                        <textarea class="form-control" name="seo_default_meta_description" rows="3"><?= htmlspecialchars($seoConfig['seo_default_meta_description']) ?></textarea>
-                        <small class="text-muted">Fallback summary used when a public page does not define its own description.</small>
+                        <textarea class="form-control" name="seo_default_meta_description" rows="3" placeholder="<?= htmlspecialchars($seoDefaults['default_meta_description']) ?>"><?= htmlspecialchars(trim((string)$seoConfig['seo_default_meta_description']) !== '' ? $seoConfig['seo_default_meta_description'] : $seoDefaults['default_meta_description']) ?></textarea>
+                        <small class="text-muted">Fallback summary used when a public page does not define its own description. Recommended default: <?= htmlspecialchars($seoDefaults['default_meta_description']) ?></small>
                     </div>
 
                     <div class="row">
@@ -146,11 +160,11 @@ $sitemapUrl = \App\Service\SeoService::trustedBaseUrl() . '/sitemap.xml';
                         </div>
                         <div class="col-md-4 mb-4">
                             <label class="form-label fw-bold">Default Social Image URL</label>
-                            <input type="text" class="form-control" name="seo_default_social_image" value="<?= htmlspecialchars($seoConfig['seo_default_social_image']) ?>" placeholder="/assets/img/share-banner.jpg">
+                            <input type="text" class="form-control" name="seo_default_social_image" value="<?= htmlspecialchars(trim((string)$seoConfig['seo_default_social_image']) !== '' ? $seoConfig['seo_default_social_image'] : $seoDefaults['default_social_image']) ?>" placeholder="<?= htmlspecialchars($seoDefaults['default_social_image']) ?>">
                         </div>
                         <div class="col-md-4 mb-4">
                             <label class="form-label fw-bold">Organization / Site Name</label>
-                            <input type="text" class="form-control" name="seo_organization_name" value="<?= htmlspecialchars($seoConfig['seo_organization_name']) ?>">
+                            <input type="text" class="form-control" name="seo_organization_name" value="<?= htmlspecialchars(trim((string)$seoConfig['seo_organization_name']) !== '' ? $seoConfig['seo_organization_name'] : $seoDefaults['organization_name']) ?>" placeholder="<?= htmlspecialchars($seoDefaults['organization_name']) ?>">
                         </div>
                     </div>
 
@@ -164,24 +178,24 @@ $sitemapUrl = \App\Service\SeoService::trustedBaseUrl() . '/sitemap.xml';
 
                     <div class="mb-4">
                         <label class="form-label fw-bold">Homepage SEO Title</label>
-                        <input type="text" class="form-control" name="seo_home_title" value="<?= htmlspecialchars($seoConfig['seo_home_title']) ?>">
-                        <small class="text-muted">Best used for your main keyword target, for example "PHP File Hosting Script | YourBrand".</small>
+                        <input type="text" class="form-control" name="seo_home_title" value="<?= htmlspecialchars(trim((string)$seoConfig['seo_home_title']) !== '' ? $seoConfig['seo_home_title'] : $seoDefaults['home_title']) ?>" placeholder="<?= htmlspecialchars($seoDefaults['home_title']) ?>">
+                        <small class="text-muted">Best used for your main keyword target, for example "PHP File Hosting Script | YourBrand". Recommended starter: <?= htmlspecialchars($seoDefaults['home_title']) ?></small>
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label fw-bold">Homepage Meta Description</label>
-                        <textarea class="form-control" name="seo_home_description" rows="3"><?= htmlspecialchars($seoConfig['seo_home_description']) ?></textarea>
+                        <textarea class="form-control" name="seo_home_description" rows="3" placeholder="<?= htmlspecialchars($seoDefaults['home_description']) ?>"><?= htmlspecialchars(trim((string)$seoConfig['seo_home_description']) !== '' ? $seoConfig['seo_home_description'] : $seoDefaults['home_description']) ?></textarea>
                     </div>
 
                     <div class="row">
                         <div class="col-md-6 mb-4">
                             <label class="form-label fw-bold">Homepage H1 Override</label>
-                            <input type="text" class="form-control" name="seo_home_h1" value="<?= htmlspecialchars($seoConfig['seo_home_h1']) ?>">
+                            <input type="text" class="form-control" name="seo_home_h1" value="<?= htmlspecialchars(trim((string)$seoConfig['seo_home_h1']) !== '' ? $seoConfig['seo_home_h1'] : $seoDefaults['home_h1']) ?>" placeholder="<?= htmlspecialchars($seoDefaults['home_h1']) ?>">
                             <small class="text-muted">Optional. If filled, this replaces the default landing-page headline.</small>
                         </div>
                         <div class="col-md-6 mb-4">
                             <label class="form-label fw-bold">Homepage Intro Override</label>
-                            <textarea class="form-control" name="seo_home_intro" rows="3"><?= htmlspecialchars($seoConfig['seo_home_intro']) ?></textarea>
+                            <textarea class="form-control" name="seo_home_intro" rows="3" placeholder="<?= htmlspecialchars($seoDefaults['home_intro']) ?>"><?= htmlspecialchars(trim((string)$seoConfig['seo_home_intro']) !== '' ? $seoConfig['seo_home_intro'] : $seoDefaults['home_intro']) ?></textarea>
                             <small class="text-muted">Optional. Use this for a stronger opening paragraph tied to your real keyword target.</small>
                         </div>
                     </div>
@@ -225,13 +239,13 @@ $sitemapUrl = \App\Service\SeoService::trustedBaseUrl() . '/sitemap.xml';
 
                     <div class="mb-4">
                         <label class="form-label fw-bold">Public File Page Title Template</label>
-                        <input type="text" class="form-control" name="seo_file_title_template" value="<?= htmlspecialchars($seoConfig['seo_file_title_template']) ?>">
+                        <input type="text" class="form-control" name="seo_file_title_template" value="<?= htmlspecialchars(trim((string)$seoConfig['seo_file_title_template']) !== '' ? $seoConfig['seo_file_title_template'] : $seoDefaults['file_title_template']) ?>" placeholder="<?= htmlspecialchars($seoDefaults['file_title_template']) ?>">
                         <small class="text-muted">Variables available: <code>%filename%</code>, <code>%site_name%</code>, <code>%page_title%</code>, <code>%version%</code>.</small>
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label fw-bold">Public File Page Description Template</label>
-                        <textarea class="form-control" name="seo_file_description_template" rows="3"><?= htmlspecialchars($seoConfig['seo_file_description_template']) ?></textarea>
+                        <textarea class="form-control" name="seo_file_description_template" rows="3" placeholder="<?= htmlspecialchars($seoDefaults['file_description_template']) ?>"><?= htmlspecialchars(trim((string)$seoConfig['seo_file_description_template']) !== '' ? $seoConfig['seo_file_description_template'] : $seoDefaults['file_description_template']) ?></textarea>
                     </div>
 
                     <div class="form-check form-switch mb-4">

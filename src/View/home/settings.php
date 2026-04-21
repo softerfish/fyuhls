@@ -63,6 +63,12 @@ $extraHead = '
     .settings-token-scopes { font-size: 0.75rem; }
     .settings-token-revoke { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
     .settings-token-revoked { font-size: 0.8rem; color: #b91c1c; font-weight: 700; }
+    .settings-history-list { display: grid; gap: 1rem; }
+    .settings-history-item { border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem 1.1rem; background: #fff; }
+    .settings-history-title { font-weight: 700; margin-bottom: 0.35rem; }
+    .settings-history-meta { color: var(--text-muted); font-size: 0.8125rem; margin-bottom: 0.5rem; }
+    .settings-history-reason { font-size: 0.875rem; color: var(--text-color); }
+    .settings-history-empty { color: var(--text-muted); font-size: 0.875rem; }
 </style>';
 include __DIR__ . '/header.php';
 ?>
@@ -158,6 +164,33 @@ include __DIR__ . '/header.php';
                 <?php endif; ?>
             </div>
         </section>
+
+        <?php if (!empty($fileDeletionHistory)): ?>
+        <section class="settings-section">
+            <h3 class="settings-section-title">Deleted File History</h3>
+            <p class="settings-section-copy">This shows files removed from your account, including admin removals and the recorded reason when one was supplied.</p>
+            <div class="settings-history-list">
+                <?php foreach ($fileDeletionHistory as $entry): ?>
+                    <?php
+                    $actorLabel = trim((string)($entry['deleted_by_label'] ?? ''));
+                    if ($actorLabel === '') {
+                        $actorLabel = (($entry['deleted_by_role'] ?? '') === 'admin') ? 'Administrator' : 'You';
+                    }
+                    $reason = trim((string)($entry['delete_reason'] ?? ''));
+                    ?>
+                    <article class="settings-history-item">
+                        <div class="settings-history-title"><?= htmlspecialchars((string)($entry['original_filename'] ?? 'Deleted file')) ?></div>
+                        <div class="settings-history-meta">
+                            Removed <?= htmlspecialchars(date('M d, Y H:i', strtotime((string)$entry['deleted_at']))) ?> by <?= htmlspecialchars($actorLabel) ?>
+                        </div>
+                        <div class="settings-history-reason">
+                            <?= $reason !== '' ? htmlspecialchars($reason) : 'No reason was recorded for this deletion.' ?>
+                        </div>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        </section>
+        <?php endif; ?>
 
         <form method="POST" class="auth-form settings-form">
             <?= \App\Core\Csrf::field() ?>

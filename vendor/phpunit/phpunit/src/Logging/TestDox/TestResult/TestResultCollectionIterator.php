@@ -9,6 +9,7 @@
  */
 namespace PHPUnit\Logging\TestDox;
 
+use function count;
 use Iterator;
 
 /**
@@ -42,7 +43,7 @@ final class TestResultCollectionIterator implements Iterator
 
     public function valid(): bool
     {
-        return isset($this->testResults[$this->position]);
+        return $this->position < count($this->testResults);
     }
 
     /**

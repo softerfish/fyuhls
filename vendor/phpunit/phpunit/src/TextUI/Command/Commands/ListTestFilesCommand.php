@@ -14,7 +14,7 @@ use function array_unique;
 use function assert;
 use function sprintf;
 use PHPUnit\Framework\TestCase;
-use PHPUnit\Runner\Phpt\TestCase as PhptTestCase;
+use PHPUnit\Runner\PhptTestCase;
 use ReflectionClass;
 use ReflectionException;
 
@@ -49,7 +49,7 @@ final readonly class ListTestFilesCommand implements Command
 
         foreach ($this->tests as $test) {
             if ($test instanceof TestCase) {
-                $name = new ReflectionClass($test)->getFileName();
+                $name = (new ReflectionClass($test))->getFileName();
 
                 assert($name !== false);
 

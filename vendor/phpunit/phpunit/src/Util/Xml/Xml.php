@@ -10,7 +10,6 @@
 namespace PHPUnit\Util;
 
 use const ENT_QUOTES;
-use function assert;
 use function htmlspecialchars;
 use function mb_convert_encoding;
 use function ord;
@@ -34,7 +33,7 @@ final readonly class Xml
      */
     public static function prepareString(string $string): string
     {
-        $result = preg_replace(
+        return preg_replace(
             '/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/',
             '',
             htmlspecialchars(
@@ -42,10 +41,6 @@ final readonly class Xml
                 ENT_QUOTES,
             ),
         );
-
-        assert($result !== null);
-
-        return $result;
     }
 
     private static function convertToUtf8(string $string): string

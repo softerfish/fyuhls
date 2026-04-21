@@ -147,14 +147,15 @@ class File {
         $stmt->execute([$id]);
     }
 
-    public static function hardDelete(int $id): void {
+    public static function hardDelete(int $id, ?array $audit = null): void {
         self::ensureSchema();
+        FileDeletionLog::boot();
         $db = Database::getInstance()->getConnection();
         $db->beginTransaction();
 
         try {
             $stmt = $db->prepare("
-                SELECT user_id, status, stored_file_id,
+                SELECT user_id, status, stored_file_id, filename,
                        (SELECT file_size FROM stored_files WHERE id = files.stored_file_id) as size
                 FROM files
                 WHERE id = ?
@@ -166,6 +167,30 @@ class File {
             if (!$file) {
                 $db->rollBack();
                 return;
+            }
+
+            $decodedFilename = isset($file['filename']) ? (string)\App\Service\EncryptionService::decrypt($file['filename']) : '';
+            $auditRole = strtolower(trim((string)($audit['deleted_by_role'] ?? 'system')));
+            if ($auditRole === '') {
+                $auditRole = 'system';
+            }
+            $auditLabel = isset($audit['deleted_by_label']) ? trim((string)$audit['deleted_by_label']) : '';
+            if ($auditLabel === '') {
+                $auditLabel = $auditRole === 'admin' ? 'Administrator' : ($auditRole === 'user' ? 'You' : 'System');
+            }
+            $auditReason = isset($audit['delete_reason']) ? trim((string)$audit['delete_reason']) : '';
+            $auditUserId = isset($audit['deleted_by_user_id']) ? (int)$audit['deleted_by_user_id'] : null;
+
+            if (!empty($file['user_id'])) {
+                FileDeletionLog::record(
+                    (int)$file['user_id'],
+                    $id,
+                    $decodedFilename,
+                    $auditReason !== '' ? $auditReason : null,
+                    $auditUserId,
+                    $auditRole,
+                    $auditLabel
+                );
             }
 
             $storedFileId = (int)$file['stored_file_id'];
@@ -300,6 +325,106 @@ class File {
         }
 
         return $newId;
+    }
+
+    public static function userHasStoredFile(int $userId, int $storedFileId): bool
+    {
+        self::ensureSchema();
+        if ($userId <= 0 || $storedFileId <= 0) {
+            return false;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            SELECT 1
+            FROM files
+            WHERE user_id = ?
+              AND stored_file_id = ?
+              AND status IN ('active', 'hidden', 'ready', 'processing')
+            LIMIT 1
+        ");
+        $stmt->execute([$userId, $storedFileId]);
+
+        return (bool)$stmt->fetchColumn();
+    }
+
+    public static function createSavedCopyForUser(int $sourceFileId, int $targetUserId, ?int $targetFolderId = null, ?int $maxStorageBytes = null): int|false
+    {
+        self::ensureSchema();
+        if ($targetUserId <= 0) {
+            return false;
+        }
+
+        $sourceFile = self::find($sourceFileId);
+        if (!$sourceFile) {
+            return false;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $db->beginTransaction();
+
+        try {
+            $storedFileId = (int)$sourceFile['stored_file_id'];
+            // Lock the saver's user row so concurrent save-to-account requests serialize cleanly.
+            $stmtUser = $db->prepare("SELECT default_privacy FROM users WHERE id = ? LIMIT 1 FOR UPDATE");
+            $stmtUser->execute([$targetUserId]);
+            $defaultPrivacy = (string)$stmtUser->fetchColumn();
+            if ($defaultPrivacy === '') {
+                $db->rollBack();
+                return false;
+            }
+
+            $stmtExisting = $db->prepare("
+                SELECT id
+                FROM files
+                WHERE user_id = ?
+                  AND stored_file_id = ?
+                  AND status IN ('active', 'hidden', 'ready', 'processing')
+                LIMIT 1
+                FOR UPDATE
+            ");
+            $stmtExisting->execute([$targetUserId, $storedFileId]);
+            if ($stmtExisting->fetchColumn()) {
+                $db->rollBack();
+                return false;
+            }
+
+            $fileSize = (int)($sourceFile['file_size'] ?? 0);
+            if (($maxStorageBytes ?? 0) > 0) {
+                $stmtUsage = $db->prepare("SELECT storage_used FROM users WHERE id = ? LIMIT 1 FOR UPDATE");
+                $stmtUsage->execute([$targetUserId]);
+                $storageUsed = (int)$stmtUsage->fetchColumn();
+                if (($storageUsed + $fileSize) > (int)$maxStorageBytes) {
+                    $db->rollBack();
+                    return false;
+                }
+            }
+
+            $isPublic = $defaultPrivacy === 'private' ? 0 : 1;
+
+            $newFileId = self::create(
+                $targetUserId,
+                $storedFileId,
+                (string)$sourceFile['filename'],
+                $targetFolderId,
+                null,
+                $isPublic,
+                'active'
+            );
+
+            StoredFile::incrementRefCount($storedFileId);
+
+            $stmtStorage = $db->prepare("UPDATE users SET storage_used = storage_used + ?, storage_warning_sent = 0 WHERE id = ?");
+            $stmtStorage->execute([$fileSize, $targetUserId]);
+
+            $db->commit();
+            return $newFileId;
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
     }
 
     private static function decryptRow(array $row): array {

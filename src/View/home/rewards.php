@@ -189,6 +189,7 @@ include __DIR__ . '/header.php';
                 <button class="btn btn-primary" id="showWithdrawModalBtn" type="button">Request Payout</button>
             </div>
         </div>
+        <?php $db = \App\Core\Database::getInstance()->getConnection(); ?>
 
         <div class="rewards-stats">
             <div class="reward-card">
@@ -204,18 +205,10 @@ include __DIR__ . '/header.php';
                 <div class="value rewards-balance-warn"><?= number_format($pendingRewards) ?> <small class="rewards-balance-meta">downloads</small></div>
             </div>
             <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
-                <?php
-                $db = \App\Core\Database::getInstance()->getConnection();
-                $stmt = $db->prepare("SELECT COUNT(*) FROM users WHERE referrer_id = ?");
-                $stmt->execute([\App\Core\Auth::id()]);
-                $referralCount = $stmt->fetchColumn();
-                ?>
                 <div class="reward-card">
-                    <div class="label">Active Referrals</div>
+                    <div class="label">Buying Referrals</div>
                     <div class="value"><?= $referralCount ?></div>
                 </div>
-            <?php else: ?>
-                <?php $db = \App\Core\Database::getInstance()->getConnection(); ?>
             <?php endif; ?>
         </div>
 
@@ -228,7 +221,11 @@ include __DIR__ . '/header.php';
         <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
             <div class="rewards-referral-box">
                 <h3 class="rewards-referral-title">Your Referral Link</h3>
-                <p class="rewards-referral-copy">Share this link to earn commission from premium sales.</p>
+                <?php if (!empty($affiliateCommissionEligible)): ?>
+                    <p class="rewards-referral-copy">Share this link to earn commission from premium sales under your current <?= htmlspecialchars(strtoupper((string)$userModel)) ?> model.</p>
+                <?php else: ?>
+                    <p class="rewards-referral-copy">Your current <?= htmlspecialchars(strtoupper((string)$userModel)) ?> model does not earn package-sale commission. Switch to PPS or Mixed before promoting this link if you want referral sales to pay you.</p>
+                <?php endif; ?>
                 <div class="rewards-referral-row">
                     <?php 
                     $user = \App\Core\Auth::user();
@@ -240,6 +237,11 @@ include __DIR__ . '/header.php';
                     <input type="text" value="<?= htmlspecialchars($refLink !== '' ? $refLink : 'Referral link unavailable. Please contact support if this persists.') ?>" readonly class="rewards-referral-input">
                     <button class="btn rewards-copy-btn" data-copy-previous data-copy-success="Copied!" <?= $refLink === '' ? 'disabled' : '' ?>>Copy</button>
                 </div>
+                <?php if (empty($affiliateCommissionEligible)): ?>
+                    <div class="mt-3">
+                        <a href="/affiliate" class="btn btn-outline-primary">Review Affiliate Models</a>
+                    </div>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
 

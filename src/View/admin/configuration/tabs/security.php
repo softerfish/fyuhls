@@ -225,10 +225,6 @@ $secTab = $_GET['sec_tab'] ?? 'identity';
                                 <label class="form-check-label" for="capGuest">Guest Download</label>
                             </div>
                             <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" name="captcha_admin_login" id="capAdminLogin" value="1" <?= (($captchaPlacements['captcha_admin_login'] ?? '0') === '1') ? 'checked' : '' ?>>
-                                <label class="form-check-label" for="capAdminLogin">Admin Login</label>
-                            </div>
-                            <div class="form-check mb-2">
                                 <input class="form-check-input" type="checkbox" name="captcha_download_free" id="capFree" value="1" <?= ($captchaPlacements['captcha_download_free'] === '1') ? 'checked' : '' ?>>
                                 <label class="form-check-label" for="capFree">Free User Download</label>
                             </div>
@@ -249,8 +245,7 @@ $secTab = $_GET['sec_tab'] ?? 'identity';
 
                     <div class="alert alert-light border shadow-sm small mt-4 mb-0">
                         <div class="fw-bold mb-1">How this works</div>
-                        <div>User Login protects normal account sign-ins.</div>
-                        <div>Admin Login protects administrator sign-ins separately.</div>
+                        <div>Login protects the shared account sign-in page for both normal users and administrators.</div>
                         <div>User Registration protects account creation.</div>
                         <div>Guest Download and Free User Download protect download flows by audience.</div>
                         <div>Report File protects the abuse-report form on public file pages.</div>

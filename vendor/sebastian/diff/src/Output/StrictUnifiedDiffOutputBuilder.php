@@ -11,14 +11,12 @@ namespace SebastianBergmann\Diff\Output;
 
 use function array_merge;
 use function array_splice;
-use function assert;
 use function count;
 use function fclose;
 use function fopen;
 use function fwrite;
 use function is_bool;
 use function is_int;
-use function is_resource;
 use function is_string;
 use function max;
 use function min;
@@ -101,9 +99,6 @@ final class StrictUnifiedDiffOutputBuilder implements DiffOutputBuilderInterface
         $this->changed = false;
 
         $buffer = fopen('php://memory', 'r+b');
-
-        assert(is_resource($buffer));
-
         fwrite($buffer, $this->header);
 
         $this->writeDiffHunks($buffer, $diff);
@@ -127,10 +122,8 @@ final class StrictUnifiedDiffOutputBuilder implements DiffOutputBuilderInterface
             : $diff;
     }
 
-    private function writeDiffHunks(mixed $output, array $diff): void
+    private function writeDiffHunks($output, array $diff): void
     {
-        assert(is_resource($output));
-
         // detect "No newline at end of file" and insert into `$diff` if needed
 
         $upperLimit = count($diff);
@@ -155,7 +148,7 @@ final class StrictUnifiedDiffOutputBuilder implements DiffOutputBuilderInterface
                         array_splice($diff, $i + 1, 0, [["\n\\ No newline at end of file\n", Differ::NO_LINE_END_EOF_WARNING]]);
                     }
 
-                    if ($toFind === []) {
+                    if (!count($toFind)) {
                         break;
                     }
                 }
@@ -168,7 +161,9 @@ final class StrictUnifiedDiffOutputBuilder implements DiffOutputBuilderInterface
         $hunkCapture = false;
         $sameCount   = $toRange = $fromRange = 0;
         $toStart     = $fromStart = 1;
+        $i           = 0;
 
+        /** @var int $i */
         foreach ($diff as $i => $entry) {
             if (0 === $entry[1]) { // same
                 if (false === $hunkCapture) {
@@ -258,8 +253,6 @@ final class StrictUnifiedDiffOutputBuilder implements DiffOutputBuilderInterface
         $fromRange -= $sameCount;
         $toRange   -= $sameCount;
 
-        assert(isset($i) && is_int($i));
-
         $this->writeHunk(
             $diff,
             $hunkCapture - $contextStartOffset,
@@ -280,10 +273,8 @@ final class StrictUnifiedDiffOutputBuilder implements DiffOutputBuilderInterface
         int $fromRange,
         int $toStart,
         int $toRange,
-        mixed $output
+        $output
     ): void {
-        assert(is_resource($output));
-
         fwrite($output, '@@ -' . $fromStart);
 
         if (!$this->collapseRanges || 1 !== $fromRange) {

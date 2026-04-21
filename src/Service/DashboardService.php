@@ -804,6 +804,7 @@ class DashboardService
 
         foreach ($logs as &$log) {
             $username = $this->decryptMaybe($log['username'] ?? '');
+            $log['description'] = $this->decryptMaybe($log['description'] ?? '');
             $log['display_name'] = $username !== ''
                 ? $username
                 : (!empty($log['public_id']) ? $log['public_id'] : (!empty($log['user_id']) ? 'user #' . $log['user_id'] : 'guest'));

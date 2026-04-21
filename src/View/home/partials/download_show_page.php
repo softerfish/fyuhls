@@ -5,8 +5,25 @@
     .download-page-center{flex:1 1 auto;max-width:560px;min-width:0;width:100%}
     .download-page-card{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:2.5rem;width:100%;box-sizing:border-box}
     .download-page-top-ad{background:#f1f5f9;padding:.75rem;text-align:center;border-radius:8px;margin-bottom:1.5rem;overflow-wrap:anywhere;word-break:break-all}
-    .download-page-title{font-size:1.25rem;font-weight:700;margin:0 0 .25rem;overflow-wrap:anywhere;word-break:break-all}
+    .download-page-title{font-size:1.18rem;font-weight:700;line-height:1.28;margin:0;overflow-wrap:anywhere;word-break:break-all}
     .download-page-meta{color:#64748b;font-size:.875rem;margin:0 0 2rem}
+    .download-file-bar{display:flex;align-items:flex-start;gap:1rem;margin-bottom:1.5rem;padding:1rem;border:1px solid #dbe4f0;border-radius:14px;background:#f8fafc}
+    .download-file-bar__icon{flex:0 0 56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#3b82f6,#2563eb);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.5rem;font-weight:700}
+    .download-file-bar__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.55rem}
+    .download-file-bar__header{display:flex;align-items:flex-start;justify-content:space-between;gap:.9rem}
+    .download-file-bar__meta{display:flex;flex-wrap:wrap;gap:.8rem;font-size:.875rem;color:#64748b}
+    .download-file-bar__meta-item{display:inline-flex;align-items:center;gap:.35rem}
+    .download-file-bar__meta-button{padding:0;background:none;border:none;color:#64748b;font-size:.875rem;cursor:pointer}
+    .download-file-bar__meta-button:hover{text-decoration:underline;color:#475569}
+    .download-file-bar__actions{display:flex;align-items:center;gap:.45rem;opacity:.86;flex:0 0 auto;padding-top:.1rem}
+    .download-file-action{width:32px;height:32px;border-radius:8px;border:1px solid #d7e0ea;background:#f8fafc;color:#64748b;font-size:1rem;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all .18s ease}
+    .download-file-action:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(15,23,42,.06);border-color:#cbd5e1;background:#fff;color:#334155}
+    .download-file-action--delete{border-color:#fecaca;color:#dc2626;background:#fff7f7}
+    .download-file-action--save-active{border-color:#16a34a;background:#16a34a;color:#fff}
+    .download-file-action:disabled{cursor:default;opacity:1}
+    .download-action-status{display:none;margin:1rem 0 0;font-size:.875rem}
+    .download-action-status--success{color:#166534}
+    .download-action-status--error{color:#b91c1c}
     .download-stream-card{margin:0 0 1.5rem;padding:1rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px}
     .download-stream-title{font-weight:700;color:#1d4ed8;margin-bottom:.5rem}
     .download-stream-copy{margin:0 0 .75rem;color:#334155;font-size:.9rem}
@@ -40,13 +57,16 @@
     .download-abuse-trigger-wrap{margin-top:1rem;text-align:left}
     .download-abuse-trigger{background:none;border:none;color:#94a3b8;cursor:pointer;font-size:.8125rem;font-weight:500;transition:color .2s}
     .download-abuse-status{display:none;margin-top:1rem}
-    @media (max-width: 640px){.download-share-control{flex-direction:column}.download-share-copy{width:100%}}
+    @media (max-width: 640px){.download-share-control{flex-direction:column}.download-share-copy{width:100%}.download-file-bar{flex-wrap:wrap}.download-file-bar__header{flex-direction:column;align-items:flex-start}.download-file-bar__actions{padding-top:0}}
     @media (min-width: 1024px) {.download-ad-sidebar { display: block !important; }}
 </style>
 
 <?php
 $downloadFile = isset($file) && is_array($file) ? $file : [];
 $downloadPackage = isset($package) && is_array($package) ? $package : [];
+$downloadUploadedLabel = !empty($downloadFile['created_at']) ? date('Y-m-d', strtotime((string)$downloadFile['created_at'])) : '';
+$downloadDownloads = (int)($downloadFile['downloads'] ?? 0);
+$downloadActionButtonTitle = !empty($downloadAlreadySaved) ? 'Already in your account' : 'Add to your account';
 ?>
 
 <?php if (($adOverlay ?? '') !== ''): ?>
@@ -77,8 +97,48 @@ $downloadPackage = isset($package) && is_array($package) ? $package : [];
             </div>
             <?php endif; ?>
 
-            <h1 class="download-page-title"><?= htmlspecialchars((string)($downloadFile['filename'] ?? 'File')) ?></h1>
-            <p class="download-page-meta"><?= round(((int)($downloadFile['file_size'] ?? 0)) / 1024 / 1024, 2) ?> MB</p>
+            <div class="download-file-bar">
+                <div class="download-file-bar__icon" aria-hidden="true">&#8681;</div>
+                <div class="download-file-bar__body">
+                    <div class="download-file-bar__header">
+                        <h1 class="download-page-title"><?= htmlspecialchars((string)($downloadFile['filename'] ?? 'File')) ?></h1>
+                        <?php if (!empty($canDeleteFile) || !empty($downloadActionVisible)): ?>
+                        <div class="download-file-bar__actions">
+                            <?php if (!empty($canDeleteFile)): ?>
+                                <button
+                                    type="button"
+                                    id="downloadDeleteBtn"
+                                    class="download-file-action download-file-action--delete"
+                                    title="Delete file"
+                                    aria-label="Delete file"
+                                >&#128465;</button>
+                            <?php endif; ?>
+                            <?php if (!empty($downloadActionVisible)): ?>
+                                <button
+                                    type="button"
+                                    id="downloadSaveBtn"
+                                    class="download-file-action <?= !empty($downloadAlreadySaved) ? 'download-file-action--save-active' : '' ?>"
+                                    title="<?= htmlspecialchars($downloadActionButtonTitle) ?>"
+                                    aria-label="<?= htmlspecialchars($downloadActionButtonTitle) ?>"
+                                    <?= !empty($downloadAlreadySaved) ? 'disabled' : '' ?>
+                                ><?= !empty($downloadAlreadySaved) ? '&#10003;' : '+' ?></button>
+                            <?php endif; ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    <div class="download-file-bar__meta">
+                        <?php if ($downloadUploadedLabel !== ''): ?>
+                            <span class="download-file-bar__meta-item">Uploaded on <?= htmlspecialchars($downloadUploadedLabel) ?></span>
+                        <?php endif; ?>
+                        <span class="download-file-bar__meta-item"><?= round(((int)($downloadFile['file_size'] ?? 0)) / 1024 / 1024, 2) ?> MB</span>
+                        <span class="download-file-bar__meta-item"><?= number_format($downloadDownloads) ?> downloads</span>
+                        <?php if (!empty($abuseReportsEnabled)): ?>
+                            <button type="button" id="openAbuseModalBtn" class="download-file-bar__meta-button">Report abuse</button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <div id="downloadActionStatus" class="download-action-status" aria-live="polite"></div>
 
             <?php if (($streamUrl ?? null) !== null): ?>
             <div class="download-stream-card">
@@ -133,10 +193,6 @@ $downloadPackage = isset($package) && is_array($package) ? $package : [];
             <?php \App\Core\View::render('home/partials/download_share_panel.php', ['shareFields' => $shareFields ?? []]); ?>
 
             <?php if (!empty($abuseReportsEnabled)): ?>
-            <div class="download-abuse-trigger-wrap">
-                <button type="button" id="openAbuseModalBtn" class="download-abuse-trigger">Report Abuse</button>
-            </div>
-
             <div id="abuseModal" class="modal-overlay">
                 <div class="modal-container">
                     <div class="modal-header">
@@ -177,6 +233,42 @@ $downloadPackage = isset($package) && is_array($package) ? $package : [];
                     </form>
                 </div>
             </div>
+            <?php endif; ?>
+
+            <?php if (!empty($downloadActionVisible)): ?>
+            <form id="downloadSaveForm" hidden>
+                <?= \App\Core\Csrf::field() ?>
+                <input type="hidden" name="file_id" value="<?= (int)($downloadFile['id'] ?? 0) ?>">
+            </form>
+            <?php endif; ?>
+
+            <?php if (!empty($canDeleteFile)): ?>
+            <form id="downloadDeleteForm" hidden>
+                <?= \App\Core\Csrf::field() ?>
+                <input type="hidden" name="file_id" value="<?= (int)($downloadFile['id'] ?? 0) ?>">
+                <input type="hidden" name="delete_reason" id="downloadDeleteReasonField" value="">
+            </form>
+            <?php if (!empty($deleteRequiresReason)): ?>
+            <div id="deleteReasonModal" class="modal-overlay">
+                <div class="modal-container">
+                    <div class="modal-header">
+                        <h3>Delete File</h3>
+                        <button type="button" class="modal-close" id="closeDeleteReasonModalBtn">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="deleteReasonInput">Reason for deleting this file</label>
+                            <textarea id="deleteReasonInput" class="form-control" rows="4" placeholder="Explain why this file is being removed."></textarea>
+                        </div>
+                        <div id="deleteReasonStatus" class="download-action-status"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="cancelDeleteReasonModalBtn">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirmDeleteReasonBtn">Delete File</button>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
             <?php endif; ?>
         </div>
     </div>
@@ -255,6 +347,19 @@ var timer = setInterval(function() {
     }
 })();
 
+function setDownloadActionStatus(message, kind) {
+    const status = document.getElementById("downloadActionStatus");
+    if (!status) {
+        return;
+    }
+    status.textContent = message;
+    status.className = "download-action-status";
+    if (kind) {
+        status.classList.add("download-action-status--" + kind);
+    }
+    status.style.display = message ? "block" : "none";
+}
+
 const closeAdOverlayBtn = document.getElementById("closeAdOverlayBtn");
 if (closeAdOverlayBtn) {
     closeAdOverlayBtn.addEventListener("click", function() {
@@ -296,6 +401,172 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         button.textContent = expanded ? "More share options" : "Fewer share options";
     });
 });
+
+<?php if (!empty($downloadActionVisible)): ?>
+const downloadSaveBtn = document.getElementById("downloadSaveBtn");
+const downloadSaveForm = document.getElementById("downloadSaveForm");
+if (downloadSaveBtn && downloadSaveForm) {
+    downloadSaveBtn.addEventListener("click", function() {
+        if (downloadSaveBtn.disabled) {
+            return;
+        }
+        setDownloadActionStatus("Adding file to your account...", "");
+        downloadSaveBtn.disabled = true;
+
+        fetch("/file/save-to-account", {
+            method: "POST",
+            body: new FormData(downloadSaveForm),
+            credentials: "same-origin"
+        })
+        .then(function(resp) {
+            return resp.json();
+        })
+        .then(function(data) {
+            if (data && data.status === "success") {
+                downloadSaveBtn.innerHTML = "&#10003;";
+                downloadSaveBtn.classList.add("download-file-action--save-active");
+                setDownloadActionStatus(data.message || "File added to your account.", "success");
+                return;
+            }
+            throw new Error((data && data.message) ? data.message : "Could not add the file to your account.");
+        })
+        .catch(function(error) {
+            downloadSaveBtn.disabled = false;
+            setDownloadActionStatus(error.message, "error");
+        });
+    });
+}
+<?php endif; ?>
+
+<?php if (!empty($canDeleteFile)): ?>
+function performDownloadDelete() {
+    const deleteForm = document.getElementById("downloadDeleteForm");
+    const deleteBtn = document.getElementById("downloadDeleteBtn");
+    if (!deleteForm || !deleteBtn) {
+        return;
+    }
+
+    deleteBtn.disabled = true;
+    setDownloadActionStatus("Deleting file...", "");
+
+    fetch("/file/delete", {
+        method: "POST",
+        body: new FormData(deleteForm),
+        credentials: "same-origin"
+    })
+    .then(function(resp) {
+        return resp.json();
+    })
+    .then(function(data) {
+        if (data && data.status === "success") {
+            setDownloadActionStatus(data.message || "File deleted.", "success");
+            window.setTimeout(function() {
+                window.location.href = (data && data.redirect_url) ? data.redirect_url : "/";
+            }, 500);
+            return;
+        }
+        throw new Error((data && data.message) ? data.message : "Delete failed.");
+    })
+    .catch(function(error) {
+        deleteBtn.disabled = false;
+        setDownloadActionStatus(error.message, "error");
+        const deleteReasonStatus = document.getElementById("deleteReasonStatus");
+        if (deleteReasonStatus) {
+            deleteReasonStatus.textContent = error.message;
+            deleteReasonStatus.className = "download-action-status download-action-status--error";
+            deleteReasonStatus.style.display = "block";
+        }
+    });
+}
+
+const downloadDeleteBtn = document.getElementById("downloadDeleteBtn");
+if (downloadDeleteBtn) {
+    downloadDeleteBtn.addEventListener("click", function() {
+        <?php if (!empty($deleteRequiresReason)): ?>
+        const modal = document.getElementById("deleteReasonModal");
+        const reasonStatus = document.getElementById("deleteReasonStatus");
+        if (reasonStatus) {
+            reasonStatus.textContent = "";
+            reasonStatus.style.display = "none";
+        }
+        if (modal) {
+            modal.style.display = "flex";
+        }
+        <?php else: ?>
+        if (window.confirm("Delete this file permanently?")) {
+            performDownloadDelete();
+        }
+        <?php endif; ?>
+    });
+}
+
+<?php if (!empty($deleteRequiresReason)): ?>
+function toggleDeleteReasonModal(show) {
+    const modal = document.getElementById("deleteReasonModal");
+    if (!modal) {
+        return;
+    }
+    modal.style.display = show ? "flex" : "none";
+    if (!show) {
+        const input = document.getElementById("deleteReasonInput");
+        if (input) {
+            input.value = "";
+        }
+        const status = document.getElementById("deleteReasonStatus");
+        if (status) {
+            status.textContent = "";
+            status.style.display = "none";
+        }
+    }
+}
+
+const confirmDeleteReasonBtn = document.getElementById("confirmDeleteReasonBtn");
+if (confirmDeleteReasonBtn) {
+    confirmDeleteReasonBtn.addEventListener("click", function() {
+        const input = document.getElementById("deleteReasonInput");
+        const hiddenReason = document.getElementById("downloadDeleteReasonField");
+        const reason = input ? input.value.trim() : "";
+        const status = document.getElementById("deleteReasonStatus");
+        if (reason === "") {
+            if (status) {
+                status.textContent = "A delete reason is required.";
+                status.className = "download-action-status download-action-status--error";
+                status.style.display = "block";
+            }
+            return;
+        }
+        if (hiddenReason) {
+            hiddenReason.value = reason;
+        }
+        toggleDeleteReasonModal(false);
+        performDownloadDelete();
+    });
+}
+
+const closeDeleteReasonModalBtn = document.getElementById("closeDeleteReasonModalBtn");
+if (closeDeleteReasonModalBtn) {
+    closeDeleteReasonModalBtn.addEventListener("click", function() {
+        toggleDeleteReasonModal(false);
+    });
+}
+
+const cancelDeleteReasonModalBtn = document.getElementById("cancelDeleteReasonModalBtn");
+if (cancelDeleteReasonModalBtn) {
+    cancelDeleteReasonModalBtn.addEventListener("click", function() {
+        toggleDeleteReasonModal(false);
+    });
+}
+
+const deleteReasonModal = document.getElementById("deleteReasonModal");
+if (deleteReasonModal) {
+    deleteReasonModal.addEventListener("click", function(event) {
+        if (event.target === deleteReasonModal) {
+            toggleDeleteReasonModal(false);
+        }
+    });
+}
+<?php endif; ?>
+<?php endif; ?>
 
 <?php if (!empty($abuseReportsEnabled)): ?>
 function toggleAbuseModal(show) {

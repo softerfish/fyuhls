@@ -41,6 +41,32 @@ if (!$configReady) {
     exit('This post-install page is only available after setup is complete.');
 }
 
+Config::load(BASE_PATH . '/config/database.php');
+$encryptionKey = (string)Config::get('security.encryption_key', '');
+if ($encryptionKey !== '') {
+    \App\Service\EncryptionService::setKey($encryptionKey);
+}
+
+if (session_status() === PHP_SESSION_NONE) {
+    $localSessionPath = BASE_PATH . '/storage/sessions';
+    if (!is_writable(session_save_path() ?: sys_get_temp_dir())) {
+        if (!is_dir($localSessionPath)) {
+            mkdir($localSessionPath, 0700, true);
+        }
+        session_save_path($localSessionPath);
+    }
+
+    ini_set('session.cookie_httponly', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.cookie_samesite', 'Lax');
+
+    if (postInstallRequestIsHttps()) {
+        ini_set('session.cookie_secure', '1');
+    }
+
+    session_start();
+}
+
 if (!Auth::isAdmin()) {
     http_response_code(403);
     exit('This post-install page is only available to an admin account after setup.');
@@ -63,7 +89,6 @@ if (file_exists(BASE_PATH . '/config/version.php')) {
 }
 
 try {
-    Config::load(BASE_PATH . '/config/database.php');
     $db = Database::getInstance()->getConnection();
     $dbConnected = $db !== null;
     if ($dbConnected) {

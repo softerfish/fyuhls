@@ -93,13 +93,16 @@ class MultipartUploadService
         $storageProvider = explode('_', $providerKey, 2)[0];
         $capabilities = $provider->getCapabilities();
 
-        if (empty($capabilities['multipart']) || empty($capabilities['presigned_part_upload'])) {
+        if (empty($capabilities['multipart']) || (empty($capabilities['presigned_part_upload']) && empty($capabilities['app_part_upload']))) {
             throw new Exception('The selected storage backend does not support direct multipart uploads yet.');
         }
 
         $this->assertQuotaAvailable($userId, $expectedSize, $package, $fileServerId);
 
         $partSizeBytes = $this->resolvePartSize($expectedSize);
+        if (!empty($capabilities['app_part_upload'])) {
+            $partSizeBytes = min($partSizeBytes, $this->resolveAppUploadPartSizeLimit());
+        }
         $objectKey = $this->buildObjectKey($userId, $filename);
         $uploadInit = $provider->createMultipartUpload($objectKey, [
             'ContentType' => $mimeHint ?: 'application/octet-stream',
@@ -202,7 +205,11 @@ class MultipartUploadService
                 continue;
             }
 
-            $url = $provider->createMultipartPartUrl($session['object_key'], (string)$session['multipart_upload_id'], $partNumber, $expiry);
+            if (!empty($provider->getCapabilities()['app_part_upload'])) {
+                $url = '/api/v1/uploads/sessions/' . rawurlencode((string)$session['public_id']) . '/parts/upload/' . $partNumber;
+            } else {
+                $url = $provider->createMultipartPartUrl($session['object_key'], (string)$session['multipart_upload_id'], $partNumber, $expiry);
+            }
             if (!$url) {
                 continue;
             }
@@ -562,6 +569,12 @@ class MultipartUploadService
 
         $partSize = max($partSize, $minForPartLimit);
         return min($partSize, 5 * 1024 * 1024 * 1024);
+    }
+
+    private function resolveAppUploadPartSizeLimit(): int
+    {
+        $configuredMb = max(8, (int)Setting::get('upload_chunk_size_mb', '64'));
+        return min($configuredMb, 16) * 1024 * 1024;
     }
 
     private function assertAllowedExtension(string $filename): void

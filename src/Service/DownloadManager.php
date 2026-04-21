@@ -37,16 +37,7 @@ class DownloadManager
             return true;
         }
 
-        $rawConfig = (string)($server['config'] ?? '');
-        if ($rawConfig !== '' && !str_starts_with($rawConfig, '{')) {
-            try {
-                $rawConfig = \App\Service\EncryptionService::decrypt($rawConfig);
-            } catch (\Throwable $e) {
-                $rawConfig = '{}';
-            }
-        }
-
-        $config = json_decode($rawConfig, true) ?: [];
+        $config = $this->normalizeServerConfig($server['config'] ?? []);
         $providerPreset = strtolower((string)($config['provider_preset'] ?? $server['provider_preset'] ?? ''));
         if (in_array($providerPreset, ['b2', 'backblaze'], true)) {
             return true;
@@ -54,6 +45,35 @@ class DownloadManager
 
         $endpoint = strtolower((string)($config['s3_endpoint'] ?? ''));
         return $endpoint !== '' && str_contains($endpoint, 'backblazeb2.com');
+    }
+
+    private function normalizeServerConfig(mixed $rawConfig): array
+    {
+        if (is_array($rawConfig)) {
+            return $rawConfig;
+        }
+
+        if (!is_string($rawConfig) || $rawConfig === '') {
+            return [];
+        }
+
+        $decoded = json_decode($rawConfig, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        try {
+            $decrypted = \App\Service\EncryptionService::decrypt($rawConfig);
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        if (!is_string($decrypted) || $decrypted === '') {
+            return [];
+        }
+
+        $decoded = json_decode($decrypted, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     public function __construct()

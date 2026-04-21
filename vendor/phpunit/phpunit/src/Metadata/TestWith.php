@@ -24,9 +24,10 @@ final readonly class TestWith extends Metadata
     private ?string $name;
 
     /**
+     * @param 0|1               $level
      * @param ?non-empty-string $name
      */
-    protected function __construct(Level $level, mixed $data, ?string $name = null)
+    protected function __construct(int $level, mixed $data, ?string $name = null)
     {
         parent::__construct($level);
 

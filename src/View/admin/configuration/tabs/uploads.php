@@ -80,6 +80,32 @@
         <div>With original name: <code>https://your-site.example/file/AbC123xyZ9/report.pdf</code></div>
     </div>
 
+    <div class="alert alert-light border shadow-sm small mb-4">
+        <div class="fw-bold mb-2">Download Page Actions</div>
+        <div class="mb-2">Control whether signed-in visitors can use the download-page <code>+</code> action to add a deduplicated copy of a file into their own account without re-uploading it.</div>
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" name="download_page_save_free" id="downloadPageSaveFree" value="1" <?= ($downloadPageSaveFree === '1') ? 'checked' : '' ?>>
+                    <label class="form-check-label fw-bold" for="downloadPageSaveFree">Allow for Free Users</label>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" name="download_page_save_premium" id="downloadPageSavePremium" value="1" <?= ($downloadPageSavePremium === '1') ? 'checked' : '' ?>>
+                    <label class="form-check-label fw-bold" for="downloadPageSavePremium">Allow for Premium Users</label>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" name="download_page_save_admin" id="downloadPageSaveAdmin" value="1" <?= ($downloadPageSaveAdmin === '1') ? 'checked' : '' ?>>
+                    <label class="form-check-label fw-bold" for="downloadPageSaveAdmin">Allow for Admin Users</label>
+                </div>
+            </div>
+        </div>
+        <small class="text-muted">Saved copies reuse the existing stored object through deduplication, but they still count against the saver's own storage quota like a normal duplicate upload.</small>
+    </div>
+
     <div class="mt-4 pt-3 border-top">
         <button type="submit" class="btn btn-primary px-5">
             <i class="bi bi-save me-2"></i> Save Upload Configuration

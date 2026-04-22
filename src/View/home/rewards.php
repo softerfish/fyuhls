@@ -206,7 +206,7 @@ include __DIR__ . '/header.php';
             </div>
             <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
                 <div class="reward-card">
-                    <div class="label">Buying Referrals</div>
+                    <div class="label">Earning Referrals</div>
                     <div class="value"><?= $referralCount ?></div>
                 </div>
             <?php endif; ?>
@@ -221,7 +221,7 @@ include __DIR__ . '/header.php';
         <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
             <div class="rewards-referral-box">
                 <h3 class="rewards-referral-title">Your Referral Link</h3>
-                <p class="rewards-referral-copy">Share this link to attribute signups and eligible premium purchases to your account. Referral commission follows the live affiliate settings for this install.</p>
+                <p class="rewards-referral-copy">Share this link to attribute signups to your account. When those referred users later earn under PPD, PPS, or Hybrid, your referral commission follows the live affiliate settings for this install.</p>
                 <div class="rewards-referral-row">
                     <?php 
                     $user = \App\Core\Auth::user();

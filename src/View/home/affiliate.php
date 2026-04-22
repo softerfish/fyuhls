@@ -1,7 +1,10 @@
 <?php
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $title = "Affiliate Program - {$siteName}";
-$referralCommission = \App\Model\Setting::get('referral_commission_percent', '50', 'rewards');
+$ppsCommission = (string)($ppsCommission ?? \App\Model\Setting::get('pps_commission_percent', '50', 'rewards'));
+$mixedPpdPercent = (string)($mixedPpdPercent ?? \App\Model\Setting::get('mixed_ppd_percent', '30', 'rewards'));
+$mixedPpsPercent = (string)($mixedPpsPercent ?? \App\Model\Setting::get('mixed_pps_percent', '30', 'rewards'));
+$referralCommission = (string)($referralCommission ?? \App\Model\Setting::get('referral_commission_percent', '50', 'rewards'));
 include __DIR__ . '/header.php';
 ?>
 
@@ -79,10 +82,11 @@ include __DIR__ . '/header.php';
                 <?= ($userModel === 'mixed') ? 'Your Current Model' : 'Hybrid Model' ?>
             </span>
             <h2>PPD + PPS Hybrid</h2>
-            <p>Combine both reward types. Hybrid uses the configured mixed download percentage while referral commission still follows the shared referral rate.</p>
+            <p>Combine both reward types. Hybrid uses reduced mixed percentages for both downloads and premium sales, while affiliate referrals remain a separate program layered on top.</p>
             <ul class="affiliate-program-list">
-                <li><strong><?= htmlspecialchars($mixedPpdPercent ?? '30') ?>%</strong> of the standard PPD tier rate</li>
-                <li><strong><?= htmlspecialchars($referralCommission) ?>%</strong> referral commission from the shared referral rate</li>
+                <li><strong><?= htmlspecialchars($mixedPpdPercent) ?>%</strong> of PPD tiers</li>
+                <li><strong><?= htmlspecialchars($mixedPpsPercent) ?>%</strong> of premium sales</li>
+                <li><strong><?= htmlspecialchars($referralCommission) ?>%</strong> referral commission from users who sign up under your referral link</li>
                 <li>Useful when your traffic includes both download-heavy and conversion-heavy sources</li>
             </ul>
             <?php if ($user && $userModel !== 'mixed'): ?>
@@ -123,11 +127,11 @@ include __DIR__ . '/header.php';
                 <?= ($userModel === 'pps') ? 'Your Current Model' : 'PPS Program' ?>
             </span>
             <h2>Pay Per Sale</h2>
-            <p>Earn a commission whenever a tracked premium purchase is attributed to your account through the site referral flow.</p>
+            <p>Earn when premium purchases are attributed to your files and download flow. This is separate from the affiliate referral program below.</p>
             <ul class="affiliate-program-list">
-                <li><strong><?= htmlspecialchars($referralCommission) ?>%</strong> commission based on the current referral rate</li>
-                <li>Best for referral-heavy traffic and buyers instead of raw download volume</li>
-                <li>Use the referral link below to attribute signups and sales</li>
+                <li><strong><?= htmlspecialchars($ppsCommission) ?>%</strong> of premium sales</li>
+                <li><strong><?= htmlspecialchars($referralCommission) ?>%</strong> referral commission from users who sign up under your referral link</li>
+                <li>Best for conversion-heavy traffic where your files lead directly to premium purchases</li>
             </ul>
             <?php if ($user && $userModel !== 'pps'): ?>
                 <form method="POST" action="/settings/update-monetization">
@@ -170,7 +174,7 @@ include __DIR__ . '/header.php';
     <div class="cta-box">
         <?php if ($user): ?>
             <h2>Your referral link</h2>
-            <p class="affiliate-cta-copy">Share this link when you want signups and eligible purchases credited to your account under the current affiliate rules for this install.</p>
+            <p class="affiliate-cta-copy">Share this link when you want signups credited to your account. If those referred users later earn under PPD, PPS, or Hybrid, your referral commission follows the current affiliate rules for this install.</p>
             <div class="affiliate-cta-row">
                 <?php $refCode = trim((string)($user['public_id'] ?? '')); ?>
                 <?php $refLink = $refCode !== '' ? (\App\Service\SeoService::trustedBaseUrl() . '/?ref=' . rawurlencode($refCode)) : ''; ?>

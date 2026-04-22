@@ -268,18 +268,20 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
     }
 
-    private function issueReferralCookie(int $referrerId): void
+    private function issueReferralCookie(int $referrerId, string $source = 'pps'): void
     {
         if ($referrerId <= 0) {
             return;
         }
+
+        $source = in_array($source, ['referral', 'pps'], true) ? $source : 'pps';
 
         $secret = (string)\App\Core\Config::get('app_key', '');
         if ($secret === '') {
             return;
         }
 
-        $payload = (string)$referrerId;
+        $payload = $referrerId . '|' . $source;
         $signature = hash_hmac('sha256', $payload, $secret);
         setcookie('ref', $payload . '.' . $signature, [
             'expires' => time() + (86400 * 30),
@@ -1197,7 +1199,7 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         // Referral Tracking (PPS)
         if (\App\Service\FeatureService::affiliateEnabled() && $file['user_id'] && Setting::get('pps_global_status', '1') === '1' && !Auth::check() && empty($_COOKIE['ref'])) {
             // Set referral cookie for 30 days
-            $this->issueReferralCookie((int)$file['user_id']);
+            $this->issueReferralCookie((int)$file['user_id'], 'pps');
         }
 
         // Determine User Package

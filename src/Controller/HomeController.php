@@ -315,6 +315,7 @@ class HomeController {
 
 
 
+
     public function notifications() {
         if (!Auth::check()) { header('Location: /login'); exit; }
         $userId = Auth::id();

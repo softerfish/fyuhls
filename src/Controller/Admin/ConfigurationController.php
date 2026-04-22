@@ -192,7 +192,7 @@ class ConfigurationController
         }
 
         $isUnixAbsolute = str_starts_with($path, '/');
-        $isWindowsAbsolute = preg_match('/^[A-Za-z]:[\\\\\/]/', $path) === 1;
+        $isWindowsAbsolute = preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1;
         if (!$isUnixAbsolute && !$isWindowsAbsolute) {
             throw new \RuntimeException('Nginx completion log path must be an absolute path.');
         }
@@ -201,7 +201,7 @@ class ConfigurationController
             throw new \RuntimeException('Nginx completion log path contains invalid control characters.');
         }
 
-        if (preg_match('/(^|[\\\\\/])\.\.([\\\\\/]|$)/', $path) === 1) {
+        if (preg_match('/(^|[\\\\\\/])\.\.([\\\\\\/]|$)/', $path) === 1) {
             throw new \RuntimeException('Nginx completion log path cannot contain parent-directory traversal.');
         }
 

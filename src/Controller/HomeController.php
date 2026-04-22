@@ -19,18 +19,20 @@ class HomeController {
             || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
     }
 
-    private function issueReferralCookie(int $referrerId): void
+    private function issueReferralCookie(int $referrerId, string $source = 'referral'): void
     {
         if ($referrerId <= 0) {
             return;
         }
+
+        $source = in_array($source, ['referral', 'pps'], true) ? $source : 'referral';
 
         $secret = (string)\App\Core\Config::get('app_key', '');
         if ($secret === '') {
             return;
         }
 
-        $payload = (string)$referrerId;
+        $payload = $referrerId . '|' . $source;
         $signature = hash_hmac('sha256', $payload, $secret);
         setcookie('ref', $payload . '.' . $signature, [
             'expires' => time() + (86400 * 30),
@@ -134,7 +136,7 @@ class HomeController {
             $ref = trim((string) $_GET['ref']);
             $refId = $this->resolveReferralUserId($ref);
             if ($refId) {
-                $this->issueReferralCookie($refId);
+                $this->issueReferralCookie($refId, 'referral');
             }
         }
 
@@ -309,7 +311,6 @@ class HomeController {
     public function api() {
         View::render('home/api.php');
     }
-
 
 
 

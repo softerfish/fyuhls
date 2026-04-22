@@ -65,9 +65,14 @@ $rewardsActive = true;
 
             <div class="row">
                 <div class="col-md-6 mb-4">
+                    <label class="form-label fw-bold">PPS Commission (%)</label>
+                    <input type="number" class="form-control" name="pps_commission_percent" value="<?= htmlspecialchars($ppsCommission ?? '50') ?>" min="0" max="100">
+                    <div class="small text-muted mt-1">Direct pay-per-sale commission paid to the uploader when a premium purchase is attributed through their download flow.</div>
+                </div>
+                <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">Referral % Rate</label>
                     <input type="number" class="form-control" name="referral_commission_percent" value="<?= htmlspecialchars($referralCommissionPercent ?? '50') ?>" min="0" max="100">
-                    <div class="small text-muted mt-1">Referral commission paid on attributed premium sales for all monetization models.</div>
+                    <div class="small text-muted mt-1">Affiliate referral commission paid to the referring user when someone signs up under their referral link and generates eligible earnings.</div>
                 </div>
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">Affiliate Hold Days</label>
@@ -77,7 +82,12 @@ $rewardsActive = true;
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">Mixed PPD Percentage (%)</label>
                     <input type="number" class="form-control" name="mixed_ppd_percent" value="<?= htmlspecialchars($mixedPpdPercent ?? '30') ?>">
-                    <div class="small text-muted mt-1">Only affects download earnings for Hybrid users. Referral commission still uses the single referral rate above.</div>
+                    <div class="small text-muted mt-1">How much of the standard PPD rate a Hybrid user receives for download earnings.</div>
+                </div>
+                <div class="col-md-6 mb-4">
+                    <label class="form-label fw-bold">Mixed PPS Percentage (%)</label>
+                    <input type="number" class="form-control" name="mixed_pps_percent" value="<?= htmlspecialchars($mixedPpsPercent ?? '30') ?>" min="0" max="100">
+                    <div class="small text-muted mt-1">How much of the standard PPS commission a Hybrid user receives for premium sales attributed through their files.</div>
                 </div>
             </div>
 

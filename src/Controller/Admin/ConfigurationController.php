@@ -439,9 +439,8 @@ class ConfigurationController
             'rewardsEnabled' => \App\Service\FeatureService::rewardsEnabled(),
             'affiliateEnabled' => \App\Service\FeatureService::affiliateEnabled(),
             'enabledModels' => array_filter(array_map('trim', explode(',', Setting::get('enabled_models', 'ppd,pps,mixed', 'rewards')))),
-            'ppsCommission' => Setting::get('pps_commission_percent', '50', 'rewards'),
+            'referralCommissionPercent' => Setting::get('referral_commission_percent', '50', 'rewards'),
             'mixedPpdPercent' => Setting::get('mixed_ppd_percent', '30', 'rewards'),
-            'mixedPpsPercent' => Setting::get('mixed_pps_percent', '30', 'rewards'),
             'retentionDays' => Setting::get('rewards_retention_days', '7', 'rewards'),
             'supportedWithdrawalMethods' => array_filter(array_map('trim', explode(',', Setting::get('supported_withdrawal_methods', 'paypal,bitcoin', 'rewards')))),
             'minVideoWatchPercent' => Setting::get('rewards_min_video_watch_percent', '80', 'rewards'),
@@ -959,10 +958,10 @@ class ConfigurationController
             $this->updateSetting('affiliate_enabled', $affiliateEnabled, 'rewards');
             $this->updateSetting('enabled_models', implode(',', $enabledModels), 'rewards');
             $this->updateSetting('global_model_status', empty($enabledModels) ? 'disabled' : 'enabled', 'rewards');
-            $this->updateSetting('pps_commission_percent', (string) (int) ($_POST['pps_commission_percent'] ?? 0), 'rewards');
+            $referralPercent = (string) max(0, min(100, (int) ($_POST['referral_commission_percent'] ?? 50)));
+            $this->updateSetting('referral_commission_percent', $referralPercent, 'rewards');
             $this->updateSetting('affiliate_hold_days', (string) max(0, min(90, (int) ($_POST['affiliate_hold_days'] ?? 5))), 'rewards');
             $this->updateSetting('mixed_ppd_percent', (string) (int) ($_POST['mixed_ppd_percent'] ?? 30), 'rewards');
-            $this->updateSetting('mixed_pps_percent', (string) (int) ($_POST['mixed_pps_percent'] ?? 30), 'rewards');
             $this->updateSetting('ppd_ip_reward_limit', (string) max(1, (int) ($_POST['ppd_ip_reward_limit'] ?? 1)), 'rewards');
             $this->updateSetting('ppd_min_download_percent', (string) min(100, max(0, (int) ($_POST['ppd_min_download_percent'] ?? 0))), 'rewards');
             $this->updateSetting('ppd_max_earn_ip', (string) (float) ($_POST['ppd_max_earn_ip'] ?? 0), 'rewards');

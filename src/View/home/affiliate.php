@@ -1,7 +1,7 @@
 <?php
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $title = "Affiliate Program - {$siteName}";
-$ppsCommission = \App\Model\Setting::get('pps_commission_percent', '50', 'rewards');
+$referralCommission = \App\Model\Setting::get('referral_commission_percent', '50', 'rewards');
 include __DIR__ . '/header.php';
 ?>
 
@@ -79,10 +79,10 @@ include __DIR__ . '/header.php';
                 <?= ($userModel === 'mixed') ? 'Your Current Model' : 'Hybrid Model' ?>
             </span>
             <h2>PPD + PPS Hybrid</h2>
-            <p>Combine both reward types. Hybrid uses the configured mixed percentages instead of the full standalone model values.</p>
+            <p>Combine both reward types. Hybrid uses the configured mixed download percentage while referral commission still follows the shared referral rate.</p>
             <ul class="affiliate-program-list">
                 <li><strong><?= htmlspecialchars($mixedPpdPercent ?? '30') ?>%</strong> of the standard PPD tier rate</li>
-                <li><strong><?= htmlspecialchars($mixedPpsPercent ?? '30') ?>%</strong> of the standard PPS commission</li>
+                <li><strong><?= htmlspecialchars($referralCommission) ?>%</strong> referral commission from the shared referral rate</li>
                 <li>Useful when your traffic includes both download-heavy and conversion-heavy sources</li>
             </ul>
             <?php if ($user && $userModel !== 'mixed'): ?>
@@ -125,7 +125,7 @@ include __DIR__ . '/header.php';
             <h2>Pay Per Sale</h2>
             <p>Earn a commission whenever a tracked premium purchase is attributed to your account through the site referral flow.</p>
             <ul class="affiliate-program-list">
-                <li><strong><?= htmlspecialchars($ppsCommission) ?>%</strong> commission based on the current PPS setting</li>
+                <li><strong><?= htmlspecialchars($referralCommission) ?>%</strong> commission based on the current referral rate</li>
                 <li>Best for referral-heavy traffic and buyers instead of raw download volume</li>
                 <li>Use the referral link below to attribute signups and sales</li>
             </ul>
@@ -167,30 +167,16 @@ include __DIR__ . '/header.php';
         <p class="affiliate-tier-copy">The rates above are pulled from the live admin configuration and can change as the operator updates tiers or payout strategy.</p>
     </div>
 
-        <div class="cta-box">
+    <div class="cta-box">
         <?php if ($user): ?>
             <h2>Your referral link</h2>
-            <?php $affiliateCommissionEligible = in_array((string)($userModel ?? 'ppd'), ['pps', 'mixed'], true); ?>
-            <?php if ($affiliateCommissionEligible): ?>
-                <p class="affiliate-cta-copy">Share this link when you want signups and eligible purchases credited to your account under the current reward rules.</p>
-            <?php else: ?>
-                <p class="affiliate-cta-copy">This link can still attribute referrals, but your current PPD model does not earn package-sale commission. Switch to PPS or Mixed before promoting it if you want affiliate sales to pay you.</p>
-            <?php endif; ?>
+            <p class="affiliate-cta-copy">Share this link when you want signups and eligible purchases credited to your account under the current affiliate rules for this install.</p>
             <div class="affiliate-cta-row">
                 <?php $refCode = trim((string)($user['public_id'] ?? '')); ?>
                 <?php $refLink = $refCode !== '' ? (\App\Service\SeoService::trustedBaseUrl() . '/?ref=' . rawurlencode($refCode)) : ''; ?>
                 <input type="text" value="<?= htmlspecialchars($refLink !== '' ? $refLink : 'Referral link unavailable. Please contact support if this persists.') ?>" readonly class="affiliate-cta-input">
                 <button class="btn affiliate-cta-copy-btn" type="button" data-copy-previous data-copy-success="Copied!" <?= $refLink === '' ? 'disabled' : '' ?>>Copy</button>
             </div>
-            <?php if (!$affiliateCommissionEligible): ?>
-                <div class="mt-3">
-                    <form method="POST" action="/settings/update-monetization">
-                        <?= \App\Core\Csrf::field() ?>
-                        <input type="hidden" name="model" value="<?= in_array('mixed', $enabledModels, true) ? 'mixed' : 'pps' ?>">
-                        <button type="submit" class="btn btn-outline-primary">Switch to <?= in_array('mixed', $enabledModels, true) ? 'Mixed' : 'PPS' ?></button>
-                    </form>
-                </div>
-            <?php endif; ?>
         <?php else: ?>
             <h2>Create an account to start earning</h2>
             <p class="affiliate-cta-copy">Register for an account to access rewards, referral tools, and the account-side dashboard used to track cleared earnings and payout requests.</p>

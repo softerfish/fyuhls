@@ -36,7 +36,6 @@ class RewardsController
             'enabledModels' => $enabledModels,
             'userModel' => $user ? ($user['monetization_model'] ?? 'ppd') : null,
             'mixedPpdPercent' => Setting::get('mixed_ppd_percent', '30', 'rewards'),
-            'mixedPpsPercent' => Setting::get('mixed_pps_percent', '30', 'rewards'),
             'user' => $user,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary(Auth::id() ? (int)Auth::id() : null, Auth::id() ? (\App\Model\Package::getUserPackage((int)Auth::id()) ?: []) : []),
         ]);
@@ -58,7 +57,6 @@ class RewardsController
         $userId = Auth::id();
         $user = Auth::user();
         $userModel = (string)($user['monetization_model'] ?? 'ppd');
-        $affiliateCommissionEligible = in_array($userModel, ['pps', 'mixed'], true);
 
         $stmt = $db->prepare("SELECT SUM(amount) FROM earnings WHERE user_id = ? AND status IN ('pending', 'cleared')");
         $stmt->execute([$userId]);
@@ -130,7 +128,6 @@ class RewardsController
             'recentEarnings' => $recentEarnings,
             'analytics' => $analytics,
             'userModel' => $userModel,
-            'affiliateCommissionEligible' => $affiliateCommissionEligible,
             'referralCount' => $referralCount,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary((int)$userId, \App\Model\Package::getUserPackage((int)$userId) ?: []),
         ]);

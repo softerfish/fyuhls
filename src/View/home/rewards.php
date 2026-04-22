@@ -221,11 +221,7 @@ include __DIR__ . '/header.php';
         <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
             <div class="rewards-referral-box">
                 <h3 class="rewards-referral-title">Your Referral Link</h3>
-                <?php if (!empty($affiliateCommissionEligible)): ?>
-                    <p class="rewards-referral-copy">Share this link to earn commission from premium sales under your current <?= htmlspecialchars(strtoupper((string)$userModel)) ?> model.</p>
-                <?php else: ?>
-                    <p class="rewards-referral-copy">Your current <?= htmlspecialchars(strtoupper((string)$userModel)) ?> model does not earn package-sale commission. Switch to PPS or Mixed before promoting this link if you want referral sales to pay you.</p>
-                <?php endif; ?>
+                <p class="rewards-referral-copy">Share this link to attribute signups and eligible premium purchases to your account. Referral commission follows the live affiliate settings for this install.</p>
                 <div class="rewards-referral-row">
                     <?php 
                     $user = \App\Core\Auth::user();
@@ -237,11 +233,6 @@ include __DIR__ . '/header.php';
                     <input type="text" value="<?= htmlspecialchars($refLink !== '' ? $refLink : 'Referral link unavailable. Please contact support if this persists.') ?>" readonly class="rewards-referral-input">
                     <button class="btn rewards-copy-btn" data-copy-previous data-copy-success="Copied!" <?= $refLink === '' ? 'disabled' : '' ?>>Copy</button>
                 </div>
-                <?php if (empty($affiliateCommissionEligible)): ?>
-                    <div class="mt-3">
-                        <a href="/affiliate" class="btn btn-outline-primary">Review Affiliate Models</a>
-                    </div>
-                <?php endif; ?>
             </div>
         <?php endif; ?>
 

@@ -468,16 +468,8 @@ class PaymentService
             return;
         }
 
-        $model = (string)($referrer['monetization_model'] ?? 'ppd');
-        if (!in_array($model, ['pps', 'mixed'], true)) {
-            return;
-        }
-
-        $basePercent = max(0, min(100, (int)Setting::get('pps_commission_percent', '50')));
+        $basePercent = max(0, min(100, (int)Setting::get('referral_commission_percent', '50', 'rewards')));
         $effectivePercent = $basePercent;
-        if ($model === 'mixed') {
-            $effectivePercent = (int)round($basePercent * (max(0, min(100, (int)Setting::get('mixed_pps_percent', '30'))) / 100));
-        }
 
         if ($effectivePercent <= 0) {
             return;

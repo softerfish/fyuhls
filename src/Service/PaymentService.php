@@ -443,48 +443,50 @@ class PaymentService
 
     private static function awardAffiliateCommission($db, array $transaction, string $gateway): void
     {
-        if (!FeatureService::affiliateEnabled()) {
+        if (!FeatureService::rewardsEnabled()) {
             return;
         }
 
         (new RewardFraudService())->ensureSchema();
 
-        $buyerStmt = $db->prepare("SELECT id, referrer_id FROM users WHERE id = ? LIMIT 1");
+        $buyerStmt = $db->prepare("SELECT id, referrer_id, referrer_source FROM users WHERE id = ? LIMIT 1");
         $buyerStmt->execute([(int)$transaction['user_id']]);
         $buyer = $buyerStmt->fetch();
-        if (!$buyer || empty($buyer['referrer_id'])) {
+        if (
+            !$buyer ||
+            empty($buyer['referrer_id']) ||
+            (string)($buyer['referrer_source'] ?? '') !== 'pps'
+        ) {
             return;
         }
 
-        $referrerId = (int)$buyer['referrer_id'];
-        if ($referrerId <= 0 || $referrerId === (int)$buyer['id']) {
+        $sellerId = (int)$buyer['referrer_id'];
+        if ($sellerId <= 0 || $sellerId === (int)$buyer['id']) {
             return;
         }
 
-        $referrerStmt = $db->prepare("SELECT id, monetization_model FROM users WHERE id = ? LIMIT 1");
-        $referrerStmt->execute([$referrerId]);
-        $referrer = $referrerStmt->fetch();
-        if (!$referrer) {
+        $sellerStmt = $db->prepare("SELECT id, monetization_model FROM users WHERE id = ? LIMIT 1");
+        $sellerStmt->execute([$sellerId]);
+        $seller = $sellerStmt->fetch();
+        if (!$seller) {
             return;
         }
 
-        $basePercent = max(0, min(100, (int)Setting::get('referral_commission_percent', '50', 'rewards')));
-        $effectivePercent = $basePercent;
-
-        if ($effectivePercent <= 0) {
+        $sellerPercent = self::resolvePpsPercentForModel((string)($seller['monetization_model'] ?? 'ppd'));
+        if ($sellerPercent <= 0) {
             return;
         }
 
-        $description = self::affiliateCommissionDescription($gateway, (string)$transaction['gateway_reference']);
+        $description = self::ppsRewardDescription($gateway, (string)$transaction['gateway_reference']);
 
-        $exists = $db->prepare("SELECT id FROM earnings WHERE user_id = ? AND type = 'referral' AND description = ? LIMIT 1");
-        $exists->execute([$referrerId, $description]);
+        $exists = $db->prepare("SELECT id FROM earnings WHERE user_id = ? AND type = 'pps_reward' AND description = ? LIMIT 1");
+        $exists->execute([$sellerId, $description]);
         if ($exists->fetchColumn()) {
             return;
         }
 
-        $commission = round(((float)$transaction['amount']) * ($effectivePercent / 100), 4);
-        if ($commission <= 0) {
+        $sellerAmount = round(((float)$transaction['amount']) * ($sellerPercent / 100), 4);
+        if ($sellerAmount <= 0) {
             return;
         }
 
@@ -496,24 +498,57 @@ class PaymentService
             : $description;
 
         $db->prepare("
-            INSERT INTO earnings (user_id, amount, type, status, description, hold_until)
-            VALUES (?, ?, 'referral', ?, ?, ?)
+            INSERT INTO earnings (user_id, amount, type, status, description, hold_until, metadata)
+            VALUES (?, ?, 'pps_reward', ?, ?, ?, ?)
         ")->execute([
-            $referrerId,
-            $commission,
+            $sellerId,
+            $sellerAmount,
             $status,
             $description,
             $holdUntil,
+            json_encode([
+                'gateway' => $gateway,
+                'gateway_reference' => (string)$transaction['gateway_reference'],
+                'buyer_user_id' => (int)$buyer['id'],
+                'kind' => 'pps_reward',
+            ], JSON_UNESCAPED_SLASHES),
         ]);
+        $earningId = (int)$db->lastInsertId();
+
+        AffiliateRewardService::awardReferralForUserEarning(
+            $db,
+            $sellerId,
+            $sellerAmount,
+            $earningId,
+            $status,
+            $holdUntil,
+            $description
+        );
+    }
+
+    private static function resolvePpsPercentForModel(string $model): int
+    {
+        $model = strtolower(trim($model));
+        if ($model === 'mixed') {
+            $ppsBase = max(0, min(100, (int)Setting::get('pps_commission_percent', '50', 'rewards')));
+            $mixedPercent = max(0, min(100, (int)Setting::get('mixed_pps_percent', '30', 'rewards')));
+            return (int)round($ppsBase * ($mixedPercent / 100));
+        }
+
+        if ($model === 'pps') {
+            return max(0, min(100, (int)Setting::get('pps_commission_percent', '50', 'rewards')));
+        }
+
+        return 0;
     }
 
     private static function reverseAffiliateCommission($db, array $transaction, string $gateway, string $status): void
     {
-        $description = self::affiliateCommissionDescription($gateway, (string)$transaction['gateway_reference']);
+        $description = self::ppsRewardDescription($gateway, (string)$transaction['gateway_reference']);
         $stmt = $db->prepare("
             SELECT id, status
             FROM earnings
-            WHERE type = 'referral'
+            WHERE type = 'pps_reward'
               AND description LIKE ?
             ORDER BY id DESC
         ");
@@ -534,8 +569,10 @@ class PaymentService
 
             if (in_array($earningStatus, ['held', 'pending'], true)) {
                 $cancel->execute([(int)$row['id']]);
+                AffiliateRewardService::syncReferralChildrenForParent($db, (int)$row['id'], 'cancelled');
             } else {
                 $reverse->execute([(int)$row['id']]);
+                AffiliateRewardService::syncReferralChildrenForParent($db, (int)$row['id'], 'reversed');
             }
         }
     }
@@ -583,10 +620,10 @@ class PaymentService
         }
     }
 
-    private static function affiliateCommissionDescription(string $gateway, string $reference): string
+    private static function ppsRewardDescription(string $gateway, string $reference): string
     {
         return sprintf(
-            'Affiliate commission for %s purchase %s',
+            'PPS reward for %s purchase %s',
             strtoupper($gateway),
             $reference
         );

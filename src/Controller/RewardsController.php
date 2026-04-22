@@ -35,7 +35,10 @@ class RewardsController
             'tiers' => $tiers,
             'enabledModels' => $enabledModels,
             'userModel' => $user ? ($user['monetization_model'] ?? 'ppd') : null,
+            'ppsCommission' => Setting::get('pps_commission_percent', '50', 'rewards'),
             'mixedPpdPercent' => Setting::get('mixed_ppd_percent', '30', 'rewards'),
+            'mixedPpsPercent' => Setting::get('mixed_pps_percent', '30', 'rewards'),
+            'referralCommission' => Setting::get('referral_commission_percent', '50', 'rewards'),
             'user' => $user,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary(Auth::id() ? (int)Auth::id() : null, Auth::id() ? (\App\Model\Package::getUserPackage((int)Auth::id()) ?: []) : []),
         ]);
@@ -111,10 +114,13 @@ class RewardsController
         $referralCount = 0;
         if (FeatureService::affiliateEnabled()) {
             $stmt = $db->prepare("
-                SELECT COUNT(DISTINCT t.user_id)
-                FROM transactions t
-                INNER JOIN users u ON u.id = t.user_id
-                WHERE u.referrer_id = ? AND t.status = 'completed'
+                SELECT COUNT(DISTINCT e.user_id)
+                FROM earnings e
+                INNER JOIN users u ON u.id = e.user_id
+                WHERE u.referrer_id = ?
+                  AND COALESCE(u.referrer_source, '') = 'referral'
+                  AND e.type IN ('download_reward', 'pps_reward')
+                  AND e.status IN ('held', 'cleared', 'paid')
             ");
             $stmt->execute([$userId]);
             $referralCount = (int)$stmt->fetchColumn();

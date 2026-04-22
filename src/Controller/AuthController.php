@@ -87,7 +87,7 @@ class AuthController {
         return mb_substr($name, 0, self::MAX_API_TOKEN_NAME_LENGTH);
     }
 
-    private function parseSignedReferralCookie(): ?int
+    private function parseSignedReferralCookie(): ?array
     {
         if (!FeatureService::affiliateEnabled()) {
             return null;
@@ -98,8 +98,8 @@ class AuthController {
             return null;
         }
 
-        [$referrerId, $signature] = array_pad(explode('.', $raw, 2), 2, '');
-        if (!ctype_digit($referrerId) || (int)$referrerId <= 0 || $signature === '') {
+        [$payload, $signature] = array_pad(explode('.', $raw, 2), 2, '');
+        if ($payload === '' || $signature === '') {
             return null;
         }
 
@@ -108,12 +108,27 @@ class AuthController {
             return null;
         }
 
-        $expected = hash_hmac('sha256', $referrerId, $secret);
+        $expected = hash_hmac('sha256', $payload, $secret);
         if (!hash_equals($expected, $signature)) {
             return null;
         }
 
-        return (int)$referrerId;
+        $referrerId = $payload;
+        $source = 'referral';
+        if (str_contains($payload, '|')) {
+            [$referrerId, $source] = array_pad(explode('|', $payload, 2), 2, 'referral');
+        }
+
+        if (!ctype_digit($referrerId) || (int)$referrerId <= 0) {
+            return null;
+        }
+
+        $source = in_array($source, ['referral', 'pps'], true) ? $source : 'referral';
+
+        return [
+            'id' => (int)$referrerId,
+            'source' => $source,
+        ];
     }
 
     public function login() {
@@ -262,14 +277,15 @@ class AuthController {
                             $error = "Username or email already taken.";
                         } else {
                         // validate referral cookie strictly - must be a positive integer
-                        $referrerId = $this->parseSignedReferralCookie();
+                        $referrer = $this->parseSignedReferralCookie();
                         
                         $userId = \App\Model\User::create([
                             'username' => $username,
                             'email' => $email,
                             'password' => password_hash($password, PASSWORD_DEFAULT, ['cost' => 12]),
                             'role' => 'user',
-                            'referrer_id' => $referrerId
+                            'referrer_id' => $referrer['id'] ?? null,
+                            'referrer_source' => $referrer['source'] ?? null,
                         ]);
 
                             if ($userId) {

@@ -260,6 +260,17 @@ class RewardService
                         $receipt['network_type'] ?? null,
                         $receipt['asn'] ?? null,
                     ]);
+                    $earningId = (int)$db->lastInsertId();
+
+                    AffiliateRewardService::awardReferralForUserEarning(
+                        $db,
+                        $ownerId,
+                        $amount,
+                        $earningId,
+                        $earningStatus,
+                        $holdUntil,
+                        'PPD reward'
+                    );
 
                     $this->updateDailyStats($ownerId, $amount, $earningStatus);
                     $db->prepare("UPDATE reward_receipts SET risk_score = ?, risk_level = ?, risk_reasons_json = ?, proof_status = ? WHERE id = ?")

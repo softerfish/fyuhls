@@ -96,7 +96,7 @@ class User {
         $usernameLookup = self::buildCredentialLookupHash($username);
         $emailLookup = self::buildCredentialLookupHash($email);
         
-        $sql = "INSERT INTO users (public_id, username, email, username_lookup, email_lookup, password, role, package_id, referrer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO users (public_id, username, email, username_lookup, email_lookup, password, role, package_id, referrer_id, referrer_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $db->prepare($sql);
         $stmt->execute([
             $publicId,
@@ -107,7 +107,8 @@ class User {
             $data['password'],
             $data['role'] ?? 'user',
             $data['package_id'] ?? 2,
-            $data['referrer_id'] ?? null
+            $data['referrer_id'] ?? null,
+            $data['referrer_source'] ?? null,
         ]);
 
         $userId = (int)$db->lastInsertId();
@@ -140,6 +141,7 @@ class User {
 
         self::ensurePublicIdColumnExists($db);
         self::ensureCredentialLookupColumnsExist($db);
+        self::ensureReferrerSourceColumnExists($db);
         self::backfillMissingCredentialLookups($db);
         self::$runtimeColumnsReady = true;
     }
@@ -184,6 +186,14 @@ class User {
         try {
             $db->exec("CREATE INDEX users_email_lookup_idx ON users(email_lookup)");
         } catch (\PDOException $e) {
+        }
+    }
+
+    private static function ensureReferrerSourceColumnExists($db): void {
+        try {
+            $db->query("SELECT referrer_source FROM users LIMIT 1");
+        } catch (\PDOException $e) {
+            $db->exec("ALTER TABLE users ADD COLUMN referrer_source VARCHAR(20) NULL AFTER referrer_id");
         }
     }
 

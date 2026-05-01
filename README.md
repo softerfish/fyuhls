@@ -24,6 +24,7 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 - [Step 4 - Run the Installer](#step-4---run-the-installer)
 - [Step 5 - Post-Install Configuration](#step-5---post-install-configuration)
 - [Safe Template Customization](#safe-template-customization)
+- [Manual Updates](#manual-updates)
 - [Troubleshooting](#troubleshooting)
 - [Security Reminders](#security-reminders)
 
@@ -319,6 +320,53 @@ If you want to modify any part of the website, follow these steps so your change
 2. Copy it into `themes/custom/` using the same relative path.
 3. Example: copy `src/View/home/index.php` to `themes/custom/home/index.php`.
 4. Edit the copied file. Fyuhls checks `themes/custom/` first, then the active theme, then the core views.
+
+---
+
+## Manual Updates
+
+If you are updating Fyuhls manually instead of using the in-app updater, use this flow so you do not wipe config, runtime data, or custom theme overrides.
+
+### Before you replace any files
+1. Put the site into maintenance mode if possible.
+2. Make a full backup of:
+   - your database
+   - your hidden config file / secure config path
+   - the entire current Fyuhls application directory
+3. If you have custom view overrides in `themes/custom/`, back those up separately so you can compare them after the update.
+
+### Replace the application files
+1. Upload the new Fyuhls release into a temporary folder on the server.
+2. Replace the application code and shipped assets from the new release.
+3. Preserve your existing runtime and environment-specific files:
+   - `config/database.php`
+   - your hidden config file outside the webroot
+   - `storage/`
+   - `themes/custom/`
+4. If you are updating from source rather than a packaged release, run:
+   - `composer install --no-dev --optimize-autoloader`
+
+### Re-apply anything environment-specific
+After the file replacement, review anything that may have local server-specific values or customizations:
+- web-server config such as Nginx or Apache delivery rules
+- cron path for `src/Cron/Run.php`
+- storage node credentials and delivery settings
+- custom theme overrides in `themes/custom/`
+
+### Finish the update
+1. Sign in to the admin area.
+2. Open **Admin > Config Hub > Security** and review any database health, encryption, or key notices.
+3. Open **Admin > Config Hub > Cron Jobs** and trigger the tasks once if you want cleanup, sync, and queue jobs to catch up immediately.
+4. Open `/post_install_check.php` if you want a quick sanity pass on writable paths and environment health.
+5. Test the most important flows for your install:
+   - uploads
+   - downloads
+   - email sending
+   - storage server delivery
+   - payment flow if monetization is enabled
+
+### Important note about local edits
+If you edited core files directly instead of using `themes/custom/` or another safe override path, those edits may be overwritten during a manual update. Compare your old tree against the new release before deleting your backup.
 
 ---
 

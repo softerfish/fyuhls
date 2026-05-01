@@ -65,6 +65,12 @@ class DownloadPageService
         ?array $file = null,
         array $shareFields = []
     ): array {
+        if ($package === null) {
+            $package = \App\Core\Auth::check()
+                ? \App\Model\Package::getUserPackage((int)(\App\Core\Auth::id() ?? 0))
+                : \App\Model\Package::getGuestPackage();
+        }
+
         $showAds = (bool)($package['show_ads'] ?? false);
 
         return [
@@ -73,12 +79,14 @@ class DownloadPageService
             'metaDescription' => $message,
             'heading' => $heading,
             'message' => $message,
+            'package' => $package,
             'file' => $file,
             'shareFields' => $shareFields,
             'adLeft' => $showAds ? Setting::get('ad_download_left', '') : '',
             'adRight' => $showAds ? Setting::get('ad_download_right', '') : '',
             'adTop' => $showAds ? Setting::get('ad_download_top', '') : '',
             'adBottom' => $showAds ? Setting::get('ad_download_bottom', '') : '',
+            'adOverlay' => $showAds ? Setting::get('ad_download_overlay', '') : '',
         ];
     }
 

@@ -22,6 +22,7 @@ class CronManager {
         'account_expiry'    => ['Premium Expiry Reminder Emails', 1440],
         'server_monitoring' => ['Storage Node Health Check', 60],
         'mail_queue'        => ['Background Email Worker', 1],
+        'payment_cleanup'   => ['Stale Pending Payment Cleanup', 60],
         'reward_flush'      => ['Reward Queue Flush', 1],
         'reward_rollup'     => ['Reward History Rollup', 1440],
         'fraud_scores'      => ['Rewards Fraud Score Refresh', 15],

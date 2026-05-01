@@ -379,7 +379,7 @@ class UploadApiController
 
         $downloadManager = new DownloadManager();
         $delivery = $downloadManager->previewDelivery($file);
-        $downloadUrl = $downloadManager->generateSignedUrl($file['id'], $file['filename']);
+        $downloadUrl = $downloadManager->generateSignedUrl((string)($file['short_id'] ?? $file['id']), $file['filename']);
 
         $this->jsonResponse([
             'status' => 'ok',

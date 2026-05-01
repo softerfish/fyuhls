@@ -82,14 +82,16 @@ class RewardService
                 }
             }
             $signals = $this->resolveReceiptSignals($fraud, $context, $ip);
+            $proxyIntel = $this->resolveReceiptProxyIntel($context, $ip);
 
             $stmt = $db->prepare("
                 INSERT INTO reward_receipts (
                     file_id, session_id, source_event_key, user_id, downloader_user_id, ip_address, ip_hash, ua_hash,
                     visitor_cookie_hash, accept_language_hash, timezone_offset, platform_bucket,
-                    screen_bucket, asn, network_type, country_code, proof_status
+                    screen_bucket, asn, network_type, country_code, proof_status,
+                    proxy_intel_risk_score, proxy_intel_type, proxy_intel_provider, proxy_intel_last_seen
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $fileId,
@@ -109,6 +111,10 @@ class RewardService
                 $signals['network_type'],
                 $signals['country_code'],
                 $context['proof_status'] ?? 'legacy',
+                $proxyIntel['risk'],
+                $proxyIntel['type'],
+                $proxyIntel['provider'],
+                $proxyIntel['last_seen'],
             ]);
             return true;
         } catch (\PDOException $e) {
@@ -174,60 +180,82 @@ class RewardService
 
                     $file = File::find($fileId);
                     if (!$file || !$file['user_id'] || (int)$file['user_id'] !== $ownerId || !$this->isFileRewardEligible($file)) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'This file is no longer eligible for rewards.',
+                        ]);
                         continue;
                     }
 
                     if ($downloaderUserId !== null && $downloaderUserId === $ownerId) {
-                        $this->markReceipt($receiptId, 'flagged');
+                        $this->markReceiptWithReasons($receiptId, 'flagged', [
+                            'Uploader attempted to credit their own file.',
+                        ], 'high');
                         $results['flagged']++;
                         continue;
                     }
 
                     if ($onlyGuestsCount && $downloaderUserId !== null) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'Logged-in downloader traffic does not count because PPD is currently limited to guests only.',
+                        ]);
                         continue;
                     }
 
                     if ($file['file_size'] < $minSize || ($maxSize > 0 && $file['file_size'] > $maxSize)) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'File size fell outside the configured rewardable range.',
+                        ]);
                         continue;
                     }
 
                     if (!$rewardVpnTraffic && $security->isVpnOrProxy($ip)) {
-                        $this->markReceipt($receiptId, 'flagged');
+                        $this->markReceiptWithReasons($receiptId, 'flagged', [
+                            'Download came from a VPN or proxy while VPN/proxy reward counting is disabled.',
+                        ], 'high');
                         $results['flagged']++;
                         continue;
                     }
 
                     if ($this->hasProcessedReceiptForWindow($ownerId, $fileId, $ipHash, $receiptId, (string)($receipt['visitor_cookie_hash'] ?? ''), (string)($receipt['ua_hash'] ?? ''))) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'Duplicate visitor activity was detected inside the 24-hour reward window.',
+                        ]);
                         continue;
                     }
 
                     if ($this->countRecentIpRewards($ownerId, $ipHash, (string)($receipt['visitor_cookie_hash'] ?? '')) >= $ipLimit) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'The daily reward limit for this IP or visitor signature has already been reached.',
+                        ]);
                         continue;
                     }
 
                     $amount = $this->calculateReward($file, $ip);
                     if ($amount <= 0) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'No active reward tier matched this download under the current payout configuration.',
+                        ]);
                         continue;
                     }
 
                     if ($maxEarnIp > 0 && ($this->sumRecentEarnings($ownerId, $ipHash, null) + $amount) > $maxEarnIp) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'The per-IP daily earnings cap has already been reached.',
+                        ]);
                         continue;
                     }
 
                     if ($maxEarnFile > 0 && ($this->sumRecentEarnings($ownerId, null, $fileId) + $amount) > $maxEarnFile) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'The per-file daily earnings cap has already been reached.',
+                        ]);
                         continue;
                     }
 
                     if ($maxEarnUser > 0 && ($this->sumRecentUserEarnings($ownerId) + $amount) > $maxEarnUser) {
-                        $this->markReceipt($receiptId, 'processed');
+                        $this->markReceiptWithReasons($receiptId, 'processed', [
+                            'The uploader daily earnings cap has already been reached.',
+                        ]);
                         continue;
                     }
 
@@ -471,6 +499,10 @@ class RewardService
             $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `ip_hash` VARCHAR(64) NOT NULL DEFAULT '' AFTER `ip_address`");
             $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `processing_token` VARCHAR(64) NULL AFTER `ip_hash`");
             $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `processing_started_at` DATETIME NULL AFTER `processing_token`");
+            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proxy_intel_risk_score` INT NOT NULL DEFAULT 0 AFTER `processing_started_at`");
+            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proxy_intel_type` VARCHAR(32) NULL AFTER `proxy_intel_risk_score`");
+            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proxy_intel_provider` VARCHAR(128) NULL AFTER `proxy_intel_type`");
+            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proxy_intel_last_seen` VARCHAR(64) NULL AFTER `proxy_intel_provider`");
             $db->exec("ALTER TABLE `reward_receipts` ADD INDEX IF NOT EXISTS `receipt_source_event_idx` (`source_event_key`)");
             $db->exec("ALTER TABLE `reward_receipts` ADD INDEX IF NOT EXISTS `receipt_processing_idx` (`status`, `processing_token`, `processing_started_at`, `id`)");
             $db->exec("ALTER TABLE `reward_receipts` ADD UNIQUE INDEX IF NOT EXISTS `receipt_source_event_unique` (`source_event_key`)");
@@ -491,6 +523,21 @@ class RewardService
             SET status = ?, processing_token = NULL, processing_started_at = NULL
             WHERE id = ?
         ")->execute([$status, $id]);
+    }
+
+    private function markReceiptWithReasons(int $id, string $status, array $reasons, string $riskLevel = 'not_counted'): void
+    {
+        $db = Database::getInstance()->getConnection();
+        $db->prepare("
+            UPDATE reward_receipts
+            SET status = ?, risk_level = ?, risk_reasons_json = ?, processing_token = NULL, processing_started_at = NULL
+            WHERE id = ?
+        ")->execute([
+            $status,
+            $riskLevel,
+            json_encode(array_values(array_unique(array_map('strval', $reasons))), JSON_UNESCAPED_SLASHES),
+            $id,
+        ]);
     }
 
     private function releaseClaimedReceipt(int $id): void
@@ -761,6 +808,49 @@ class RewardService
             'network_type' => isset($context['network_type']) && $context['network_type'] !== '' ? substr((string)$context['network_type'], 0, 32) : null,
             'country_code' => isset($context['country_code']) && preg_match('/^[A-Z]{2}$/', strtoupper((string)$context['country_code'])) ? strtoupper((string)$context['country_code']) : null,
         ];
+    }
+
+    private function resolveReceiptProxyIntel(array $context, string $ip): array
+    {
+        $emptyIntel = [
+            'risk' => 0,
+            'type' => null,
+            'provider' => null,
+            'last_seen' => null,
+        ];
+
+        if (!$this->shouldCaptureProxyIntel()) {
+            return $emptyIntel;
+        }
+
+        if (
+            !empty($context['proxy_intel_risk_score'])
+            || !empty($context['proxy_intel_type'])
+            || !empty($context['proxy_intel_provider'])
+            || !empty($context['proxy_intel_last_seen'])
+        ) {
+            return [
+                'risk' => max(0, min(100, (int)($context['proxy_intel_risk_score'] ?? 0))),
+                'type' => isset($context['proxy_intel_type']) && $context['proxy_intel_type'] !== '' ? substr((string)$context['proxy_intel_type'], 0, 32) : null,
+                'provider' => isset($context['proxy_intel_provider']) && $context['proxy_intel_provider'] !== '' ? substr((string)$context['proxy_intel_provider'], 0, 128) : null,
+                'last_seen' => isset($context['proxy_intel_last_seen']) && $context['proxy_intel_last_seen'] !== '' ? substr((string)$context['proxy_intel_last_seen'], 0, 64) : null,
+            ];
+        }
+
+        $intel = (new SecurityService())->lookupProxyIntel($ip);
+
+        return [
+            'risk' => max(0, min(100, (int)($intel['risk'] ?? 0))),
+            'type' => isset($intel['type']) && $intel['type'] !== '' ? substr((string)$intel['type'], 0, 32) : null,
+            'provider' => isset($intel['provider']) && $intel['provider'] !== '' ? substr((string)$intel['provider'], 0, 128) : null,
+            'last_seen' => isset($intel['last_seen']) && $intel['last_seen'] !== '' ? substr((string)$intel['last_seen'], 0, 64) : null,
+        ];
+    }
+
+    private function shouldCaptureProxyIntel(): bool
+    {
+        return \App\Service\SecurityService::getVpnProtectionMode() === 'intelligence'
+            && trim((string)Setting::getEncrypted('proxycheck_api_key', '')) !== '';
     }
 
     private function acquireReceiptLock(\PDO $db, string $sourceEventKey, ?int $sessionId)

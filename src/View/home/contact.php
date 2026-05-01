@@ -2,10 +2,12 @@
 $title = 'Contact Support';
 $metaDescription = 'Contact support for questions, account issues, abuse follow-up, or general help with this file hosting site.';
 include __DIR__ . '/header.php';
+include __DIR__ . '/partials/public_form_shell_styles.php';
 ?>
-    <div class="contact-support-card auth-container">
+    <div class="public-form-shell">
+    <div class="public-form-card public-form-card--wide public-form-card--plain contact-support-card auth-container">
         <h2>Contact Us</h2>
-        <p class="contact-support-copy">Have a question or feedback? We'd love to hear from you.</p>
+        <p class="public-form-intro">Have a question or feedback? We'd love to hear from you.</p>
 
         <?php if ($error): ?>
             <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
@@ -36,10 +38,10 @@ include __DIR__ . '/header.php';
             <button type="submit" class="btn">Send Message</button>
         </form>
     </div>
+    </div>
 
 <style>
-.contact-support-card{max-width:600px;border:none;box-shadow:none;background:transparent}
-.contact-support-copy{text-align:center;color:var(--text-muted);margin-bottom:2rem}
+.contact-support-card{max-width:none}
 .contact-support-message{width:100%;padding:.625rem;border:1px solid var(--border-color);border-radius:8px;font-size:.875rem}
 </style>
 

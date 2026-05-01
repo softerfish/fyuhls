@@ -4,28 +4,57 @@ $title = $pageTitle ?? "Dashboard - {$siteName}";
 $extraHead = '
 <link rel="stylesheet" href="/assets/css/filemanager.css?v=' . filemtime(BASE_PATH . '/public/assets/css/filemanager.css') . '">
 <style>
-    .dashboard-shell { margin-top: 1rem; }
-    .dashboard-plan-card { text-align: center; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); }
-    .dashboard-plan-current { margin-bottom: 0.25rem; font-size: 0.875rem; color: var(--text-color); font-weight: 600; }
-    .dashboard-plan-name { color: var(--primary-color); }
-    .dashboard-plan-expiry { font-size: 0.75rem; color: var(--text-muted); }
-    .dashboard-plan-limit { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem; }
-    .dashboard-plan-expiry--tight { margin-bottom: 0.5rem; }
-    .dashboard-plan-expiry--wide { margin-bottom: 1.25rem; }
-    .dashboard-plan-button { width: auto; padding: 0.5rem 1.5rem; }
-    .dashboard-account-title { margin-top: 0; }
-    .dashboard-nav { list-style: none; padding: 0.5rem 0; margin: 0; }
-    .dashboard-trash-item { padding: 0; display: flex; justify-content: space-between; align-items: center; min-height: 40px; }
-    .dashboard-trash-link { flex: 1; padding: 0.6rem 0.75rem; display: block; }
-    .dashboard-toolbar-controls { display: flex !important; align-items: center !important; gap: 12px !important; flex-wrap: wrap !important; width: auto !important; min-width: 0 !important; justify-content: flex-end !important; position: relative !important; z-index: 10 !important; }
-    .dashboard-search-box { width: min(220px, 100%) !important; flex: 1 1 180px !important; position: relative !important; }
-    .dashboard-search-input { width: 100% !important; box-sizing: border-box !important; }
-    .dashboard-view-toggle { width: 80px !important; height: 38px !important; display: flex !important; align-items: center !important; justify-content: center !important; flex-shrink: 0 !important; background: #f1f5f9 !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; font-size: 0.8rem !important; cursor: pointer !important; position: relative !important; z-index: 20 !important; }
-    .dashboard-date-hidden,
-    .dashboard-menu-hidden { display: none; }
-    .dashboard-hidden { display: none; }
+    .trash-history-section { margin-top: 2rem; }
+    .trash-history-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+    .trash-history-title { margin: 0; font-size: 1rem; font-weight: 700; color: var(--text-color); }
+    .trash-history-copy { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.875rem; }
+    .trash-history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.875rem; }
+    .trash-history-card { border: 1px solid var(--border-color); border-radius: 8px; background: #fff; padding: 1rem; min-width: 0; }
+    .trash-history-file { font-weight: 700; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.5rem; }
+    .trash-history-meta { color: var(--text-muted); font-size: 0.8rem; line-height: 1.45; margin-bottom: 0.75rem; }
+    .trash-history-label { display: block; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.25rem; }
+    .trash-history-reason { color: var(--text-color); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .trash-history-empty { border: 1px dashed var(--border-color); border-radius: 8px; padding: 1rem; color: var(--text-muted); font-size: 0.875rem; background: #f8fafc; }
+    .bulk-links-modal { width: min(940px, calc(100vw - 2rem)) !important; max-width: min(940px, calc(100vw - 2rem)) !important; max-height: calc(100vh - 2rem); overflow-y: auto; overscroll-behavior: contain; margin: 1rem auto !important; }
+    .bulk-links-summary { margin: 0.45rem 0 1rem; color: var(--text-muted); font-size: 0.92rem; line-height: 1.5; }
+    .bulk-links-summary strong { color: var(--text-color); }
+    .bulk-tools-grid { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 1.1rem; min-height: 400px; align-items: stretch; }
+    .bulk-tools-tabs { display: flex; flex-direction: column; gap: 0.5rem; }
+    .bulk-tools-tab { border: 1px solid var(--border-color); background: #fff; border-radius: 10px; padding: 0.75rem 0.9rem; text-align: left; cursor: pointer; color: var(--text-color); font-weight: 600; line-height: 1.35; transition: border-color .15s ease, background-color .15s ease, color .15s ease, box-shadow .15s ease; }
+    .bulk-tools-tab small { display: block; margin-top: 0.2rem; color: var(--text-muted); font-size: 0.76rem; font-weight: 500; }
+    .bulk-tools-tab.is-active { border-color: var(--primary-color); color: var(--primary-color); background: #eff6ff; box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.08); }
+    .bulk-tools-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--border-color); border-radius: 12px; background: #fbfdff; padding: 0.85rem; }
+    .bulk-tools-panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.65rem; }
+    .bulk-tools-panel-title { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-color); }
+    .bulk-tools-panel-copy { margin: 0.15rem 0 0; font-size: 0.82rem; color: var(--text-muted); }
+    .bulk-tools-format-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0.35rem 0.65rem; border-radius: 999px; background: #eff6ff; color: var(--primary-color); font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
+    .bulk-output { min-height: 320px; width: 100%; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.82rem; line-height: 1.5; background: #fff; overflow: auto; }
+    .bulk-tools-actions { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 0.85rem; flex-wrap: wrap; }
+    .bulk-tools-actions-note { color: var(--text-muted); font-size: 0.78rem; }
+    .bulk-tools-actions-group { display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; }
+    #massRenameModal { overflow-y: auto; padding: 1rem 0; box-sizing: border-box; }
+    .mass-rename-modal { width: min(680px, calc(100vw - 2rem)) !important; max-width: min(680px, calc(100vw - 2rem)) !important; max-height: calc(100dvh - 2rem); overscroll-behavior: contain; margin: 0 auto !important; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
+    .mass-rename-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 0.2rem; }
+    .mass-rename-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
+    .mass-rename-grid .form-group--full { grid-column: 1 / -1; }
+    .mass-rename-preview { max-height: 240px; overflow: auto; margin-top: 1rem; border: 1px solid var(--border-color); border-radius: 8px; }
+    .mass-rename-preview table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    .mass-rename-preview th, .mass-rename-preview td { padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border-color); text-align: left; }
+    .mass-rename-preview th { background: #f8fafc; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; }
+    .mass-rename-preview td { overflow-wrap: anywhere; }
+    .mass-rename-modal .modal-footer { position: sticky; bottom: 0; background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, #ffffff 28%); padding-top: 0.85rem; margin-top: 1rem; flex: 0 0 auto; }
+    @media (max-width: 900px) {
+        .bulk-tools-grid, .mass-rename-grid { grid-template-columns: 1fr; }
+        .bulk-tools-tabs { flex-direction: row; overflow-x: auto; }
+        .bulk-tools-tab { white-space: nowrap; }
+        .bulk-tools-tab small { white-space: normal; }
+        .bulk-tools-panel-head, .bulk-tools-actions { flex-direction: column; align-items: stretch; }
+        .bulk-tools-actions-group { justify-content: stretch; }
+        .bulk-tools-actions-group .btn { width: 100%; }
+    }
 </style>';
 include __DIR__ . '/header.php';
+include __DIR__ . '/partials/account_sidebar_styles.php';
 
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
 $currentUserId = \App\Core\Auth::id() ?? 0;
@@ -42,107 +71,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
 
 <div class="fm-container dashboard-shell<?= $guestMode ? ' guest-upload-shell' : '' ?>">
     <?php if (!$guestMode): ?>
-    <div class="fm-sidebar">
-        <div class="sidebar-section">
-            <div class="dashboard-plan-card">
-                <?php
-                $userId = $currentUserId;
-                $pkgNameStr = 'Free Plan';
-                $expiryStr = 'Lifetime Free Account';
-                $userPkg = null;
-
-                if ($userId) {
-                    if (\App\Core\Auth::isAdmin()) {
-                        $pkgNameStr = 'Admin';
-                    } else {
-                        $userPkg = \App\Model\Package::getUserPackage($userId);
-                        if ($userPkg) {
-                            $pkgNameStr = $userPkg['name'] ?? 'Free Plan';
-                            if (!empty($userPkg['premium_expiry'])) {
-                                $expiryStr = 'Renews on ' . date('M d, Y', strtotime($userPkg['premium_expiry']));
-                            }
-                        }
-                    }
-                }
-                ?>
-                <?php $isPaidPlan = (\App\Core\Auth::isAdmin() || strtolower((string)($userPkg['level_type'] ?? 'free')) === 'paid'); ?>
-                <div class="dashboard-plan-current">
-                    Current Plan: <span class="dashboard-plan-name"><?= htmlspecialchars($pkgNameStr) ?></span>
-                </div>
-                <div class="dashboard-plan-expiry <?= $isPaidPlan ? 'dashboard-plan-expiry--tight' : 'dashboard-plan-expiry--wide' ?>">
-                    <?= htmlspecialchars($expiryStr) ?>
-                </div>
-
-                <?php if (!$isPaidPlan): ?>
-                    <button class="btn btn-warning dashboard-plan-button" data-nav-url="/#pricing">View Plans</button>
-                <?php endif; ?>
-            </div>
-            <?php
-            // storage quota bar - only render when the package has a limit
-            $sqUsed  = $storageQuota['used'] ?? 0;
-            $sqLimit = $storageQuota['limit'] ?? 0;
-            if ($sqLimit > 0):
-                $sqPct   = min(100, round(($sqUsed / $sqLimit) * 100));
-                $sqClass = $sqPct >= 90 ? 'storage-bar--danger' : ($sqPct >= 70 ? 'storage-bar--warn' : '');
-            ?>
-            <div class="storage-bar-wrap">
-                <div class="storage-bar-label">
-                    <span>Storage</span>
-                    <span><?= htmlspecialchars(\App\Service\FileProcessor::formatSize($sqUsed, 1)) ?> / <?= htmlspecialchars(\App\Service\FileProcessor::formatSize($sqLimit, 1)) ?></span>
-                </div>
-                <div class="storage-bar <?= $sqClass ?>">
-                    <div class="storage-bar-fill" style="width:<?= $sqPct ?>%"></div>
-                </div>
-            </div>
-            <?php endif; ?>
-            <?php
-            // download bandwidth quota bar
-            $bwUsed  = $dailyDownloadLimitSummary['used_bytes'] ?? 0;
-            $bwLimit = $dailyDownloadLimitSummary['limit_bytes'] ?? 0;
-            $bwHasLimit = $dailyDownloadLimitSummary['has_limit'] ?? false;
-            if ($bwHasLimit && $bwLimit > 0):
-                $bwPct   = min(100, round(($bwUsed / $bwLimit) * 100));
-                $bwClass = $bwPct >= 90 ? 'storage-bar--danger' : ($bwPct >= 70 ? 'storage-bar--warn' : '');
-            ?>
-            <div class="storage-bar-wrap" style="margin-top: 15px;">
-                <div class="storage-bar-label">
-                    <span>Bandwidth (Daily)</span>
-                    <span><?= htmlspecialchars(\App\Service\FileProcessor::formatSize($bwUsed, 1)) ?> / <?= htmlspecialchars(\App\Service\FileProcessor::formatSize($bwLimit, 1)) ?></span>
-                </div>
-                <div class="storage-bar <?= $bwClass ?>">
-                    <div class="storage-bar-fill" style="width:<?= $bwPct ?>%"></div>
-                </div>
-            </div>
-            <?php elseif (!$bwHasLimit): ?>
-            <div class="storage-bar-wrap" style="margin-top: 15px;">
-                <div class="storage-bar-label">
-                    <span>Bandwidth (Daily)</span>
-                    <span>Unlimited</span>
-                </div>
-                <div class="storage-bar">
-                    <div class="storage-bar-fill" style="width:0%"></div>
-                </div>
-            </div>
-            <?php endif; ?>
-            <h3 class="dashboard-account-title">Account</h3>
-            <!-- Antigravity-Sync-Check-1.0 -->
-            <ul class="dashboard-nav">
-                <li data-nav-url="/" class="<?= (!isset($isTrash) || !$isTrash) && !str_contains($requestUri, '/settings') && !str_contains($requestUri, '/rewards') && !str_contains($requestUri, '/affiliate') && !str_contains($requestUri, '/recent') && !str_contains($requestUri, '/shared') ? 'active' : '' ?>">All Files</li>
-                <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
-                    <li data-nav-url="/rewards" class="<?= str_contains($requestUri, '/rewards') ? 'active' : '' ?>">My Rewards</li>
-                    <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
-                        <li data-nav-url="/affiliate" class="<?= str_contains($requestUri, '/affiliate') ? 'active' : '' ?>">Affiliate</li>
-                    <?php endif; ?>
-                <?php endif; ?>
-                <li data-nav-url="/settings" class="<?= str_contains($requestUri, '/settings') ? 'active' : '' ?>">Settings</li>
-                <li data-nav-url="/recent" class="<?= str_contains($requestUri, '/recent') ? 'active' : '' ?>">Recent</li>
-                <li data-nav-url="/shared" class="<?= str_contains($requestUri, '/shared') ? 'active' : '' ?>">Shared</li>
-                <li class="<?= (isset($isTrash) && $isTrash) ? 'active' : '' ?> sidebar-trash-item dashboard-trash-item">
-                    <span data-nav-url="/trash" class="dashboard-trash-link">Trash</span>
-                </li>
-            </ul>
-        </div>
-    </div>
+    <?php include __DIR__ . '/partials/account_sidebar.php'; ?>
     <?php endif; ?>
     <div class="fm-main">
         <?php if ($guestMode): ?>
@@ -258,7 +187,13 @@ $uploadLimitText = $effectiveUploadLimit > 0
                         <option value="newest">Newest first</option>
                         <option value="oldest">Oldest first</option>
                         <option value="name">Name A-Z</option>
+                        <option value="name_desc">Name Z-A</option>
                         <option value="largest">Largest first</option>
+                        <option value="smallest">Smallest first</option>
+                        <option value="downloads">Downloads</option>
+                        <option value="downloads_asc">Fewest downloads</option>
+                        <option value="public">Public first</option>
+                        <option value="private">Private first</option>
                     </select>
                 </label>
             </div>
@@ -269,6 +204,15 @@ $uploadLimitText = $effectiveUploadLimit > 0
         </div>
 
         <div class="file-grid" id="fileGrid">
+            <div class="fm-list-header">
+                <div class="fm-list-select"><input type="checkbox" id="listSelectAll" aria-label="Select all visible items"></div>
+                <div class="fm-list-name"><button type="button" class="fm-list-sort-btn" data-list-sort="name" data-list-sort-alt="name_desc">Folder/File</button></div>
+                <div class="fm-list-size"><button type="button" class="fm-list-sort-btn" data-list-sort="largest" data-list-sort-alt="smallest">Size</button></div>
+                <div class="fm-list-upload"><button type="button" class="fm-list-sort-btn" data-list-sort="newest" data-list-sort-alt="oldest">Uploaded</button></div>
+                <div class="fm-list-downloads"><button type="button" class="fm-list-sort-btn" data-list-sort="downloads" data-list-sort-alt="downloads_asc">DLs</button></div>
+                <div class="fm-list-public"><button type="button" class="fm-list-sort-btn" data-list-sort="public" data-list-sort-alt="private">Public</button></div>
+                <div class="fm-list-actions">Edit</div>
+            </div>
             <?php if (empty($files) && empty($folders)): ?>
                 <div class="empty-state">
                     <div class="empty-icon" aria-hidden="true">&#128194;</div>
@@ -294,6 +238,8 @@ $uploadLimitText = $effectiveUploadLimit > 0
                          data-kind="folder"
                          data-parent-id="<?= $folder['parent_id'] === null ? '' : (int)$folder['parent_id'] ?>"
                          data-status="<?= htmlspecialchars($folder['status'] ?? 'active') ?>"
+                         data-size="<?= (int)($folder['total_size'] ?? 0) ?>"
+                         data-downloads="0"
                          data-created-at="<?= htmlspecialchars($folder['created_at']) ?>"
                          draggable="true">
                         <div class="file-hover-controls">
@@ -307,9 +253,10 @@ $uploadLimitText = $effectiveUploadLimit > 0
                         <div class="file-preview">
                             <div class="file-icon" aria-hidden="true">&#128193;</div>
                         </div>
-                        <div class="file-info">
+                        <div class="file-info" data-nav-url="/folder/<?= $folderId ?>">
                             <div class="file-name" title="<?= htmlspecialchars($folder['name']) ?>">
                                 <?= htmlspecialchars($folder['name']) ?>
+                                <span class="folder-count-badge"><?= (int)($folder['file_count'] ?? 0) ?></span>
                             </div>
                             <div class="file-meta">
                                 <span class="file-stats">
@@ -327,11 +274,22 @@ $uploadLimitText = $effectiveUploadLimit > 0
                                 <span class="file-date dashboard-date-hidden"><?= date('Y-m-d H:i:s', strtotime($folder['created_at'])) ?></span>
                             </div>
                         </div>
+                        <div class="file-list-cell file-list-size"><?= !empty($folder['total_size']) ? \App\Service\FileProcessor::formatSize($folder['total_size'], 1) : '' ?></div>
+                        <div class="file-list-cell file-list-upload"><?= date('Y-m-d', strtotime($folder['created_at'])) ?></div>
+                        <div class="file-list-cell file-list-downloads"></div>
+                        <div class="file-list-cell file-list-public"></div>
+                        <div class="file-list-actions">
+                            <button class="fm-row-action rename-item" type="button" title="Rename" aria-label="Rename folder">&#9998;</button>
+                            <button class="fm-row-action fm-row-action-danger delete-folder" type="button" title="Delete" aria-label="Delete folder">&times;</button>
+                        </div>
                     </div>
                 <?php endforeach; ?>
 
                 <?php foreach ($files as $file): ?>
-                    <?php $fileId = $file['id']; ?>
+                    <?php
+                    $fileId = $file['id'];
+                    $downloadCount = (int)($file['downloads'] ?? $file['download_count'] ?? 0);
+                    ?>
                     <div class="file-item"
                          data-id="<?= $fileId ?>"
                          data-kind="file"
@@ -339,6 +297,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
                          data-status="<?= htmlspecialchars($file['status'] ?? 'active') ?>"
                          data-public="<?= !empty($file['is_public']) ? '1' : '0' ?>"
                          data-size="<?= (int)$file['file_size'] ?>"
+                         data-downloads="<?= $downloadCount ?>"
                          data-mime="<?= htmlspecialchars($file['mime_type']) ?>"
                          data-short-id="<?= htmlspecialchars($file['short_id']) ?>"
                          data-created-at="<?= htmlspecialchars($file['created_at']) ?>"
@@ -366,7 +325,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
                                 <div class="file-icon"><?= getFileIcon($file['mime_type']) ?></div>
                             <?php endif; ?>
                         </div>
-                        <div class="file-info">
+                        <div class="file-info" data-nav-url="/file/<?= htmlspecialchars($file['short_id']) ?>" data-nav-target="_blank">
                             <div class="file-name" title="<?= htmlspecialchars($file['filename']) ?>">
                                 <?= htmlspecialchars($file['filename']) ?>
                                 <?php \App\Core\View::hook('after_file_name', ['file' => $file]); ?>
@@ -376,16 +335,76 @@ $uploadLimitText = $effectiveUploadLimit > 0
                                 <span class="file-date dashboard-date-hidden"><?= date('Y-m-d H:i:s', strtotime($file['created_at'])) ?></span>
                             </div>
                         </div>
+                        <div class="file-list-cell file-list-size"><?= \App\Service\FileProcessor::formatSize($file['file_size']) ?></div>
+                        <div class="file-list-cell file-list-upload"><?= date('Y-m-d', strtotime($file['created_at'])) ?></div>
+                        <div class="file-list-cell file-list-downloads"><?= $downloadCount > 0 ? $downloadCount : '' ?></div>
+                        <div class="file-list-cell file-list-public">
+                            <button class="fm-switch-indicator fm-public-toggle <?= !empty($file['is_public']) ? 'is-on' : '' ?>"
+                                    type="button"
+                                    data-visibility-toggle
+                                    aria-label="<?= !empty($file['is_public']) ? 'Make private' : 'Make public' ?>"
+                                    title="<?= !empty($file['is_public']) ? 'Public' : 'Private' ?>"></button>
+                        </div>
+                        <div class="file-list-actions">
+                            <button class="fm-row-action rename-item" type="button" title="Rename" aria-label="Rename file">&#9998;</button>
+                            <button class="fm-row-action fm-row-action-danger delete-file" type="button" title="Delete" aria-label="Delete file">&times;</button>
+                        </div>
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>
         </div>
 
+        <?php if (!empty($isTrash)): ?>
+        <?php $fileDeletionHistory = is_array($fileDeletionHistory ?? null) ? $fileDeletionHistory : []; ?>
+        <section class="trash-history-section" aria-labelledby="trashHistoryTitle">
+            <div class="trash-history-header">
+                <div>
+                    <h3 class="trash-history-title" id="trashHistoryTitle">Deleted File History</h3>
+                    <p class="trash-history-copy">Files permanently removed from your account, including the recorded deletion reason.</p>
+                </div>
+            </div>
+            <?php if (!empty($fileDeletionHistory)): ?>
+                <div class="trash-history-grid">
+                    <?php foreach ($fileDeletionHistory as $entry): ?>
+                        <?php
+                        $actorLabel = trim((string)($entry['deleted_by_label'] ?? ''));
+                        if ($actorLabel === '') {
+                            $actorLabel = (($entry['deleted_by_role'] ?? '') === 'admin') ? 'Administrator' : 'You';
+                        }
+                        $reason = trim((string)($entry['delete_reason'] ?? ''));
+                        $deletedAt = !empty($entry['deleted_at']) ? strtotime((string)$entry['deleted_at']) : false;
+                        ?>
+                        <article class="trash-history-card">
+                            <div class="trash-history-file" title="<?= htmlspecialchars((string)($entry['original_filename'] ?? 'Deleted file')) ?>">
+                                <?= htmlspecialchars((string)($entry['original_filename'] ?? 'Deleted file')) ?>
+                            </div>
+                            <div class="trash-history-meta">
+                                Removed <?= htmlspecialchars($deletedAt ? date('M d, Y H:i', $deletedAt) : 'Unknown date') ?>
+                                by <?= htmlspecialchars($actorLabel) ?>
+                            </div>
+                            <div>
+                                <span class="trash-history-label">Reason</span>
+                                <div class="trash-history-reason">
+                                    <?= $reason !== '' ? htmlspecialchars($reason) : 'No reason was recorded for this deletion.' ?>
+                                </div>
+                            </div>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="trash-history-empty">No permanently deleted file history has been recorded yet.</div>
+            <?php endif; ?>
+        </section>
+        <?php endif; ?>
+
         <div id="selectionToolbar" class="selection-toolbar">
             <div class="selection-count"><span id="selectedCount">0</span> items selected</div>
             <div class="selection-actions">
                 <button class="btn btn-sm btn-white" id="bulkDownloadBtn">Download Selected</button>
+                <button class="btn btn-sm btn-white" id="bulkLinksBtn">Links</button>
                 <button class="btn btn-sm btn-white" id="bulkMoveBtn">Move</button>
+                <button class="btn btn-sm btn-white" id="bulkCopyBtn">Copy</button>
+                <button class="btn btn-sm btn-white" id="massRenameBtn">Rename</button>
                 <button class="btn btn-sm btn-white" id="bulkMakePublicBtn">Make Public</button>
                 <button class="btn btn-sm btn-white" id="bulkMakePrivateBtn">Make Private</button>
                 <button class="btn btn-sm btn-white" id="bulkTrashBtn">Move to Trash</button>
@@ -430,6 +449,107 @@ $uploadLimitText = $effectiveUploadLimit > 0
         <span id="uploadQueueStats">No active uploads</span>
     </div>
     <div class="upload-queue" id="uploadQueueList" aria-live="polite"></div>
+</div>
+
+<div id="bulkLinksModal" class="modal">
+    <div class="modal-content share-modal-content bulk-links-modal">
+        <h3>Bulk Links</h3>
+        <p id="bulkLinksDescription">Generate links for the selected public files and folders.</p>
+        <p class="bulk-links-summary" id="bulkLinksSummary">
+            You are exporting links for <strong id="bulkLinksSelectionCount">0 items</strong>.
+        </p>
+        <div class="bulk-tools-grid">
+            <div class="bulk-tools-tabs">
+                <button type="button" class="bulk-tools-tab is-active" data-link-format="plain">Plain links<small>Files only, one URL per line</small></button>
+                <button type="button" class="bulk-tools-tab" data-link-format="page">Download page links<small>Public file or folder pages</small></button>
+                <button type="button" class="bulk-tools-tab" data-link-format="html">HTML links<small>Ready for websites and blogs</small></button>
+                <button type="button" class="bulk-tools-tab" data-link-format="bbcode">BBCode links<small>Ready for forums</small></button>
+                <button type="button" class="bulk-tools-tab" data-link-format="thumbs">Image thumbnails<small>Embed code for image files</small></button>
+                <button type="button" class="bulk-tools-tab" data-link-format="grouped">Grouped by folder<small>Organized by parent folder</small></button>
+            </div>
+            <div class="bulk-tools-panel">
+                <div class="bulk-tools-panel-head">
+                    <div>
+                        <p class="bulk-tools-panel-title">Generated output</p>
+                        <p class="bulk-tools-panel-copy">Review the result below before copying or exporting it.</p>
+                    </div>
+                    <span class="bulk-tools-format-badge" id="bulkLinksFormatLabel">Plain links</span>
+                </div>
+                <textarea id="bulkLinksOutput" class="form-control bulk-output" readonly></textarea>
+                <div class="bulk-tools-actions">
+                    <div class="bulk-tools-actions-note" id="bulkLinksActionsNote">Copy everything or export the current format as a text file.</div>
+                    <div class="bulk-tools-actions-group">
+                        <button class="btn btn-white" type="button" id="copyBulkLinksBtn">Copy All</button>
+                        <button class="btn btn-white" type="button" id="exportBulkLinksBtn">Export .txt</button>
+                        <button class="btn" type="button" id="closeBulkLinksBtn">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="massRenameModal" class="modal">
+    <div class="modal-content share-modal-content mass-rename-modal">
+        <h3>Mass Rename</h3>
+        <p>Preview filename changes before applying them to the selected items.</p>
+        <div class="mass-rename-scroll">
+            <div class="mass-rename-grid">
+                <label class="form-group">
+                    <span class="form-label">Find</span>
+                    <input type="text" class="form-control" id="renameFind">
+                </label>
+                <label class="form-group">
+                    <span class="form-label">Replace</span>
+                    <input type="text" class="form-control" id="renameReplace">
+                </label>
+                <label class="form-group">
+                    <span class="form-label">Add prefix</span>
+                    <input type="text" class="form-control" id="renamePrefix">
+                </label>
+                <label class="form-group">
+                    <span class="form-label">Add suffix</span>
+                    <input type="text" class="form-control" id="renameSuffix">
+                </label>
+                <label class="form-group">
+                    <span class="form-label">Remove text</span>
+                    <input type="text" class="form-control" id="renameRemove">
+                </label>
+                <label class="form-group">
+                    <span class="form-label">Convert separators</span>
+                    <select class="form-control" id="renameSeparator">
+                        <option value="">No conversion</option>
+                        <option value="spaces">Dots/underscores to spaces</option>
+                        <option value="dots">Spaces/underscores to dots</option>
+                        <option value="underscores">Spaces/dots to underscores</option>
+                    </select>
+                </label>
+                <label class="form-group">
+                    <span class="form-label">Sequential numbering</span>
+                    <select class="form-control" id="renameSequence">
+                        <option value="">Off</option>
+                        <option value="prefix">Number prefix</option>
+                        <option value="suffix">Number suffix</option>
+                    </select>
+                </label>
+                <label class="form-group">
+                    <span class="form-label">Start number</span>
+                    <input type="number" class="form-control" id="renameStart" value="1" min="0">
+                </label>
+                <label class="form-group form-group--full">
+                    <span class="form-label">
+                        <input type="checkbox" id="renameRegex" <?= \App\Core\Auth::isAdmin() ? '' : 'disabled' ?>> Regex-lite find/replace<?= \App\Core\Auth::isAdmin() ? '' : ' (admin only)' ?>
+                    </span>
+                </label>
+            </div>
+            <div class="mass-rename-preview" id="massRenamePreview"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn" id="closeMassRenameBtn" type="button">Close</button>
+            <button class="btn btn-white" id="previewMassRenameBtn" type="button">Preview</button>
+            <button class="btn btn-primary" id="applyMassRenameBtn" type="button" disabled>Apply</button>
+        </div>
+    </div>
 </div>
 
 <div id="shareModal" class="modal">
@@ -482,7 +602,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
 <div id="moveModal" class="modal">
     <div class="modal-content">
         <h3>Move Items</h3>
-        <p>Select destination folder:</p>
+        <p id="moveModalDescription">Select destination folder:</p>
         <div id="folderTree" class="folder-tree">
             <div class="folder-tree-item" data-id="root">
                 &#128193; Home (Root)
@@ -597,6 +717,8 @@ $extraBottom = "
 <script>window.FILE_MANAGER_CONFIG = " . json_encode([
     'baseUrl' => rtrim(\App\Service\SeoService::trustedBaseUrl(), '/'),
     'isAdmin' => \App\Core\Auth::isAdmin(),
+    'isTrash' => !empty($isTrash),
+    'guestMode' => $guestMode,
 ]) . ";</script>
 <script src=\"/assets/js/filemanager.js?v=" . filemtime(BASE_PATH . '/public/assets/js/filemanager.js') . "\"></script>
 ";

@@ -81,6 +81,9 @@ $showAffiliate = \App\Service\FeatureService::affiliateEnabled();
                 <?php endif; ?>
                 <a href="/faq" class="home-footer-link">FAQ</a>
                 <a href="/dmca" class="home-footer-link">DMCA</a>
+                <?php if (\App\Model\Setting::get('link_checker_enabled', '1') === '1'): ?>
+                    <a href="/link-checker" class="home-footer-link">Link Checker</a>
+                <?php endif; ?>
                 <?php if (\App\Model\Setting::get('show_powered_by_footer', '1') === '1'): ?>
                     <span class="home-footer-powered">Powered by: <a href="https://fyuhls.com" target="_blank" class="home-footer-link">fyuhls.com</a></span>
                 <?php endif; ?>

@@ -66,9 +66,16 @@ class App {
 
         $connectSrc = array_values(array_unique(array_filter($connectSrc)));
 
+        $formAction = [
+            "'self'",
+            'https://www.paypal.com',
+            'https://www.sandbox.paypal.com',
+            'https://checkout.stripe.com',
+        ];
+
         return "default-src 'self'; "
             . "base-uri 'self'; "
-            . "form-action 'self'; "
+            . 'form-action ' . implode(' ', $formAction) . '; '
             . "frame-ancestors 'self'; "
             . "script-src 'self' 'nonce-{$this->cspNonce}' https://challenges.cloudflare.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
             . "script-src-elem 'self' 'nonce-{$this->cspNonce}' https://challenges.cloudflare.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
@@ -320,6 +327,10 @@ class App {
 
         header('Content-Security-Policy: ' . $this->buildContentSecurityPolicy());
 
+        ob_start(function (string $buffer): string {
+            return $this->injectNonceIntoHtml($buffer);
+        });
+
         // Load Plugins
         PluginManager::loadPlugins($this->router);
 
@@ -351,11 +362,15 @@ class App {
         $uri = strtok($requestUri, '?');
         $isAdminPath = str_starts_with($uri, '/admin');
         $viewerIsAdmin = \App\Core\Auth::isAdmin();
+        $isStaticAssetRequest =
+            str_starts_with($uri, '/assets/')
+            || str_starts_with($uri, '/themes/')
+            || preg_match('/\.(?:css|js|mjs|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot|map)$/i', $uri) === 1;
         
-        // Allow login and registration even when VPN/proxy blocking is enabled.
-        $isPublicAuth = in_array($uri, ['/login', '/register'], true);
+        // Allow a small set of public support/auth pages even when VPN/proxy blocking is enabled.
+        $isPublicAuth = in_array($uri, ['/login', '/register', '/contact'], true);
 
-        if (!$isPublicAuth) { 
+        if (!$isPublicAuth && !$isStaticAssetRequest) { 
             try {
                 // 1. Maintenance Mode Check
                 $maintenanceOn = \App\Model\Setting::get('maintenance_mode', '0') === '1';
@@ -367,7 +382,7 @@ class App {
                 }
 
                 // 2. Global VPN/Proxy Block
-                $vpnMode = \App\Model\Setting::get('vpn_proxy_mode', \App\Model\Setting::get('block_vpn_traffic', '0') === '1' ? 'enforcement' : 'intelligence');
+                $vpnMode = \App\Service\SecurityService::getVpnProtectionMode();
                 if ($vpnMode === 'enforcement') {
                     if ($isAdminPath || $viewerIsAdmin) {
                         // error_log("VPN_BLOCK: Skipping check because user is Admin.");
@@ -384,7 +399,16 @@ class App {
                                 echo json_encode(['error' => 'vpn_proxy_blocked', 'message' => 'Access from VPN/Proxy is not allowed.']);
                             } else {
                                 $siteName = \App\Model\Setting::getOrConfig('app.name', Config::get('app_name', 'Site'));
-                                require_once dirname(__DIR__) . '/View/errors/vpn_blocked.php';
+                                $title = 'VPN / Proxy Detected - ' . $siteName;
+                                $metaDescription = 'Access from VPN or proxy services is blocked for this request.';
+                                require_once dirname(__DIR__) . '/View/home/header.php';
+                                \App\Core\View::render('errors/vpn_blocked.php', [
+                                    'ip' => $ip,
+                                    'siteName' => $siteName,
+                                    'title' => $title,
+                                    'metaDescription' => $metaDescription,
+                                ]);
+                                require_once dirname(__DIR__) . '/View/home/footer.php';
                             }
                             exit;
                         }
@@ -426,16 +450,22 @@ class App {
             error_log("DEMO_MODE_ERROR: " . $e->getMessage());
         }
 
-        // Core 2FA Gatekeeper
+        // Core 2FA Gatekeeper.
+        // Some production installs can end up with stale Composer autoload metadata
+        // during partial updates, so fall back to the known class file before fataling.
+        if (!class_exists(\App\Service\TwoFactorGateService::class)) {
+            $rootDir = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+            $twoFactorGatePath = $rootDir . '/src/Service/TwoFactorGateService.php';
+            if (is_file($twoFactorGatePath)) {
+                require_once $twoFactorGatePath;
+            }
+        }
         \App\Service\TwoFactorGateService::interceptRequest();
 
         // Global Boot Hook
         PluginManager::doAction('app_boot');
 
         // Dispatch
-        ob_start(function (string $buffer): string {
-            return $this->injectNonceIntoHtml($buffer);
-        });
         $this->router->dispatch($requestUri, $_SERVER['REQUEST_METHOD']);
         if (ob_get_level() > 0) {
             ob_end_flush();

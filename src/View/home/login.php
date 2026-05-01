@@ -2,10 +2,11 @@
 $title = "Login - " . ($siteName ?? 'Fyuhls');
 $metaDescription = 'Login to access your file manager, packages, rewards, and account settings.';
 include __DIR__ . '/header.php';
+include __DIR__ . '/partials/public_form_shell_styles.php';
 ?>
 
-<div class="login-shell">
-    <div class="login-card auth-container">
+<div class="public-form-shell">
+    <div class="public-form-card auth-container">
         <h2>Login</h2>
         <?php if (!empty($error)): ?>
             <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
@@ -52,10 +53,6 @@ include __DIR__ . '/header.php';
     </div>
 </div>
 
-<style>
-.login-shell{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
-.login-card{margin:0}
-.login-forgot-link{font-size:.875rem}
-</style>
+<style>.login-forgot-link{font-size:.875rem}</style>
 
 <?php include __DIR__ . '/footer.php'; ?>

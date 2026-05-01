@@ -317,7 +317,7 @@ class SchemaService
                     'status' => "ENUM('active', 'revoked') NOT NULL DEFAULT 'active'",
                     'expires_at' => "DATETIME NULL",
                     'last_used_at' => "DATETIME NULL",
-                    'last_used_ip' => "VARCHAR(64) NULL",
+                    'last_used_ip' => "VARCHAR(64) NULL /* Encrypted */",
                     'revoked_at' => "DATETIME NULL",
                     'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
                     'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
@@ -353,6 +353,29 @@ class SchemaService
                     'api_idem_created' => "INDEX api_idem_created (created_at)"
                 ]
             ],
+            'transactions' => [
+                'columns' => [
+                    'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+                    'user_id' => "BIGINT UNSIGNED NOT NULL",
+                    'package_id' => "INT UNSIGNED NOT NULL",
+                    'amount' => "DECIMAL(10,2) NOT NULL",
+                    'currency' => "VARCHAR(3) NOT NULL DEFAULT 'USD'",
+                    'gateway' => "VARCHAR(50) NOT NULL",
+                    'gateway_reference' => "VARCHAR(191) NULL",
+                    'status' => "ENUM('pending', 'completed', 'failed', 'refunded', 'on_hold', 'denied') NOT NULL DEFAULT 'pending'",
+                    'ip_address' => "VARCHAR(255) NULL /* Encrypted */",
+                    'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ],
+                'primary' => 'id',
+                'indexes' => [
+                    'transactions_gateway_reference_idx' => "INDEX transactions_gateway_reference_idx (gateway_reference)",
+                    'transactions_status_created_idx' => "INDEX transactions_status_created_idx (status, created_at)"
+                ],
+                'foreign_keys' => [
+                    'transactions_user_fk' => "FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE",
+                    'transactions_package_fk' => "FOREIGN KEY (`package_id`) REFERENCES `packages`(`id`) ON DELETE CASCADE"
+                ]
+            ],
             'admin_activity_log' => [
                 'columns' => [
                     'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
@@ -360,8 +383,8 @@ class SchemaService
                     'action' => "VARCHAR(100) NOT NULL",
                     'item_type' => "VARCHAR(50) NULL",
                     'item_id' => "BIGINT UNSIGNED NULL",
-                    'details' => "TEXT NULL",
-                    'ip_address' => "VARCHAR(45) NULL",
+                    'details' => "TEXT NULL /* Encrypted */",
+                    'ip_address' => "VARCHAR(45) NULL /* Encrypted */",
                     'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
                 ],
                 'primary' => 'id',
@@ -479,6 +502,7 @@ class SchemaService
                     'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
                     'ip_address' => "VARCHAR(255) NOT NULL /* Encrypted */",
                     'is_vpn' => "TINYINT(1) NOT NULL DEFAULT 0",
+                    'proxy_intel_json' => "TEXT NULL",
                     'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
                 ],
                 'primary' => 'id',

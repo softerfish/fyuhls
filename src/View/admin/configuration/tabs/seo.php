@@ -20,35 +20,53 @@ $seoDefaults = [
 ];
 ?>
 
-<div class="row">
-    <div class="col-md-3">
-        <div class="nav flex-column nav-pills border-end pe-3">
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'overview' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=overview">
+<div class="config-section-shell">
+    <div class="config-section-nav">
+        <div class="config-section-nav__eyebrow">SEO Sections</div>
+        <div class="nav flex-column nav-pills">
+            <button class="nav-link text-start <?= $seoTab === 'overview' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=overview">
                 <i class="bi bi-speedometer2 me-2"></i> Overview
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'general' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=general">
+            <button class="nav-link text-start <?= $seoTab === 'general' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=general">
                 <i class="bi bi-sliders me-2"></i> General
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'homepage' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=homepage">
+            <button class="nav-link text-start <?= $seoTab === 'homepage' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=homepage">
                 <i class="bi bi-house-door me-2"></i> Homepage
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'templates' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=templates">
+            <button class="nav-link text-start <?= $seoTab === 'templates' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=templates">
                 <i class="bi bi-file-earmark-richtext me-2"></i> Templates
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'indexing' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=indexing">
+            <button class="nav-link text-start <?= $seoTab === 'indexing' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=indexing">
                 <i class="bi bi-diagram-3 me-2"></i> Indexing
             </button>
-            <button class="nav-link text-start mb-2 <?= $seoTab === 'verification' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=verification">
+            <button class="nav-link text-start <?= $seoTab === 'verification' ? 'active' : '' ?>" data-nav-url="?tab=seo&seo_tab=verification">
                 <i class="bi bi-patch-check me-2"></i> Verification
             </button>
         </div>
     </div>
-    <div class="col-md-9">
-        <div class="ps-3">
+    <div class="config-section-content">
+        <div class="config-section-intro">
+            <div>
+                <h5 class="config-section-intro__title">SEO</h5>
+                <p class="config-section-intro__text">Tune the metadata, sitemap, verification, and file-page templates that search engines actually see, without digging through code or static template files.</p>
+            </div>
+            <ul class="config-summary-chips">
+                <li class="config-summary-chip <?= $score >= 90 ? 'config-summary-chip--success' : ($score >= 55 ? 'config-summary-chip--warning' : 'config-summary-chip--danger') ?>">Score: <?= $score ?></li>
+                <li class="config-summary-chip config-summary-chip--info">Rating: <?= htmlspecialchars($rating) ?></li>
+                <li class="config-summary-chip config-summary-chip--info">Sitemap: <?= ($seoConfig['seo_sitemap_enabled'] ?? '1') === '1' ? 'On' : 'Off' ?></li>
+            </ul>
+        </div>
+        <details class="config-help-panel">
+            <summary>How this works</summary>
+            <div class="config-help-panel__body">
+                <p>Fyuhls focuses its SEO controls on the things the app can safely own directly: titles, descriptions, canonicals, indexing rules, sitemap output, and verification tokens. This keeps the surface practical and avoids burying operators in theme-level markup.</p>
+            </div>
+        </details>
+        <div>
             <?php if ($seoTab === 'overview'): ?>
                 <div class="row g-4 mb-4">
                     <div class="col-lg-5">
-                        <div class="card border-0 shadow-sm h-100">
+                        <div class="card border-0 shadow-sm h-100 config-section-card">
                             <div class="card-body">
                                 <span class="text-uppercase small text-muted fw-bold">SEO Health Score</span>
                                 <div class="display-4 fw-bold mt-2 mb-2"><?= $score ?></div>
@@ -62,13 +80,13 @@ $seoDefaults = [
                         </div>
                     </div>
                     <div class="col-lg-7">
-                        <div class="card border-0 shadow-sm h-100">
+                        <div class="card border-0 shadow-sm h-100 config-section-card">
                             <div class="card-body">
                                 <h5 class="fw-bold mb-3">Quick Status</h5>
                                 <div class="row g-3">
                                     <?php foreach (($seoHealth['checks'] ?? []) as $label => $value): ?>
                                         <div class="col-md-6">
-                                            <div class="border rounded p-3 h-100 bg-light">
+                                            <div class="config-soft-callout h-100">
                                                 <div class="small text-uppercase text-muted fw-bold mb-1"><?= htmlspecialchars($label) ?></div>
                                                 <div class="fw-semibold"><?= htmlspecialchars($value) ?></div>
                                             </div>
@@ -80,7 +98,7 @@ $seoDefaults = [
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm mb-4">
+                <div class="card border-0 shadow-sm mb-4 config-section-card">
                     <div class="card-body">
                         <h5 class="fw-bold mb-3">Priority Issues</h5>
                         <?php if (!empty($seoHealth['issues'])): ?>
@@ -106,12 +124,12 @@ $seoDefaults = [
                                 <?php endforeach; ?>
                             </div>
                         <?php else: ?>
-                            <div class="alert alert-success border-0 mb-0">No immediate SEO issues detected in the settings layer.</div>
+                            <div class="config-soft-callout config-soft-callout--success mb-0">No immediate SEO issues detected in the settings layer.</div>
                         <?php endif; ?>
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm">
+                <div class="card border-0 shadow-sm config-section-card">
                     <div class="card-body">
                         <h5 class="fw-bold mb-3">Recommended Launch Order</h5>
                         <ol class="small text-muted mb-0 ps-3">
@@ -168,7 +186,10 @@ $seoDefaults = [
                         </div>
                     </div>
 
-                    <button type="submit" class="btn btn-primary px-4">Save General SEO Settings</button>
+                    <div class="config-sticky-save">
+                        <p class="config-sticky-save__text">General SEO changes affect canonicals, fallback descriptions, and social metadata across the public site.</p>
+                        <button type="submit" class="btn btn-primary px-4">Save General SEO Settings</button>
+                    </div>
                 </form>
             <?php elseif ($seoTab === 'homepage'): ?>
                 <form method="POST" action="/admin/configuration/save">
@@ -225,11 +246,14 @@ $seoDefaults = [
                         </div>
                     </div>
 
-                    <div class="alert alert-light border-0 small">
+                    <div class="config-soft-callout small mb-4">
                         <strong>Preview idea:</strong> Keep the title tight and keyword-led, then use the H1 and intro to explain the main selling points without stuffing repeated phrases everywhere.
                     </div>
 
-                    <button type="submit" class="btn btn-primary px-4">Save Homepage SEO</button>
+                    <div class="config-sticky-save">
+                        <p class="config-sticky-save__text">Homepage SEO shapes the main landing page that search engines and referral previews see first.</p>
+                        <button type="submit" class="btn btn-primary px-4">Save Homepage SEO</button>
+                    </div>
                 </form>
             <?php elseif ($seoTab === 'templates'): ?>
                 <form method="POST" action="/admin/configuration/save">
@@ -253,11 +277,14 @@ $seoDefaults = [
                         <label class="form-check-label fw-bold" for="seoFilePrivateNoindex">Noindex private or restricted file pages</label>
                     </div>
 
-                    <div class="alert alert-light border-0 small">
+                    <div class="config-soft-callout small mb-4">
                         <strong>Recommendation:</strong> Public file pages can drive traffic, but only if the filename pattern is useful. If your file names are random or thin, rely more on homepage and docs SEO until the public file inventory has enough quality.
                     </div>
 
-                    <button type="submit" class="btn btn-primary px-4">Save Page Templates</button>
+                    <div class="config-sticky-save">
+                        <p class="config-sticky-save__text">Template changes affect every eligible public file page generated from these patterns.</p>
+                        <button type="submit" class="btn btn-primary px-4">Save Page Templates</button>
+                    </div>
                 </form>
             <?php elseif ($seoTab === 'indexing'): ?>
                 <form method="POST" action="/admin/configuration/save">
@@ -265,9 +292,9 @@ $seoDefaults = [
                     <input type="hidden" name="section" value="seo">
                     <input type="hidden" name="seo_scope" value="indexing">
 
-                    <div class="card bg-light border-0 mb-4">
+                    <div class="card border-0 shadow-sm mb-4 config-section-card">
                         <div class="card-body">
-                            <div class="alert alert-info border-0 shadow-sm small mb-4">
+                            <div class="config-soft-callout config-soft-callout--info small mb-4">
                                 <strong>These are live URLs, not uploaded files:</strong> Fyuhls generates <code>/robots.txt</code> and <code>/sitemap.xml</code> dynamically when search engines request them.
                                 <div class="mt-2">
                                     <a href="<?= htmlspecialchars($robotsUrl) ?>" target="_blank" rel="noopener noreferrer" class="me-3">Open robots.txt</a>
@@ -297,12 +324,15 @@ $seoDefaults = [
                         </div>
                     </div>
 
-                    <div class="alert alert-info border-0 small">
+                    <div class="config-soft-callout small mb-4">
                         <strong>Submitting to Google:</strong>
                         <div class="mt-2">Submit <code><?= htmlspecialchars($sitemapUrl) ?></code> in Google Search Console. It does not need to exist as a physical file on disk as long as the URL loads valid XML.</div>
                     </div>
 
-                    <button type="submit" class="btn btn-primary px-4">Save Indexing Rules</button>
+                    <div class="config-sticky-save">
+                        <p class="config-sticky-save__text">Indexing settings control the live sitemap, robots output, and noindex behavior on internal pages.</p>
+                        <button type="submit" class="btn btn-primary px-4">Save Indexing Rules</button>
+                    </div>
                 </form>
             <?php elseif ($seoTab === 'verification'): ?>
                 <form method="POST" action="/admin/configuration/save">
@@ -328,7 +358,10 @@ $seoDefaults = [
                         <small class="text-muted">Use this for analytics, extra verification tags, or advanced social metadata. Only paste code you trust. This is intentionally privileged and runs on the frontend. Keep it concise; large blocks are rejected.</small>
                     </div>
 
-                    <button type="submit" class="btn btn-primary px-4">Save Verification and Scripts</button>
+                    <div class="config-sticky-save">
+                        <p class="config-sticky-save__text">Verification tokens and custom head code are high-privilege frontend settings, so keep them concise and deliberate.</p>
+                        <button type="submit" class="btn btn-primary px-4">Save Verification and Scripts</button>
+                    </div>
                 </form>
             <?php endif; ?>
         </div>

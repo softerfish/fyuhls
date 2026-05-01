@@ -5,18 +5,6 @@ $extraHead = '
 <link rel="stylesheet" href="/assets/css/filemanager.css?v=' . time() . '">
 <style>
     .settings-shell { margin-top: 1rem; }
-    .settings-plan-card { text-align: center; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); }
-    .settings-plan-current { margin-bottom: 0.25rem; font-size: 0.875rem; color: var(--text-color); font-weight: 600; }
-    .settings-plan-name { color: var(--primary-color); }
-    .settings-plan-expiry { font-size: 0.75rem; color: var(--text-muted); }
-    .settings-plan-limit { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem; }
-    .settings-plan-expiry--tight { margin-bottom: 0.5rem; }
-    .settings-plan-expiry--wide { margin-bottom: 1.25rem; }
-    .settings-plan-button { width: auto; padding: 0.5rem 1.5rem; }
-    .settings-account-title { margin-top: 0; }
-    .settings-nav { list-style: none; padding: 0.5rem 0; margin: 0; }
-    .settings-trash-item { padding: 0; display: flex; justify-content: space-between; align-items: center; min-height: 40px; }
-    .settings-trash-link { flex: 1; padding: 0.6rem 0.75rem; display: block; }
     .settings-toolbar-note { font-size: 0.8125rem; color: var(--text-muted); }
     .settings-status-card { background: #f8fafc; padding: 2.5rem; border-radius: 12px; margin-bottom: 3rem; border: 1px solid var(--border-color); text-align: center; }
     .settings-status-stack { display: flex; flex-direction: column; gap: 1rem; align-items: center; }
@@ -46,7 +34,14 @@ $extraHead = '
     .settings-setup-2fa-btn { padding: 0.5rem 1.5rem; }
     .settings-section-copy { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.5rem; }
     .settings-token-success { margin-bottom: 1.5rem; }
+    .settings-token-reveal { margin-bottom: 1.5rem; border: 1px solid #bbf7d0; background: #f0fdf4; border-radius: 12px; padding: 1rem 1.25rem; }
+    .settings-token-reveal-title { margin: 0 0 0.35rem; font-weight: 700; color: #166534; }
+    .settings-token-reveal-copy { margin: 0; color: #166534; font-size: 0.875rem; }
+    .settings-token-reveal-actions { margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
     .settings-token-value { margin-top: 0.75rem; font-family: monospace; word-break: break-all; background: #0f172a; color: #f8fafc; padding: 0.85rem 1rem; border-radius: 10px; }
+    .settings-token-copy-btn { width: auto; }
+    .settings-token-copy-status { margin: 0; font-size: 0.8125rem; color: var(--text-muted); }
+    .settings-token-reveal-hint { margin: 0; color: var(--text-muted); font-size: 0.8125rem; }
     .settings-token-form { margin-bottom: 2rem; }
     .settings-token-grid { display: grid; grid-template-columns: 1.4fr 0.8fr; gap: 1rem; }
     .settings-scopes { margin-top: 1rem; }
@@ -63,74 +58,13 @@ $extraHead = '
     .settings-token-scopes { font-size: 0.75rem; }
     .settings-token-revoke { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
     .settings-token-revoked { font-size: 0.8rem; color: #b91c1c; font-weight: 700; }
-    .settings-history-list { display: grid; gap: 1rem; }
-    .settings-history-item { border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem 1.1rem; background: #fff; }
-    .settings-history-title { font-weight: 700; margin-bottom: 0.35rem; }
-    .settings-history-meta { color: var(--text-muted); font-size: 0.8125rem; margin-bottom: 0.5rem; }
-    .settings-history-reason { font-size: 0.875rem; color: var(--text-color); }
-    .settings-history-empty { color: var(--text-muted); font-size: 0.875rem; }
 </style>';
 include __DIR__ . '/header.php';
+include __DIR__ . '/partials/account_sidebar_styles.php';
 ?>
 
 <div class="fm-container settings-shell">
-    <div class="fm-sidebar">
-        <div class="sidebar-section">
-            <div class="settings-plan-card">
-                <?php 
-                $userId = \App\Core\Auth::id();
-                $pkgNameStr = 'Free Plan';
-                $expiryStr = 'Lifetime Free Account';
-                $userPkg = null;
-                
-                if ($userId) {
-                    if (\App\Core\Auth::isAdmin()) {
-                        $pkgNameStr = 'Admin';
-                    } else {
-                        $userPkg = \App\Model\Package::getUserPackage($userId);
-                        if ($userPkg) {
-                            $pkgNameStr = $userPkg['name'] ?? 'Free Plan';
-                            if (!empty($userPkg['premium_expiry'])) {
-                                $expiryStr = 'Renews on ' . date('M d, Y', strtotime($userPkg['premium_expiry']));
-                            }
-                        }
-                    }
-                }
-                $isPaidPlan = (\App\Core\Auth::isAdmin() || strtolower((string)($userPkg['level_type'] ?? 'free')) === 'paid');
-                ?>
-                <div class="settings-plan-current">
-                    Current Plan: <span class="settings-plan-name"><?= htmlspecialchars($pkgNameStr) ?></span>
-                </div>
-                <div class="settings-plan-expiry <?= $isPaidPlan ? 'settings-plan-expiry--tight' : 'settings-plan-expiry--wide' ?>">
-                    <?= htmlspecialchars($expiryStr) ?>
-                </div>
-                <?php if (!empty($dailyDownloadLimitSummary['label']) && array_key_exists('value', $dailyDownloadLimitSummary)): ?>
-                    <div class="settings-plan-limit">
-                        <?= htmlspecialchars($dailyDownloadLimitSummary['label']) ?>: <?= htmlspecialchars($dailyDownloadLimitSummary['value']) ?>
-                    </div>
-                <?php endif; ?>
-                <?php if (!$isPaidPlan): ?>
-                    <button class="btn btn-warning settings-plan-button" data-nav-url="/#pricing">View Plans</button>
-                <?php endif; ?>
-            </div>
-            <h3 class="settings-account-title">Account</h3>
-            <ul class="settings-nav">
-                <li data-nav-url="/">All Files</li>
-                <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
-                    <li data-nav-url="/rewards">My Rewards</li>
-                    <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
-                        <li data-nav-url="/affiliate">Affiliate</li>
-                    <?php endif; ?>
-                <?php endif; ?>
-                <li data-nav-url="/settings" class="active">Settings</li>
-                <li data-nav-url="/recent">Recent</li>
-                <li data-nav-url="/shared">Shared</li>
-                <li class="sidebar-trash-item settings-trash-item">
-                    <span data-nav-url="/trash" class="settings-trash-link">Trash</span>
-                </li>
-            </ul>
-        </div>
-    </div>
+    <?php include __DIR__ . '/partials/account_sidebar.php'; ?>
 
     <div class="fm-main">
         <div class="fm-toolbar">
@@ -151,46 +85,37 @@ include __DIR__ . '/header.php';
         </div>
 
         <?php if ($error): ?><div class="alert alert-error"><?= $error ?></div><?php endif; ?>
-        <?php if ($success): ?><div class="alert alert-success"><?= $success ?></div><?php endif; ?>
+        <?php if ($success && empty($newApiToken)): ?><div class="alert alert-success"><?= $success ?></div><?php endif; ?>
+        <?php if (!empty($newApiToken)): ?>
+            <div class="settings-token-reveal" id="newApiTokenReveal">
+                <p class="settings-token-reveal-title">API token created. Copy it now.</p>
+                <p class="settings-token-reveal-copy">This full token is only shown once. The saved token list below only shows a shortened preview.</p>
+                <div class="settings-token-value" id="newApiTokenValue"><?= htmlspecialchars($newApiToken) ?></div>
+                <div class="settings-token-reveal-actions">
+                    <button type="button" class="btn btn-primary settings-token-copy-btn" id="copyNewApiTokenButton">Copy Token</button>
+                    <span class="settings-token-copy-status" id="copyNewApiTokenStatus" aria-live="polite"></span>
+                    <a href="#apiSection" class="settings-token-reveal-hint">Jump to the API Tokens section</a>
+                </div>
+            </div>
+        <?php endif; ?>
 
         <!-- Account Status Section -->
         <section id="statusSection" class="settings-status-card">
             <div class="settings-status-stack">
-                <h3 class="settings-status-title">You are on the <span class="settings-status-name"><?= htmlspecialchars($user['package_name'] ?? 'Free Plan') ?></span></h3>
+                <h3 class="settings-status-title">Your current plan is <span class="settings-status-name"><?= htmlspecialchars($user['package_name'] ?? 'Free Plan') ?></span></h3>
+                <?php
+                    $settingsPlanType = strtolower((string)($user['package_level_type'] ?? 'free'));
+                    $settingsIsPaidPlan = $settingsPlanType === 'paid';
+                ?>
                 <?php if (!empty($user['premium_expiry'])): ?>
                     <p class="settings-status-copy">Your premium features expire on: <?= date('M d, Y', strtotime($user['premium_expiry'])) ?></p>
+                <?php elseif ($settingsIsPaidPlan): ?>
+                    <p class="settings-status-copy">Your paid account is active.</p>
                 <?php else: ?>
                     <p class="settings-status-copy">This is a lifetime free account.</p>
                 <?php endif; ?>
             </div>
         </section>
-
-        <?php if (!empty($fileDeletionHistory)): ?>
-        <section class="settings-section">
-            <h3 class="settings-section-title">Deleted File History</h3>
-            <p class="settings-section-copy">This shows files removed from your account, including admin removals and the recorded reason when one was supplied.</p>
-            <div class="settings-history-list">
-                <?php foreach ($fileDeletionHistory as $entry): ?>
-                    <?php
-                    $actorLabel = trim((string)($entry['deleted_by_label'] ?? ''));
-                    if ($actorLabel === '') {
-                        $actorLabel = (($entry['deleted_by_role'] ?? '') === 'admin') ? 'Administrator' : 'You';
-                    }
-                    $reason = trim((string)($entry['delete_reason'] ?? ''));
-                    ?>
-                    <article class="settings-history-item">
-                        <div class="settings-history-title"><?= htmlspecialchars((string)($entry['original_filename'] ?? 'Deleted file')) ?></div>
-                        <div class="settings-history-meta">
-                            Removed <?= htmlspecialchars(date('M d, Y H:i', strtotime((string)$entry['deleted_at']))) ?> by <?= htmlspecialchars($actorLabel) ?>
-                        </div>
-                        <div class="settings-history-reason">
-                            <?= $reason !== '' ? htmlspecialchars($reason) : 'No reason was recorded for this deletion.' ?>
-                        </div>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-        </section>
-        <?php endif; ?>
 
         <form method="POST" class="auth-form settings-form">
             <?= \App\Core\Csrf::field() ?>
@@ -289,12 +214,11 @@ include __DIR__ . '/header.php';
 
         <section id="apiSection" class="settings-section">
             <h3 class="settings-section-title">API Tokens</h3>
-            <p class="settings-section-copy">Use personal API tokens for desktop tools and external integrations. Tokens are tied to your account, your quota, and your package limits.</p>
+            <p class="settings-section-copy">Use personal API tokens for desktop tools and external integrations. Tokens are tied to your account, your quota, and your package limits. Only enable the scopes the tool actually needs.</p>
 
             <?php if (!empty($newApiToken)): ?>
                 <div class="alert alert-success settings-token-success">
-                    <strong>Copy this token now.</strong>
-                    <div class="settings-token-value"><?= htmlspecialchars($newApiToken) ?></div>
+                    <strong>The list below only shows shortened token previews.</strong>
                 </div>
             <?php endif; ?>
 
@@ -322,7 +246,10 @@ include __DIR__ . '/header.php';
                     <label>Scopes</label>
                     <div class="settings-scopes-list">
                         <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="files.upload" checked> Upload files</label>
-                        <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="files.read" checked> Read files and create download links</label>
+                        <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="files.read" checked> Read files, folders, and create download links</label>
+                        <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="files.write"> Create folders and manage file or folder changes</label>
+                        <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="stats.read"> Read earnings and payout stats</label>
+                        <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="remote.upload"> Create and manage remote URL uploads</label>
                     </div>
                 </div>
 
@@ -353,11 +280,15 @@ include __DIR__ . '/header.php';
                                 </div>
                             </div>
                             <?php if (($token['status'] ?? 'active') === 'active'): ?>
-                                <form method="POST" class="m-0">
+                                <form method="POST" class="m-0 settings-token-revoke-form">
                                     <?= \App\Core\Csrf::field() ?>
                                     <input type="hidden" name="action" value="api_token_revoke">
                                     <input type="hidden" name="token_id" value="<?= (int)$token['id'] ?>">
-                                    <button type="submit" class="btn settings-token-revoke">Revoke</button>
+                                    <button
+                                        type="button"
+                                        class="btn settings-token-revoke settings-token-revoke-btn"
+                                        data-token-name="<?= htmlspecialchars($token['name']) ?>"
+                                    >Revoke</button>
                                 </form>
                             <?php else: ?>
                                 <span class="settings-token-revoked">Revoked</span>
@@ -369,5 +300,79 @@ include __DIR__ . '/header.php';
         </section>
     </div>
 </div>
+
+<script>
+(() => {
+    const copyButton = document.getElementById('copyNewApiTokenButton');
+    const tokenValue = document.getElementById('newApiTokenValue');
+    const status = document.getElementById('copyNewApiTokenStatus');
+    if (!copyButton || !tokenValue) {
+        return;
+    }
+
+    const setStatus = (message) => {
+        if (status) {
+            status.textContent = message;
+        }
+    };
+
+    const fallbackCopy = (text) => {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.setAttribute('readonly', '');
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        let copied = false;
+        try {
+            copied = document.execCommand('copy');
+        } catch (error) {
+            copied = false;
+        }
+        document.body.removeChild(textArea);
+        return copied;
+    };
+
+    copyButton.addEventListener('click', async () => {
+        const text = tokenValue.textContent.trim();
+        let copied = false;
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(text);
+                copied = true;
+            } catch (error) {
+                copied = false;
+            }
+        }
+        if (!copied) {
+            copied = fallbackCopy(text);
+        }
+
+        if (copied) {
+            setStatus('Copied to clipboard.');
+            copyButton.textContent = 'Copied';
+        } else {
+            setStatus('Copy failed. Select the token and copy it manually.');
+            copyButton.textContent = 'Copy Failed';
+        }
+    });
+
+    document.querySelectorAll('.settings-token-revoke-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+            const tokenName = button.getAttribute('data-token-name') || 'this API token';
+            const confirmed = window.confirm(`Revoke "${tokenName}"? Any app or uploader using it will stop working immediately.`);
+            if (!confirmed) {
+                return;
+            }
+            const form = button.closest('.settings-token-revoke-form');
+            if (form) {
+                form.submit();
+            }
+        });
+    });
+})();
+</script>
 
 <?php include __DIR__ . '/footer.php'; ?>

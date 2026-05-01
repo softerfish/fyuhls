@@ -35,15 +35,15 @@ class AffiliateRewardService
         }
 
         $description = self::childDescription($parentEarningId, $contextDescription);
-        $exists = $db->prepare("SELECT id FROM earnings WHERE user_id = ? AND type = 'referral' AND description = ? LIMIT 1");
-        $exists->execute([$referrerId, $description]);
+        $exists = $db->prepare("SELECT id FROM earnings WHERE user_id = ? AND type = 'referral' AND parent_earning_id = ? LIMIT 1");
+        $exists->execute([$referrerId, $parentEarningId]);
         if ($exists->fetchColumn()) {
             return;
         }
 
         $insert = $db->prepare("
-            INSERT INTO earnings (user_id, amount, type, status, description, hold_until, metadata)
-            VALUES (?, ?, 'referral', ?, ?, ?, ?)
+            INSERT INTO earnings (user_id, amount, type, status, description, hold_until, parent_earning_id, metadata)
+            VALUES (?, ?, 'referral', ?, ?, ?, ?, ?)
         ");
         $insert->execute([
             $referrerId,
@@ -51,6 +51,7 @@ class AffiliateRewardService
             self::normalizeStatus($parentStatus),
             $description,
             self::normalizeHoldUntilForStatus($parentStatus, $parentHoldUntil),
+            $parentEarningId,
             json_encode([
                 'parent_earning_id' => $parentEarningId,
                 'earned_user_id' => $earnedUserId,
@@ -74,15 +75,17 @@ class AffiliateRewardService
             SET status = ?, hold_until = ?
             WHERE type = 'referral'
               AND (
-                description = ?
+                parent_earning_id = ?
+                OR description = ?
                 OR description LIKE ?
               )
         ");
         $stmt->execute([
             $normalizedStatus,
             $normalizedHoldUntil,
+            $parentEarningId,
             $baseDescription,
-            $baseDescription . ' (%)',
+            $baseDescription . ' (%',
         ]);
     }
 

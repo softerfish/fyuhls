@@ -18,6 +18,11 @@ class MultipartUploadService
 {
     private static bool $schemaReady = false;
     private const SESSION_TTL_SECONDS = 7200;
+    private const DANGEROUS_UPLOAD_EXTENSIONS = [
+        'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar',
+        'cgi', 'pl', 'py', 'rb', 'asp', 'aspx', 'jsp', 'jspx', 'shtml',
+        'sh', 'bash', 'cmd', 'bat', 'ps1'
+    ];
 
     public function __construct()
     {
@@ -260,6 +265,7 @@ class MultipartUploadService
     {
         $db = Database::getInstance()->getConnection();
         $provider = StorageManager::getProviderById($session['storage_server_id'] ? (int)$session['storage_server_id'] : null, $db);
+        $checksumSha256 = $this->normalizeChecksum($checksumSha256 ?: ($session['checksum_sha256'] ?? null));
         $this->refreshSessionLease((int)$session['id']);
         $parts = array_values(array_filter(
             UploadSession::getParts((int)$session['id']),
@@ -285,10 +291,24 @@ class MultipartUploadService
             throw new Exception('Multipart completion failed.');
         }
 
-        $head = $provider->head($session['object_key']);
-        $finalSize = (int)($head['content_length'] ?? $session['expected_size']);
-        $mimeType = (string)($head['content_type'] ?? ($session['mime_hint'] ?: 'application/octet-stream'));
-        $providerEtag = (string)($head['etag'] ?? '');
+        try {
+            $head = $provider->head($session['object_key']);
+            if ($head === null) {
+                throw new Exception('Completed object metadata could not be read.');
+            }
+
+            $finalSize = (int)($head['content_length'] ?? 0);
+            $mimeType = (string)($head['content_type'] ?? ($session['mime_hint'] ?: 'application/octet-stream'));
+            $providerEtag = (string)($head['etag'] ?? '');
+            $mimeType = $this->validateCompletedObject($provider, $session, $finalSize, $mimeType, $checksumSha256);
+        } catch (\Throwable $e) {
+            UploadSession::update((int)$session['id'], [
+                'status' => 'failed',
+                'error_message' => $e->getMessage(),
+            ]);
+            $provider->delete($session['object_key']);
+            throw $e;
+        }
 
         $db->beginTransaction();
         try {
@@ -583,10 +603,100 @@ class MultipartUploadService
         $allowedExtensions = array_values(array_filter(array_map('trim', explode(',', strtolower($allowedSetting)))));
         $ext = strtolower((string)pathinfo($filename, PATHINFO_EXTENSION));
 
-        if (!in_array($ext, $allowedExtensions, true)) {
+        if ($ext === '' || in_array($ext, self::DANGEROUS_UPLOAD_EXTENSIONS, true) || !in_array($ext, $allowedExtensions, true)) {
             $allowedStr = implode(', ', $allowedExtensions);
             throw new Exception("Security Error: file type (.$ext) is not allowed. Allowed extensions are: [$allowedStr]. Check your Settings.");
         }
+    }
+
+    private function validateCompletedObject(object $provider, array $session, int $finalSize, string $mimeType, ?string $checksumSha256): string
+    {
+        $expectedSize = (int)($session['expected_size'] ?? 0);
+        if ($expectedSize <= 0 || $finalSize <= 0 || $finalSize !== $expectedSize) {
+            throw new Exception('Completed upload size did not match the requested upload size.');
+        }
+
+        $this->assertAllowedExtension((string)($session['original_filename'] ?? ''));
+
+        $objectExt = strtolower((string)pathinfo((string)($session['object_key'] ?? ''), PATHINFO_EXTENSION));
+        if ($objectExt === '' || in_array($objectExt, self::DANGEROUS_UPLOAD_EXTENSIONS, true)) {
+            throw new Exception('Completed upload object key has an unsafe extension.');
+        }
+
+        $mimeType = trim($mimeType);
+        if ($mimeType === '' || preg_match('/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*(?:\s*;\s*[^;\r\n]+)*$/i', $mimeType) !== 1) {
+            $mimeType = 'application/octet-stream';
+        }
+
+        $absolutePath = method_exists($provider, 'getAbsolutePath')
+            ? (string)$provider->getAbsolutePath((string)$session['object_key'])
+            : '';
+
+        if ($absolutePath !== '' && is_file($absolutePath)) {
+            $actualSize = filesize($absolutePath);
+            if ($actualSize === false || (int)$actualSize !== $expectedSize) {
+                throw new Exception('Completed upload local file size did not match the expected size.');
+            }
+
+            if (function_exists('finfo_open')) {
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                if ($finfo !== false) {
+                    $detected = finfo_file($finfo, $absolutePath);
+                    finfo_close($finfo);
+                    if (is_string($detected) && $detected !== '') {
+                        $mimeType = $detected;
+                    }
+                }
+            }
+        }
+
+        if ($checksumSha256 !== null) {
+            $actualHash = $this->hashCompletedObject($provider, (string)$session['object_key'], $absolutePath);
+            if (!is_string($actualHash) || !hash_equals($checksumSha256, $actualHash)) {
+                throw new Exception('Completed upload checksum did not match the supplied checksum.');
+            }
+        }
+
+        return $mimeType;
+    }
+
+    private function hashCompletedObject(object $provider, string $objectKey, string $absolutePath): ?string
+    {
+        if ($absolutePath !== '' && is_file($absolutePath)) {
+            $hash = hash_file('sha256', $absolutePath);
+            return is_string($hash) ? $hash : null;
+        }
+
+        if (!method_exists($provider, 'stream')) {
+            return null;
+        }
+
+        $context = hash_init('sha256');
+        $bufferLevel = ob_get_level();
+        $started = ob_start(static function (string $chunk) use ($context): string {
+            if ($chunk !== '') {
+                hash_update($context, $chunk);
+            }
+            return '';
+        }, 1024 * 1024);
+
+        if (!$started) {
+            return null;
+        }
+
+        try {
+            $provider->stream($objectKey);
+            while (ob_get_level() > $bufferLevel) {
+                ob_end_flush();
+            }
+        } catch (\Throwable $e) {
+            while (ob_get_level() > $bufferLevel) {
+                ob_end_clean();
+            }
+            throw $e;
+        }
+
+        return hash_final($context);
     }
 
     private function buildObjectKey(?int $userId, string $filename): string

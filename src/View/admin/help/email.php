@@ -1,6 +1,14 @@
 <div class="p-1">
     <p class="guide-purpose mb-4">Email settings cover SMTP delivery, outbound rate limiting, test tools, and editable system templates. The SMTP form, test tools, and template editor are separate actions on the same page.</p>
 
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">What Is On The Page</h6>
+    <ul class="extra-small text-muted mb-4">
+        <li class="mb-2"><strong>Queue stats:</strong> The top cards show Pending in Queue, Sent in the last 24 hours, and Failed Attempts.</li>
+        <li class="mb-2"><strong>SMTP Server Configuration:</strong> This is the main save form for delivery host, port, sender identity, authentication, and send rate.</li>
+        <li class="mb-2"><strong>System Email Templates:</strong> The table below the SMTP form stores the subject and body for every built-in system message.</li>
+        <li><strong>Send Test Email:</strong> The right-side tool sends a real message using the SMTP values currently on the page.</li>
+    </ul>
+
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">SMTP Configuration</h6>
     <ul class="extra-small text-muted mb-4">
         <li class="mb-2"><strong>SMTP Host / Port:</strong> The mail server endpoint and port provided by your email service. Enter the values, then click <strong>Save SMTP Config</strong>.</li>

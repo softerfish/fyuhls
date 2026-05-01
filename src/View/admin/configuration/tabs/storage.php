@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 $servers = $servers ?? [];
 $demoAdmin = !empty($demoAdmin);
 $totalServers = isset($totalServers) ? (int)$totalServers : count($servers);
@@ -22,19 +22,40 @@ foreach ($servers as &$server) {
 unset($server);
 ?>
 
-<div class="row g-4 mb-4">
-    <!-- Infrastructure Overview -->
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body">
-                <h6 class="text-uppercase small fw-bold text-muted">Nodes Online</h6>
-                <h3 class="fw-bold mb-0"><?= $activeServers ?> <small class="text-muted fw-normal">/ <?= $totalServers ?></small></h3>
-            </div>
+<div class="config-section-shell">
+    <div class="config-section-nav">
+        <div class="config-section-nav__eyebrow">Storage Sections</div>
+        <div class="nav flex-column nav-pills">
+            <a class="nav-link text-start active" href="#storage-overview"><i class="bi bi-diagram-3 me-2"></i> Overview</a>
+            <a class="nav-link text-start" href="#storage-nodes"><i class="bi bi-hdd-network me-2"></i> Storage Nodes</a>
+            <a class="nav-link text-start" href="#storage-actions"><i class="bi bi-tools me-2"></i> Actions</a>
         </div>
     </div>
-    <div class="col-md-8">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body">
+    <div class="config-section-content">
+        <div class="config-section-intro">
+            <div>
+                <h5 class="config-section-intro__title">Storage Servers</h5>
+                <p class="config-section-intro__text">Manage the storage network that holds uploaded files, review capacity pressure, and open the workflows for adding nodes or migrating data between them.</p>
+            </div>
+            <ul class="config-summary-chips">
+                <li class="config-summary-chip <?= $activeServers === $totalServers && $totalServers > 0 ? 'config-summary-chip--success' : 'config-summary-chip--warning' ?>">Nodes: <?= $activeServers ?>/<?= $totalServers ?> online</li>
+                <li class="config-summary-chip <?= $usagePercent > 90 ? 'config-summary-chip--danger' : ($usagePercent > 75 ? 'config-summary-chip--warning' : 'config-summary-chip--success') ?>">Usage: <?= $usagePercent ?>%</li>
+            </ul>
+        </div>
+        <details class="config-help-panel">
+            <summary>How this works</summary>
+            <div class="config-help-panel__body">
+                <p>Large uploads to object storage happen directly from the user's browser to the bucket. That bucket must trust your site origin, allow browser upload requests, and expose the response headers Fyuhls needs to confirm each uploaded part.</p>
+            </div>
+        </details>
+
+<div id="storage-overview"></div>
+<div class="config-status-grid">
+    <div>
+        <?php renderAdminStatCard('Nodes Online', $activeServers . ' <small class="text-muted fw-normal">/ ' . $totalServers . '</small>'); ?>
+    </div>
+    <div>
+        <?php renderAdminCardStart('Network Capacity', ['cardClass' => 'border-0 shadow-sm h-100 config-status-card']); ?>
                 <h6 class="text-uppercase small fw-bold text-muted">Network Capacity</h6>
                 <div class="d-flex align-items-center gap-3">
                     <div class="storage-capacity-progress progress flex-grow-1">
@@ -42,22 +63,18 @@ unset($server);
                     </div>
                     <span class="fw-bold"><?= $usagePercent ?>%</span>
                 </div>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     </div>
 </div>
 
-<div class="alert alert-info border-0 shadow-sm small mb-4">
-    <strong>Multipart Upload Requirement:</strong> Large uploads to B2, Wasabi, R2, and other S3-compatible storage are sent directly from your user's browser to the storage bucket, not through Fyuhls. That bucket must be configured to trust your website domain, allow browser upload requests (<code>PUT</code>) and follow-up checks (<code>GET</code> and <code>HEAD</code>), and let the browser read back the <code>ETag</code> value that confirms each uploaded part succeeded. If the bucket does not allow that, large browser uploads will fail even though the server itself is set up correctly.
-</div>
-
 <?php if ($demoAdmin): ?>
-    <div class="alert alert-warning border-0 shadow-sm small mb-4">
+    <div class="config-soft-callout config-soft-callout--warning small mb-4">
         <strong>Demo admin mode:</strong> Storage configuration is read-only for this account. Add, migrate, edit, and connection actions are disabled.
     </div>
 <?php endif; ?>
 
 <!-- Storage Action Toolbar -->
+<div id="storage-actions"></div>
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="fw-bold mb-0">Storage Nodes</h5>
     <div class="btn-group">
@@ -71,7 +88,8 @@ unset($server);
 </div>
 
 <!-- Server Health Matrix -->
-<div class="card border-0 shadow-sm">
+<div id="storage-nodes"></div>
+<?php renderAdminCardStart('Storage Nodes', ['bodyClass' => 'p-0', 'cardClass' => 'border-0 shadow-sm config-section-card']); ?>
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead class="bg-light">
@@ -148,6 +166,8 @@ unset($server);
             </tbody>
         </table>
     </div>
+<?php renderAdminCardEnd(); ?>
+</div>
 </div>
 
 <script>
@@ -204,3 +224,4 @@ document.addEventListener('DOMContentLoaded', function() {
 .storage-usage-cell{min-width:150px}
 .storage-usage-progress{height:6px}
 </style>
+

@@ -1,4 +1,7 @@
-<?php include __DIR__ . '/../header.php'; ?>
+<?php
+include __DIR__ . '/../header.php';
+include __DIR__ . '/../partials/shell_helpers.php';
+?>
 
 <style>
     .files-header {
@@ -78,7 +81,21 @@
     .files-date {
         font-size: 0.8125rem;
     }
-    .files-delete-form { display: inline; }
+    .files-delete-form {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+    .files-delete-reason {
+        width: 180px;
+        min-height: 34px;
+        padding: 0.35rem 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 0.78rem;
+        resize: vertical;
+    }
     .files-delete-btn {
         padding: 0.25rem 0.6rem;
         font-size: 0.8rem;
@@ -87,19 +104,19 @@
     }
 </style>
 
-<div class="page-header">
-    <h1>Stored Files</h1>
-</div>
+<?php renderAdminPageHeader('Stored Files'); ?>
 
 
-<div class="card">
-    <div class="card-header files-header">
+<?php ob_start(); ?>
+    <div class="files-header">
         <span>all files <?php if ($total > 0): ?><span class="files-total">(<?= number_format($total) ?> total)</span><?php endif; ?></span>
         <form method="GET" class="files-search-form">
             <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="partial filename..." class="files-search-input">
             <button type="submit" class="btn btn-primary">search</button>
         </form>
     </div>
+<?php $filesHeaderHtml = ob_get_clean(); ?>
+<?php renderAdminCardStart(null, ['headerHtml' => $filesHeaderHtml, 'bodyClass' => 'card-body files-card-body-flat']); ?>
     <?php if (!empty($dedupeSummary)): ?>
         <div class="files-summary">
             <span class="files-summary-pill">Logical files: <?= number_format((int)($dedupeSummary['logical_files'] ?? 0)) ?></span>
@@ -107,7 +124,6 @@
             <span class="files-summary-pill">Duplicate file entries: <?= number_format((int)($dedupeSummary['duplicate_file_entries'] ?? 0)) ?></span>
         </div>
     <?php endif; ?>
-    <div class="card-body files-card-body-flat">
         <?php if (empty($files)): ?>
             <p class="files-empty">no files found.</p>
         <?php else: ?>
@@ -148,6 +164,13 @@
                                 <form method="POST" action="/admin/files/delete" class="files-delete-form" data-confirm-message="permanently delete this file?">
                                     <?= \App\Core\Csrf::field() ?>
                                     <input type="hidden" name="file_id" value="<?= $file['id'] ?>">
+                                    <textarea
+                                        name="delete_reason"
+                                        class="files-delete-reason"
+                                        placeholder="Deletion reason"
+                                        aria-label="Deletion reason for <?= htmlspecialchars($file['filename'] ?? $file['original_name'] ?? 'file') ?>"
+                                        required
+                                    ></textarea>
                                     <button type="submit" class="btn files-delete-btn">delete</button>
                                 </form>
                             </td>
@@ -198,7 +221,6 @@
                 </div>
             <?php endif; ?>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <?php include __DIR__ . '/../footer.php'; ?>

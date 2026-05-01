@@ -1,4 +1,7 @@
-<?php include __DIR__ . '/../header.php'; ?>
+<?php
+include __DIR__ . '/../header.php';
+include __DIR__ . '/../partials/shell_helpers.php';
+?>
 <?php
 $buttonFormStyle = 'display:inline-flex; margin:0;';
 $buttonStyle = 'padding: 0.35rem 0.75rem; font-size: 0.8125rem;';
@@ -9,6 +12,8 @@ $buttonStyle = 'padding: 0.35rem 0.75rem; font-size: 0.8125rem;';
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
     }
     .plugins-upload-form {
         display: flex;
@@ -17,6 +22,24 @@ $buttonStyle = 'padding: 0.35rem 0.75rem; font-size: 0.8125rem;';
     }
     .plugins-file-input { font-size: 0.875rem; }
     .plugins-upload-btn { white-space: nowrap; }
+    .plugins-policy {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        border: 1px solid #fde68a;
+        background: #fffbeb;
+        border-radius: 0.5rem;
+    }
+    .plugins-policy-title { font-weight: 700; }
+    .plugins-policy-copy {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+        margin-top: 0.25rem;
+    }
     .plugins-empty {
         color: var(--text-muted);
         text-align: center;
@@ -52,21 +75,33 @@ $buttonStyle = 'padding: 0.35rem 0.75rem; font-size: 0.8125rem;';
     }
 </style>
 
-<div class="page-header">
-    <h1>Plugin Manager</h1>
-</div>
+<?php renderAdminPageHeader('Plugin Manager'); ?>
 
 
-<div class="card">
-    <div class="card-header plugins-card-header">
+<?php ob_start(); ?>
+    <div class="plugins-card-header">
         <span>plugins</span>
         <form method="POST" action="/admin/plugins/upload" enctype="multipart/form-data" class="plugins-upload-form">
             <?= \App\Core\Csrf::field() ?>
-            <input type="file" name="plugin_zip" accept=".zip" required class="plugins-file-input">
-            <button type="submit" class="btn btn-primary plugins-upload-btn">upload plugin</button>
+            <input type="file" name="plugin_zip" accept=".zip" required class="plugins-file-input" <?= !empty($pluginUploadsEnabled) ? '' : 'disabled' ?>>
+            <button type="submit" class="btn btn-primary plugins-upload-btn" <?= !empty($pluginUploadsEnabled) ? '' : 'disabled' ?>>upload plugin</button>
         </form>
     </div>
-    <div class="card-body">
+<?php $pluginsHeaderHtml = ob_get_clean(); ?>
+<?php renderAdminCardStart(null, ['headerHtml' => $pluginsHeaderHtml]); ?>
+        <div class="plugins-policy">
+            <div>
+                <div class="plugins-policy-title">Plugin upload policy</div>
+                <div class="plugins-policy-copy">Plugins are trusted PHP code. Keep ZIP uploads disabled except during planned installation or update windows.</div>
+            </div>
+            <form method="POST" action="/admin/plugins/upload-policy" class="plugins-btn-form">
+                <?= \App\Core\Csrf::field() ?>
+                <div class="form-check form-switch m-0">
+                    <input class="form-check-input" type="checkbox" name="plugin_uploads_enabled" id="pluginUploadsEnabled" value="1" <?= !empty($pluginUploadsEnabled) ? 'checked' : '' ?> onchange="this.form.submit()">
+                    <label class="form-check-label" for="pluginUploadsEnabled"><?= !empty($pluginUploadsEnabled) ? 'ZIP uploads enabled' : 'ZIP uploads disabled' ?></label>
+                </div>
+            </form>
+        </div>
         <?php if (empty($plugins)): ?>
             <p class="plugins-empty">
                 No plugins found. Add your own optional plugin ZIP here or place a custom plugin folder in <code>src/Plugin/</code>. Core features such as Rewards and 2FA are already built into the script.
@@ -129,7 +164,6 @@ $buttonStyle = 'padding: 0.35rem 0.75rem; font-size: 0.8125rem;';
                 </tbody>
             </table>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <?php include __DIR__ . '/../footer.php'; ?>

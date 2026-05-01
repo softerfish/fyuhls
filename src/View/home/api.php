@@ -45,14 +45,17 @@ include __DIR__ . '/header.php';
                     <li>Uploads land in the authenticated user's account.</li>
                     <li>Quota is reserved before upload completion to avoid oversubscription.</li>
                     <li>Large files should use multipart direct-to-storage uploads.</li>
+                    <li>Some storage backends can also support app-routed multipart part uploads for local-style flows.</li>
                     <li>Download links stay application-controlled so <?= htmlspecialchars($siteName) ?> can decide CDN, signed-origin, or tracked delivery.</li>
                 </ul>
+                <p class="api-note">OpenAPI discovery is available at <code>/api/v1/openapi.json</code> for clients that want to generate their own request wrappers.</p>
                 <p class="api-note">Uploads are direct-to-storage, but downloads stay policy-driven. Your client requests a signed download link from <?= htmlspecialchars($siteName) ?> and the app still decides whether the final transfer uses CDN, signed origin, Nginx, Apache, LiteSpeed, or PHP based on site configuration, package rules, and payout-verification requirements.</p>
             </section>
 
             <section id="auth" class="api-card">
                 <h2>Authentication</h2>
                 <p>Third-party tools should use personal API tokens. Browser-session calls still work for the site itself, but tokens are the intended public integration method.</p>
+                <p class="api-note">If someone is using a third-party uploader such as Zoom Uploader, they should log into their fyuhls account, open <code>/settings</code>, create a personal API token with the needed scopes, and paste that token into the uploader. They should not use their account password or browser cookies in the tool.</p>
                 <div class="api-subgrid">
                     <div>
                         <h3>Supported headers</h3>
@@ -73,6 +76,7 @@ X-API-Token: fyu_your_token_here</code></pre>
             <section id="tokens" class="api-card">
                 <h2>Tokens and Scopes</h2>
                 <p>Users create API tokens in account settings. Tokens are shown once, stored hashed, and can be revoked without affecting the user password or browser session.</p>
+                <p>For most upload tools, the minimum useful scope is <code>files.upload</code>. Tools that also browse files, organize folders, or request download links may need <code>files.read</code> or <code>files.write</code> as well.</p>
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -84,11 +88,23 @@ X-API-Token: fyu_your_token_here</code></pre>
                         <tbody>
                             <tr>
                                 <td><code>files.upload</code></td>
-                                <td>Create sessions, sign parts, report parts, complete, and abort uploads.</td>
+                                <td>Create upload sessions, inspect upload-session state, sign parts, report parts, complete uploads, and abort uploads.</td>
                             </tr>
                             <tr>
                                 <td><code>files.read</code></td>
-                                <td>Read file metadata and request application-controlled download links.</td>
+                                <td>List files or folders, read file metadata, generate bulk links, and request application-controlled download links.</td>
+                            </tr>
+                            <tr>
+                                <td><code>files.write</code></td>
+                                <td>Create folders, rename, move, copy, and delete files or folders.</td>
+                            </tr>
+                            <tr>
+                                <td><code>stats.read</code></td>
+                                <td>Read earnings, payout, and uploader performance stats.</td>
+                            </tr>
+                            <tr>
+                                <td><code>remote.upload</code></td>
+                                <td>Create, inspect, and cancel remote URL upload jobs.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -122,12 +138,27 @@ X-API-Token: fyu_your_token_here</code></pre>
                             <tr><td>POST</td><td><code>/api/v1/uploads/sessions</code></td><td>Create a multipart upload session.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/uploads/managed</code></td><td>Create a session and return signed part URLs in one call.</td></tr>
                             <tr><td>GET</td><td><code>/api/v1/uploads/sessions/{id}</code></td><td>Inspect an upload session for resume/retry.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/uploads/sessions/{id}/parts/upload/{part}</code></td><td>Upload a part through the application when the selected backend supports app-routed multipart uploads.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/uploads/sessions/{id}/parts/sign</code></td><td>Request signed upload URLs for one or more parts.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/uploads/sessions/{id}/parts/report</code></td><td>Report a successfully uploaded part and its ETag.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/uploads/sessions/{id}/complete</code></td><td>Finalize the multipart upload and create the file record.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/uploads/sessions/{id}/abort</code></td><td>Abort the multipart upload and release reservation state.</td></tr>
                             <tr><td>GET</td><td><code>/api/v1/files/{id}</code></td><td>Get owner-scoped file metadata.</td></tr>
                             <tr><td>GET</td><td><code>/api/v1/downloads/{id}/link</code></td><td>Get an application-signed download link.</td></tr>
+                            <tr><td>GET</td><td><code>/api/v1/files</code></td><td>List files in the authenticated account.</td></tr>
+                            <tr><td>GET</td><td><code>/api/v1/folders</code></td><td>List folders in the authenticated account.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/folders</code></td><td>Create a folder.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/files/{id}/rename</code></td><td>Rename a file.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/folders/{id}/rename</code></td><td>Rename a folder.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/items/move</code></td><td>Move selected files or folders.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/items/copy</code></td><td>Copy files, clone folder structure, or create alternate file names pointing at the same stored object.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/items/delete</code></td><td>Move selected files or folders to trash.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/bulk-links</code></td><td>Generate plain, HTML, or BBCode links for selected items.</td></tr>
+                            <tr><td>GET</td><td><code>/api/v1/earnings/stats</code></td><td>Read earnings grouped by status and day.</td></tr>
+                            <tr><td>GET</td><td><code>/api/v1/payouts</code></td><td>Read available payout balance and recent payout requests.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/remote-uploads</code></td><td>Create a remote URL upload job.</td></tr>
+                            <tr><td>GET</td><td><code>/api/v1/remote-uploads/{id}</code></td><td>Inspect a remote URL upload job.</td></tr>
+                            <tr><td>POST</td><td><code>/api/v1/remote-uploads/{id}/cancel</code></td><td>Cancel a pending or processing remote upload job.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -157,6 +188,40 @@ X-API-Token: fyu_your_token_here</code></pre>
 
                 <h3>curl: request a download link</h3>
                 <pre><code>curl "https://your-site.example/api/v1/downloads/123/link" \
+  -H "Authorization: Bearer fyu_your_token_here"</code></pre>
+
+                <h3>curl: list and organize files</h3>
+                <pre><code>curl "https://your-site.example/api/v1/files?folder_id=root" \
+  -H "Authorization: Bearer fyu_your_token_here"
+
+curl -X POST "https://your-site.example/api/v1/items/copy" \
+  -H "Authorization: Bearer fyu_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_folder_id": 456,
+    "items": [
+      {"type": "file", "id": 123, "name": "alternate-filename.zip"},
+      {"type": "folder", "id": 321}
+    ]
+  }'</code></pre>
+
+                <h3>curl: generate bulk links</h3>
+                <pre><code>curl -X POST "https://your-site.example/api/v1/bulk-links" \
+  -H "Authorization: Bearer fyu_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "bbcode",
+    "items": [
+      {"type": "file", "id": 123},
+      {"type": "folder", "id": 456}
+    ]
+  }'</code></pre>
+
+                <h3>curl: earnings and payout stats</h3>
+                <pre><code>curl "https://your-site.example/api/v1/earnings/stats" \
+  -H "Authorization: Bearer fyu_your_token_here"
+
+curl "https://your-site.example/api/v1/payouts" \
   -H "Authorization: Bearer fyu_your_token_here"</code></pre>
 
                 <h3>PHP: create a managed upload</h3>
@@ -208,6 +273,18 @@ var_dump($status, json_decode($response, true));</code></pre>
 
 const data = await response.json();
 console.log(response.status, data);</code></pre>
+
+                <h3>Python: list files</h3>
+                <pre><code>import requests
+
+response = requests.get(
+    "https://your-site.example/api/v1/files",
+    headers={"Authorization": "Bearer fyu_your_token_here"},
+    params={"folder_id": "root"},
+    timeout=30,
+)
+response.raise_for_status()
+print(response.json())</code></pre>
 
                 <h3>End-to-end multipart example</h3>
                 <pre><code>1. Create the upload session
@@ -265,6 +342,7 @@ curl -X POST "https://your-site.example/api/v1/uploads/sessions/ups_ab12cd34ef56
                 <h2>Managed Upload Shortcut</h2>
                 <p><code>POST /api/v1/uploads/managed</code> is the easiest way for desktop tools to start. It creates the session and immediately returns signed part URLs for the requested part numbers.</p>
                 <p class="api-note">If the site uses B2, Wasabi, R2, or another S3-compatible bucket, the storage side still needs correct CORS. The API session and signed part URLs are only one half of the flow; the bucket must still allow the site origin and expose <code>ETag</code> for multipart uploads to complete reliably.</p>
+                <p class="api-note">If the upload can be satisfied by deduplication instead of transferring file bytes again, managed-upload responses can return an already-created file record with <code>upload_skipped</code> and <code>deduplicated</code> signals.</p>
                 <h3>Example request</h3>
                 <pre><code>{
   "filename": "archive.iso",
@@ -298,11 +376,17 @@ curl -X POST "https://your-site.example/api/v1/uploads/sessions/ups_ab12cd34ef56
                 <h2>Multipart Upload Flow</h2>
                 <ol class="api-steps">
                     <li>Create a session with <code>/uploads/sessions</code> or use <code>/uploads/managed</code>.</li>
-                    <li>Request signed part URLs for the part numbers you want to upload next.</li>
-                    <li>Upload parts directly to object storage using the returned URLs.</li>
+                    <li>Request signed part URLs for the part numbers you want to upload next, or use the app-routed part-upload endpoint when the backend supports that path.</li>
+                    <li>Upload parts directly to object storage using the returned URLs, or stream the part body to the app-routed endpoint for local-style multipart flows.</li>
                     <li>Report each completed part with its <code>part_number</code>, <code>etag</code>, and byte size.</li>
                     <li>Call <code>/complete</code> when all parts are uploaded and reported.</li>
                 </ol>
+
+                <h3>App-routed part upload</h3>
+                <pre><code>curl -X POST "https://your-site.example/api/v1/uploads/sessions/ups_ab12cd34ef56/parts/upload/1" \
+  -H "Authorization: Bearer fyu_your_token_here" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary "@archive.part1"</code></pre>
 
                 <h3>Report-part example</h3>
                 <pre><code>{
@@ -394,6 +478,7 @@ curl -X POST "https://your-site.example/api/v1/uploads/sessions/ups_ab12cd34ef56
                     <li><code>404</code>: the file or upload session is not accessible to the caller.</li>
                     <li><code>409</code>: an idempotent request with the same key is still in flight.</li>
                     <li><code>422</code>: validation failed, upload state is inconsistent, or the provider-side step could not be completed.</li>
+                    <li><code>503</code>: chunked browser uploads are currently disabled by site configuration.</li>
                 </ul>
                 <p>API traffic is rate-limited per token, per user, and per IP. Exact limits are site-configurable and can differ by deployment.</p>
             </section>

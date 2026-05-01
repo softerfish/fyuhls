@@ -16,7 +16,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const fmFilterChips = document.getElementById('fmFilterChips');
     const fmFilterResults = document.getElementById('fmFilterResults');
     const viewToggle = document.getElementById('viewToggle');
+    const listSelectAll = document.getElementById('listSelectAll');
+    const listSortButtons = document.querySelectorAll('[data-list-sort]');
+    const bulkMakePublicBtn = document.getElementById('bulkMakePublicBtn');
+    const bulkMakePrivateBtn = document.getElementById('bulkMakePrivateBtn');
+    const bulkDownloadBtn = document.getElementById('bulkDownloadBtn');
+    const bulkMoveBtn = document.getElementById('bulkMoveBtn');
+    const bulkCopyBtn = document.getElementById('bulkCopyBtn');
+    const bulkTrashBtn = document.getElementById('bulkTrashBtn');
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const clearSelectionBtn = document.getElementById('clearSelectionBtn');
+    const bulkLinksBtn = document.getElementById('bulkLinksBtn');
+    const bulkLinksModal = document.getElementById('bulkLinksModal');
+    const bulkLinksOutput = document.getElementById('bulkLinksOutput');
+    const bulkLinksSummary = document.getElementById('bulkLinksSummary');
+    const bulkLinksSelectionCount = document.getElementById('bulkLinksSelectionCount');
+    const bulkLinksFormatLabel = document.getElementById('bulkLinksFormatLabel');
+    const bulkLinksActionsNote = document.getElementById('bulkLinksActionsNote');
+    const closeBulkLinksBtn = document.getElementById('closeBulkLinksBtn');
+    const copyBulkLinksBtn = document.getElementById('copyBulkLinksBtn');
+    const exportBulkLinksBtn = document.getElementById('exportBulkLinksBtn');
+    const massRenameBtn = document.getElementById('massRenameBtn');
+    const massRenameModal = document.getElementById('massRenameModal');
+    const massRenamePreview = document.getElementById('massRenamePreview');
+    const previewMassRenameBtn = document.getElementById('previewMassRenameBtn');
+    const applyMassRenameBtn = document.getElementById('applyMassRenameBtn');
+    const closeMassRenameBtn = document.getElementById('closeMassRenameBtn');
     let csrfToken = document.querySelector('input[name="csrf_token"]')?.value;
+    const isTrashView = fileManagerConfig.isTrash === true;
+    const isGuestMode = fileManagerConfig.guestMode === true;
 
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
@@ -39,6 +68,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const pageStateKey = 'fm_state:' + window.location.pathname;
 
     let selectedItems = []; // Array of {id: string, type: 'file'|'folder'}
+    let selectionAnchor = null;
+    let bulkLinksRenderToken = 0;
     const contextMenu = document.getElementById('contextMenu');
     const sidebarContextMenu = document.getElementById('sidebarContextMenu');
     const actionModal = document.getElementById('actionModal');
@@ -88,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (Array.isArray(state.selectedItems)) {
                 selectedItems = state.selectedItems.filter(item =>
-                    document.querySelector(`.file-item[data-id="${item.id}"]`)
+                    findItemElement(item)
                 );
                 updateSelectionUI();
             }
@@ -167,11 +198,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const sorted = items.slice().sort((left, right) => {
-            if (sort === 'name') {
-                return (left.querySelector('.file-name')?.innerText || '').localeCompare(right.querySelector('.file-name')?.innerText || '');
+            const leftIsFolder = left.dataset.kind === 'folder';
+            const rightIsFolder = right.dataset.kind === 'folder';
+            if (leftIsFolder !== rightIsFolder) {
+                return leftIsFolder ? -1 : 1;
             }
-            if (sort === 'largest') {
-                return Number(right.dataset.size || 0) - Number(left.dataset.size || 0);
+
+            if (sort === 'name' || sort === 'name_desc') {
+                const comparison = (left.querySelector('.file-name')?.innerText || '').localeCompare(right.querySelector('.file-name')?.innerText || '');
+                return sort === 'name_desc' ? -comparison : comparison;
+            }
+            if (sort === 'largest' || sort === 'smallest') {
+                const comparison = Number(right.dataset.size || 0) - Number(left.dataset.size || 0);
+                return sort === 'smallest' ? -comparison : comparison;
+            }
+            if (sort === 'downloads' || sort === 'downloads_asc') {
+                const comparison = Number(right.dataset.downloads || 0) - Number(left.dataset.downloads || 0);
+                return sort === 'downloads_asc' ? -comparison : comparison;
+            }
+            if (sort === 'public' || sort === 'private') {
+                const comparison = Number(right.dataset.public || 0) - Number(left.dataset.public || 0);
+                return sort === 'private' ? -comparison : comparison;
             }
 
             const leftDate = new Date(left.dataset.createdAt || 0).getTime();
@@ -186,6 +233,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? `Showing all ${visibleCount} item${visibleCount === 1 ? '' : 's'}`
                 : `Showing ${visibleCount} of ${items.length} item${items.length === 1 ? '' : 's'}`;
         }
+        updateListSortButtons(sort);
+        updateSelectionUI();
+    }
+
+    function updateListSortButtons(sort) {
+        listSortButtons.forEach(button => {
+            const primarySort = button.getAttribute('data-list-sort');
+            const altSort = button.getAttribute('data-list-sort-alt');
+            const isActive = sort === primarySort || sort === altSort;
+            const isAlt = sort === altSort;
+            button.classList.toggle('is-active', isActive);
+            button.classList.toggle('is-alt', isActive && isAlt);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
     }
 
     function escapeHtml(value) {
@@ -216,30 +277,127 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return {
             id: element.getAttribute('data-id'),
-            type: element.classList.contains('folder-item') ? 'folder' : 'file',
+            type: itemTypeFromElement(element),
             parentId: element.getAttribute('data-parent-id') || 'root',
             name: element.querySelector('.file-name')?.innerText || '',
+            shortId: element.dataset.shortId || '',
+            mime: element.dataset.mime || '',
+            url: element.querySelector('.file-info')?.dataset.navUrl || element.querySelector('.file-preview')?.dataset.navUrl || '',
+            isPublic: element.dataset.public === '1',
         };
+    }
+
+    function itemTypeFromElement(element) {
+        return element?.dataset?.kind || (element?.classList?.contains('folder-item') ? 'folder' : 'file');
+    }
+
+    function sameItem(left, right) {
+        return String(left?.id ?? '') === String(right?.id ?? '') && String(left?.type ?? '') === String(right?.type ?? '');
+    }
+
+    function findItemElement(item) {
+        return Array.from(document.querySelectorAll('.file-item')).find(element =>
+            String(element.getAttribute('data-id')) === String(item?.id ?? '') && itemTypeFromElement(element) === item?.type
+        ) || null;
+    }
+
+    function selectionContains(id, type) {
+        return selectedItems.some(item => sameItem(item, { id, type }));
+    }
+
+    function rememberSelectionAnchor(item) {
+        if (!item?.id || !item?.type) {
+            selectionAnchor = null;
+            return;
+        }
+        selectionAnchor = { id: String(item.id), type: String(item.type) };
+    }
+
+    function visibleFileItems() {
+        return Array.from(document.querySelectorAll('.file-item'))
+            .filter(item => item.style.display !== 'none' && item.dataset.pendingRemoval !== '1');
+    }
+
+    function selectionRangeFor(currentItem) {
+        const items = visibleFileItems();
+        const anchor = selectionAnchor && findItemElement(selectionAnchor)
+            ? selectionAnchor
+            : (selectedItems.length > 0 ? selectedItems[selectedItems.length - 1] : null);
+        const anchorIndex = anchor
+            ? items.findIndex(item => sameItem({ id: item.getAttribute('data-id'), type: itemTypeFromElement(item) }, anchor))
+            : -1;
+        const currentIndex = items.findIndex(item => sameItem({ id: item.getAttribute('data-id'), type: itemTypeFromElement(item) }, currentItem));
+
+        if (currentIndex === -1) {
+            return [currentItem];
+        }
+        if (anchorIndex === -1) {
+            return [currentItem];
+        }
+
+        const start = Math.min(anchorIndex, currentIndex);
+        const end = Math.max(anchorIndex, currentIndex);
+        return items.slice(start, end + 1).map(item => ({
+            id: item.getAttribute('data-id'),
+            type: itemTypeFromElement(item),
+        }));
+    }
+
+    function setSelectionRange(currentItem, additive = false) {
+        const range = selectionRangeFor(currentItem);
+        if (additive) {
+            const merged = [...selectedItems];
+            range.forEach(item => {
+                if (!merged.some(existing => sameItem(existing, item))) {
+                    merged.push(item);
+                }
+            });
+            selectedItems = merged;
+        } else {
+            selectedItems = range;
+        }
+        rememberSelectionAnchor(currentItem);
+        updateSelectionUI();
+    }
+
+    function clearSelection() {
+        if (selectedItems.length === 0) {
+            return;
+        }
+        selectedItems = [];
+        selectionAnchor = null;
+        updateSelectionUI();
     }
 
     function collectSnapshot(items) {
         return items.map(item => {
-            const element = document.querySelector(`.file-item[data-id="${item.id}"]`);
+            const element = findItemElement(item);
             return describeItemFromElement(element) || item;
         });
     }
 
     function removeItemsFromView(items) {
         items.forEach(item => {
-            const element = document.querySelector(`.file-item[data-id="${item.id}"]`);
+            const element = findItemElement(item);
             if (element) {
                 element.dataset.pendingRemoval = '1';
                 element.style.display = 'none';
             }
         });
-        selectedItems = selectedItems.filter(item => !items.some(removed => removed.id === item.id));
+        selectedItems = selectedItems.filter(item => !items.some(removed => sameItem(removed, item)));
         updateSelectionUI();
         applySearchFilter();
+    }
+
+    function updatePublicSwitchForItem(item, isPublic) {
+        if (!item) return;
+        item.setAttribute('data-public', isPublic ? '1' : '0');
+        const toggle = item.querySelector('[data-visibility-toggle]');
+        if (toggle) {
+            toggle.classList.toggle('is-on', isPublic);
+            toggle.setAttribute('aria-label', isPublic ? 'Make private' : 'Make public');
+            toggle.setAttribute('title', isPublic ? 'Public' : 'Private');
+        }
     }
 
     function showToast(message, actions = [], duration = 5000) {
@@ -308,7 +466,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function openShareModalForItem(fileId) {
-        const element = document.querySelector(`.file-item[data-id="${fileId}"]`);
+        const element = findItemElement({ id: fileId, type: 'file' });
         if (!element || element.dataset.kind !== 'file') {
             alert('Sharing is available for files only.');
             return;
@@ -422,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (action === 'rename') {
-            const currentItem = itemEl || document.querySelector(`.file-item[data-id="${id}"]`);
+            const currentItem = itemEl || findItemElement({ id, type });
             const currentName = currentItem?.querySelector('.file-name')?.innerText || name;
             const newName = await showActionModal('Rename ' + type, 'Enter a new name:', currentName, true);
             if (newName && newName !== currentName) {
@@ -472,11 +630,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function showContextMenu(e, item) {
         e.preventDefault();
         const id = item.getAttribute('data-id');
-        const type = item.classList.contains('folder-item') ? 'folder' : 'file';
+        const type = itemTypeFromElement(item);
         const name = item.querySelector('.file-name').innerText;
 
         // auto-select if not selected already
-        if (!selectedItems.some(i => i.id === id)) {
+        if (!selectionContains(id, type)) {
             selectedItems = [{ id, type, name }];
             updateSelectionUI();
         }
@@ -558,6 +716,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (event.target === shareModal && shareModal) {
             shareModal.style.display = 'none';
         }
+        if (event.target === bulkLinksModal && bulkLinksModal) {
+            bulkLinksModal.style.display = 'none';
+        }
+        if (event.target === massRenameModal && massRenameModal) {
+            massRenameModal.style.display = 'none';
+        }
         if (event.target === mobileActionSheet && mobileActionSheet) {
             closeMobileSheet();
         }
@@ -626,7 +790,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Select this item exclusively if it wasnt already selected? 
             // Or just use it for the dropdown? Usually dropdown act on the single item.
             // Let's match context menu behavior: auto-select if not selected.
-            if (!selectedItems.some(i => i.id === id)) {
+            if (!selectionContains(id, type)) {
                 selectedItems = [{ id, type, name }];
                 updateSelectionUI();
             }
@@ -715,6 +879,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    bulkLinksBtn?.addEventListener('click', openBulkLinksModal);
+    closeBulkLinksBtn?.addEventListener('click', () => {
+        if (bulkLinksModal) bulkLinksModal.style.display = 'none';
+    });
+    copyBulkLinksBtn?.addEventListener('click', () => {
+        if (bulkLinksOutput?.value) copyText(bulkLinksOutput.value, 'Bulk links');
+    });
+    exportBulkLinksBtn?.addEventListener('click', () => {
+        const blob = new Blob([bulkLinksOutput?.value || ''], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'bulk-links.txt';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    });
+    document.querySelectorAll('[data-link-format]').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('[data-link-format]').forEach(button => button.classList.remove('is-active'));
+            tab.classList.add('is-active');
+            renderBulkLinks(tab.dataset.linkFormat || 'plain').catch(() => {
+                bulkLinksOutput.value = '';
+                alert('Could not generate bulk links.');
+            });
+        });
+    });
+
+    massRenameBtn?.addEventListener('click', () => {
+        if (selectedItems.length === 0) {
+            showToast('Select files or folders to rename.');
+            return;
+        }
+        if (massRenamePreview) massRenamePreview.innerHTML = '';
+        if (applyMassRenameBtn) applyMassRenameBtn.disabled = true;
+        if (massRenameModal) massRenameModal.style.display = 'block';
+    });
+    closeMassRenameBtn?.addEventListener('click', () => {
+        if (massRenameModal) massRenameModal.style.display = 'none';
+    });
+    previewMassRenameBtn?.addEventListener('click', () => {
+        previewMassRename().catch(err => alert(err.message || 'Could not preview rename.'));
+    });
+    applyMassRenameBtn?.addEventListener('click', () => {
+        applyMassRename().catch(err => alert(err.message || 'Could not apply rename.'));
+    });
+
     closeMobileActionSheetBtn?.addEventListener('click', () => {
         closeMobileSheet();
     });
@@ -770,15 +982,270 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update visual state of items
         document.querySelectorAll('.file-item').forEach(item => {
             const id = item.getAttribute('data-id');
-            const isSelected = selectedItems.some(i => i.id === id);
+            const type = itemTypeFromElement(item);
+            const isSelected = selectionContains(id, type);
             item.classList.toggle('selected', isSelected);
             const cb = item.querySelector('.item-checkbox');
             if (cb) cb.checked = isSelected;
         });
+
+        if (listSelectAll) {
+            const visibleItems = Array.from(document.querySelectorAll('.file-item'))
+                .filter(item => item.style.display !== 'none');
+            const selectedVisibleCount = visibleItems.filter(item =>
+                selectionContains(item.getAttribute('data-id'), itemTypeFromElement(item))
+            ).length;
+            listSelectAll.checked = visibleItems.length > 0 && selectedVisibleCount === visibleItems.length;
+            listSelectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleItems.length;
+            listSelectAll.disabled = visibleItems.length === 0;
+        }
+
+        if (bulkMakePublicBtn && bulkMakePrivateBtn) {
+            const selectedFileElements = selectedItems
+                .filter(item => item.type === 'file')
+                .map(item => findItemElement(item))
+                .filter(Boolean);
+            const publicCount = selectedFileElements.filter(item => item.dataset.public === '1').length;
+            const privateCount = selectedFileElements.length - publicCount;
+
+            bulkMakePublicBtn.style.display = privateCount > 0 ? '' : 'none';
+            bulkMakePrivateBtn.style.display = publicCount > 0 ? '' : 'none';
+        }
+
+        const toolbarActionState = [
+            [bulkDownloadBtn, !isTrashView && !isGuestMode],
+            [bulkLinksBtn, !isTrashView && !isGuestMode],
+            [bulkCopyBtn, !isTrashView && !isGuestMode],
+            [massRenameBtn, !isTrashView && !isGuestMode],
+            [bulkMakePublicBtn, !isTrashView && !isGuestMode && bulkMakePublicBtn?.style.display !== 'none'],
+            [bulkMakePrivateBtn, !isTrashView && !isGuestMode && bulkMakePrivateBtn?.style.display !== 'none'],
+            [bulkTrashBtn, !isTrashView && !isGuestMode],
+            [bulkDeleteBtn, !isGuestMode],
+            [bulkMoveBtn, !isGuestMode],
+            [selectAllBtn, true],
+            [clearSelectionBtn, true],
+        ];
+
+        toolbarActionState.forEach(([button, visible]) => {
+            if (button) {
+                button.style.display = visible ? '' : 'none';
+            }
+        });
+    }
+
+    function baseUrl() {
+        return String(fileManagerConfig.baseUrl || window.location.origin).replace(/\/$/, '');
+    }
+
+    function absoluteUrl(path) {
+        if (!path) return '';
+        if (/^https?:\/\//i.test(path)) return path;
+        return baseUrl() + (path.startsWith('/') ? path : '/' + path);
+    }
+
+    function cssEscape(value) {
+        if (window.CSS?.escape) {
+            return CSS.escape(String(value));
+        }
+
+        return String(value).replace(/["\\]/g, '\\$&');
+    }
+
+    function selectedItemSnapshots() {
+        return selectedItems
+            .map(item => describeItemFromElement(findItemElement(item)))
+            .filter(Boolean);
+    }
+
+    function thumbnailUrlForItem(item) {
+        const element = findItemElement(item);
+        const img = element?.querySelector('.file-preview img');
+        return img?.src || '';
+    }
+
+    function bulkLinkFormatMeta(format) {
+        switch (format) {
+            case 'page':
+                return {
+                    label: 'Download page links',
+                    note: 'These point to the public file or folder pages.',
+                };
+            case 'html':
+                return {
+                    label: 'HTML links',
+                    note: 'These are ready to paste into HTML content.',
+                };
+            case 'bbcode':
+                return {
+                    label: 'BBCode links',
+                    note: 'These are ready to paste into forum posts.',
+                };
+            case 'thumbs':
+                return {
+                    label: 'Image thumbnails',
+                    note: 'Only image files with thumbnails generate embed code here.',
+                };
+            case 'grouped':
+                return {
+                    label: 'Grouped by folder',
+                    note: 'Selected items are grouped under their parent folders.',
+                };
+            default:
+                return {
+                    label: 'Plain links',
+                    note: 'Files use the normal /file/ link and eligible visitors auto-start. Folders are skipped in this format.',
+                };
+        }
+    }
+
+    async function renderBulkLinks(format = 'plain') {
+        if (!bulkLinksOutput) return;
+        const renderToken = ++bulkLinksRenderToken;
+        const items = selectedItemSnapshots();
+        const lines = [];
+        const formatMeta = bulkLinkFormatMeta(format);
+
+        if (bulkLinksFormatLabel) {
+            bulkLinksFormatLabel.textContent = formatMeta.label;
+        }
+        if (bulkLinksActionsNote) {
+            bulkLinksActionsNote.textContent = formatMeta.note;
+        }
+        bulkLinksOutput.value = 'Generating links...';
+
+        if (format === 'grouped') {
+            const groups = new Map();
+            items.forEach(item => {
+                const key = item.parentId || 'root';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(item);
+            });
+
+            groups.forEach((group, parentId) => {
+                const parentName = parentId === 'root'
+                    ? 'Home'
+                    : (document.querySelector(`.folder-item[data-id="${cssEscape(parentId)}"] .file-name`)?.innerText || `Folder ${parentId}`);
+                lines.push(`[${parentName}]`);
+                group.forEach(item => lines.push(`${item.name} - ${absoluteUrl(item.url)}`));
+                lines.push('');
+            });
+        } else {
+            for (const item of items) {
+                let url = absoluteUrl(item.url);
+                const safeName = item.name;
+                if (format === 'plain' && item.type === 'file') {
+                    url = absoluteUrl(item.url);
+                } else if (format === 'plain' && item.type !== 'file') {
+                    if (renderToken !== bulkLinksRenderToken) {
+                        return;
+                    }
+                    continue;
+                }
+                if (format === 'html') {
+                    lines.push(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(safeName)}</a>`);
+                } else if (format === 'bbcode') {
+                    lines.push(`[url=${url}]${safeName}[/url]`);
+                } else if (format === 'thumbs') {
+                    const thumb = thumbnailUrlForItem(item);
+                    if (item.type === 'file' && thumb && String(item.mime || '').startsWith('image/')) {
+                        lines.push(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener"><img src="${escapeHtml(thumb)}" alt="${escapeHtml(safeName)}"></a>`);
+                        lines.push(`[url=${url}][img]${thumb}[/img][/url]`);
+                    }
+                } else {
+                    lines.push(url);
+                }
+                if (renderToken !== bulkLinksRenderToken) {
+                    return;
+                }
+            }
+        }
+
+        if (renderToken !== bulkLinksRenderToken) {
+            return;
+        }
+        bulkLinksOutput.value = lines.join('\n').trim();
+    }
+
+    function openBulkLinksModal() {
+        if (selectedItems.length === 0) {
+            showToast('Select at least one file or folder first.');
+            return;
+        }
+        const itemLabel = selectedItems.length === 1 ? '1 item' : `${selectedItems.length} items`;
+        if (bulkLinksSelectionCount) {
+            bulkLinksSelectionCount.textContent = itemLabel;
+        }
+        if (bulkLinksSummary) {
+            bulkLinksSummary.innerHTML = `You are exporting links for <strong>${escapeHtml(itemLabel)}</strong>. Choose a format on the left, then copy or export the result.`;
+        }
+        document.querySelectorAll('[data-link-format]').forEach(tab => tab.classList.remove('is-active'));
+        document.querySelector('[data-link-format="plain"]')?.classList.add('is-active');
+        renderBulkLinks('plain').catch(() => {
+            bulkLinksOutput.value = '';
+            alert('Could not generate bulk links.');
+        });
+        if (bulkLinksModal) bulkLinksModal.style.display = 'block';
+    }
+
+    function selectedRenameItems() {
+        return selectedItemSnapshots().map(item => ({ id: item.id, type: item.type }));
+    }
+
+    function massRenamePayload(action) {
+        const fd = new FormData();
+        selectedRenameItems().forEach((it, idx) => {
+            fd.append(`ids[${idx}][id]`, it.id);
+            fd.append(`ids[${idx}][type]`, it.type);
+        });
+        fd.append('find', document.getElementById('renameFind')?.value || '');
+        fd.append('replace', document.getElementById('renameReplace')?.value || '');
+        fd.append('prefix', document.getElementById('renamePrefix')?.value || '');
+        fd.append('suffix', document.getElementById('renameSuffix')?.value || '');
+        fd.append('remove', document.getElementById('renameRemove')?.value || '');
+        fd.append('separator', document.getElementById('renameSeparator')?.value || '');
+        fd.append('sequence', document.getElementById('renameSequence')?.value || '');
+        fd.append('start', document.getElementById('renameStart')?.value || '1');
+        fd.append('regex', document.getElementById('renameRegex')?.checked ? '1' : '0');
+        fd.append('action', action);
+        fd.append('csrf_token', csrfToken);
+        return fd;
+    }
+
+    async function previewMassRename() {
+        if (selectedItems.length === 0) {
+            showToast('Select at least one item to rename.');
+            return;
+        }
+        const response = await fetch('/bulk/rename', { method: 'POST', body: massRenamePayload('preview') });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.status !== 'success') {
+            alert(payload.error || 'Could not preview rename.');
+            return;
+        }
+
+        const rows = payload.preview || [];
+        massRenamePreview.innerHTML = rows.length
+            ? `<table><thead><tr><th>Current</th><th>New</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.old_name)}</td><td>${escapeHtml(row.new_name)}</td></tr>`).join('')}</tbody></table>`
+            : '<div class="rewards-empty-cell">No rename changes to apply.</div>';
+        if (applyMassRenameBtn) applyMassRenameBtn.disabled = rows.length === 0;
+    }
+
+    async function applyMassRename() {
+        const confirmed = window.confirm('Apply these rename changes now?');
+        if (!confirmed) return;
+
+        const response = await fetch('/bulk/rename', { method: 'POST', body: massRenamePayload('apply') });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.status !== 'success') {
+            alert(payload.error || 'Could not apply rename.');
+            return;
+        }
+        showToast(`Renamed ${payload.updated || 0} item${payload.updated === 1 ? '' : 's'}.`);
+        reloadWithState();
     }
 
     // Bulk Download Listener
-    document.getElementById('bulkDownloadBtn')?.addEventListener('click', () => {
+    bulkDownloadBtn?.addEventListener('click', () => {
         const files = selectedItems.filter(i => i.type === 'file');
         if (files.length === 0) {
             alert('Please select at least one file to download.');
@@ -796,42 +1263,93 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('item-checkbox') && e.shiftKey) {
+            e.preventDefault();
+            const item = e.target.closest('.file-item');
+            if (!item) {
+                return;
+            }
+            const currentItem = {
+                id: item.getAttribute('data-id'),
+                type: e.target.getAttribute('data-type'),
+            };
+            setSelectionRange(currentItem, e.ctrlKey || e.metaKey);
+        }
+    });
+
     document.addEventListener('change', (e) => {
         if (e.target.classList.contains('item-checkbox')) {
             const item = e.target.closest('.file-item');
             const id = item.getAttribute('data-id');
             const type = e.target.getAttribute('data-type');
-
+            const currentItem = { id, type };
             if (e.target.checked) {
-                if (!selectedItems.some(i => i.id === id)) {
-                    selectedItems.push({ id, type });
+                if (!selectionContains(id, type)) {
+                    selectedItems.push(currentItem);
                 }
+                rememberSelectionAnchor(currentItem);
             } else {
-                selectedItems = selectedItems.filter(i => i.id !== id);
+                selectedItems = selectedItems.filter(i => !sameItem(i, currentItem));
+                if (selectionAnchor && sameItem(selectionAnchor, currentItem)) {
+                    selectionAnchor = selectedItems.length > 0 ? { ...selectedItems[selectedItems.length - 1] } : null;
+                }
             }
             updateSelectionUI();
         }
     });
 
-    document.getElementById('clearSelectionBtn')?.addEventListener('click', () => {
-        selectedItems = [];
-        updateSelectionUI();
+    clearSelectionBtn?.addEventListener('click', () => {
+        clearSelection();
+    });
+
+    fileGrid?.addEventListener('click', (e) => {
+        if (selectedItems.length === 0) {
+            return;
+        }
+        if (e.target !== fileGrid) {
+            return;
+        }
+        clearSelection();
     });
 
     // select all - mirrors the Ctrl+A keyboard shortcut
-    document.getElementById('selectAllBtn')?.addEventListener('click', () => {
+    selectAllBtn?.addEventListener('click', () => {
         selectedItems = [];
         document.querySelectorAll('.file-item').forEach(item => {
-            if (item.style.display === 'none') return;
-            const id   = item.getAttribute('data-id');
-            const type = item.classList.contains('folder-item') ? 'folder' : 'file';
-            selectedItems.push({ id, type });
-        });
+                if (item.style.display === 'none') return;
+                const id   = item.getAttribute('data-id');
+                const type = itemTypeFromElement(item);
+                selectedItems.push({ id, type });
+            });
+        rememberSelectionAnchor(selectedItems[0] || null);
+        updateSelectionUI();
+    });
+
+    listSelectAll?.addEventListener('change', () => {
+        if (listSelectAll.checked) {
+            selectedItems = [];
+            document.querySelectorAll('.file-item').forEach(item => {
+                if (item.style.display === 'none') return;
+                const id = item.getAttribute('data-id');
+                const type = itemTypeFromElement(item);
+                selectedItems.push({ id, type });
+            });
+            rememberSelectionAnchor(selectedItems[0] || null);
+        } else {
+            const visibleItems = Array.from(document.querySelectorAll('.file-item'))
+                .filter(item => item.style.display !== 'none')
+                .map(item => ({ id: item.getAttribute('data-id'), type: itemTypeFromElement(item) }));
+            selectedItems = selectedItems.filter(item => !visibleItems.some(visibleItem => sameItem(visibleItem, item)));
+            if (selectionAnchor && !selectionContains(selectionAnchor.id, selectionAnchor.type)) {
+                selectionAnchor = selectedItems.length > 0 ? { ...selectedItems[selectedItems.length - 1] } : null;
+            }
+        }
         updateSelectionUI();
     });
 
     // bulk visibility - Make Public
-    document.getElementById('bulkMakePublicBtn')?.addEventListener('click', async () => {
+    bulkMakePublicBtn?.addEventListener('click', async () => {
         const files = selectedItems.filter(i => i.type === 'file');
         if (files.length === 0) {
             showToast('Select at least one file to change visibility.');
@@ -849,7 +1367,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(data => {
                 if (data.status === 'success') {
                     files.forEach(it => {
-                        document.querySelector(`.file-item[data-id="${it.id}"]`)?.setAttribute('data-public', '1');
+                        updatePublicSwitchForItem(findItemElement({ id: it.id, type: 'file' }), true);
                     });
                     showToast(`${data.updated} file${data.updated === 1 ? '' : 's'} set to public.`);
                     applySearchFilter();
@@ -861,7 +1379,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // bulk visibility - Make Private
-    document.getElementById('bulkMakePrivateBtn')?.addEventListener('click', async () => {
+    bulkMakePrivateBtn?.addEventListener('click', async () => {
         const files = selectedItems.filter(i => i.type === 'file');
         if (files.length === 0) {
             showToast('Select at least one file to change visibility.');
@@ -879,7 +1397,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(data => {
                 if (data.status === 'success') {
                     files.forEach(it => {
-                        document.querySelector(`.file-item[data-id="${it.id}"]`)?.setAttribute('data-public', '0');
+                        updatePublicSwitchForItem(findItemElement({ id: it.id, type: 'file' }), false);
                     });
                     showToast(`${data.updated} file${data.updated === 1 ? '' : 's'} set to private.`);
                     applySearchFilter();
@@ -957,9 +1475,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.file-item').forEach(item => {
         item.addEventListener('dragstart', (e) => {
             const id = item.getAttribute('data-id');
-            const type = item.classList.contains('folder-item') ? 'folder' : 'file';
+            const type = itemTypeFromElement(item);
 
-            if (!selectedItems.some(i => i.id === id)) {
+            if (!selectionContains(id, type)) {
                 selectedItems = [{ id, type }];
                 updateSelectionUI();
             }
@@ -984,7 +1502,7 @@ document.addEventListener('DOMContentLoaded', () => {
             nameEl.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 const id   = item.getAttribute('data-id');
-                const type = item.classList.contains('folder-item') ? 'folder' : 'file';
+                const type = itemTypeFromElement(item);
                 const currentName = nameEl.textContent.trim();
 
                 const input = document.createElement('input');
@@ -1112,7 +1630,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if ((e.key === 'r' || e.key === 'R') && selectedItems.length === 1) {
             e.preventDefault();
             const selected = selectedItems[0];
-            const itemEl = document.querySelector(`.file-item[data-id="${selected.id}"]`);
+            const itemEl = findItemElement(selected);
             performItemAction('rename', selected.id, selected.type, selected.name || '', itemEl);
         } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
@@ -1120,7 +1638,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.file-item').forEach(item => {
                 if (item.style.display === 'none') return;
                 const id = item.getAttribute('data-id');
-                const type = item.classList.contains('folder-item') ? 'folder' : 'file';
+                const type = itemTypeFromElement(item);
                 selectedItems.push({ id, type });
             });
             updateSelectionUI();
@@ -1130,8 +1648,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // 5.6 Action Modal Helpers (Copy, Move, Tree)
     function showFolderTreeModal(title, onConfirm) {
         const moveModalTitle = moveModal?.querySelector('h3');
+        const moveModalDescription = document.getElementById('moveModalDescription');
+        const confirmMoveBtn = document.getElementById('confirmMoveBtn');
+        const isCopyAction = String(title || '').toLowerCase().includes('copy');
         if (moveModalTitle) {
             moveModalTitle.innerText = title;
+        }
+        if (moveModalDescription) {
+            moveModalDescription.innerText = isCopyAction
+                ? 'Select destination folder for the copied items:'
+                : 'Select destination folder:';
+        }
+        if (confirmMoveBtn) {
+            confirmMoveBtn.innerText = isCopyAction ? 'Copy Here' : 'Move Here';
         }
         moveModal.style.display = 'block';
         loadFolderTree();
@@ -1257,7 +1786,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
-    document.getElementById('bulkDeleteBtn')?.addEventListener('click', async () => {
+    bulkDeleteBtn?.addEventListener('click', async () => {
         if (!await showActionModal('Permanent Delete', `PERMANENTLY delete ${selectedItems.length} items? This cannot be undone.`)) return;
         const fd = new FormData();
         selectedItems.forEach((it, idx) => {
@@ -1286,7 +1815,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     });
 
-    document.getElementById('bulkTrashBtn')?.addEventListener('click', async () => {
+    bulkTrashBtn?.addEventListener('click', async () => {
         if (selectedItems.length === 0) {
             return;
         }
@@ -1299,6 +1828,18 @@ document.addEventListener('DOMContentLoaded', () => {
     fmVisibilityFilter?.addEventListener('change', () => applySearchFilter());
     fmStatusFilter?.addEventListener('change', () => applySearchFilter());
     fmSort?.addEventListener('change', () => applySearchFilter());
+    listSortButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            if (!fmSort) {
+                return;
+            }
+
+            const primarySort = button.getAttribute('data-list-sort') || 'newest';
+            const altSort = button.getAttribute('data-list-sort-alt') || '';
+            fmSort.value = altSort && fmSort.value === primarySort ? altSort : primarySort;
+            applySearchFilter();
+        });
+    });
 
     function setFileManagerView(mode) {
         if (!fileGrid) {
@@ -1328,9 +1869,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Restore view preference
-    let savedView = 'grid';
+    let savedView = 'list';
     try {
-        savedView = localStorage.getItem('fm_view') === 'list' ? 'list' : 'grid';
+        const storedView = localStorage.getItem('fm_view');
+        savedView = storedView === 'grid' ? 'grid' : 'list';
     } catch (e) {
     }
     setFileManagerView(savedView);
@@ -1342,10 +1884,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const moveModal = document.getElementById('moveModal');
     const folderTree = document.getElementById('folderTree');
 
-    document.getElementById('bulkMoveBtn')?.addEventListener('click', () => {
+    bulkMoveBtn?.addEventListener('click', () => {
         if (selectedItems.length === 0) return;
         showFolderTreeModal('Move to...', (targetId) => {
             performBulkMove(selectedItems, targetId);
+        });
+    });
+
+    bulkCopyBtn?.addEventListener('click', () => {
+        if (selectedItems.length === 0) return;
+        showFolderTreeModal('Copy to...', (targetId) => {
+            performBulkCopy(selectedItems, targetId);
         });
     });
 
@@ -1393,9 +1942,53 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', async (e) => {
         // Folder Navigation
         const folderItem = e.target.closest('.folder-item');
-        if (folderItem && !e.target.closest('.file-hover-controls') && !e.target.closest('.file-select')) {
-            const id = folderItem.getAttribute('data-id');
-            location.href = '/folder/' + id;
+        if (folderItem && !e.target.closest('.file-hover-controls') && !e.target.closest('.file-select') && !e.target.closest('.file-list-actions')) {
+            const id = String(folderItem.getAttribute('data-id') || '').trim();
+            if (!/^\d+$/.test(id)) {
+                return;
+            }
+            window.location.assign('/folder/' + encodeURIComponent(id));
+            return;
+        }
+
+        const renameItem = e.target.closest('.rename-item');
+        if (renameItem) {
+            e.preventDefault();
+            e.stopPropagation();
+            const item = renameItem.closest('.file-item');
+            if (!item) return;
+            const id = item.getAttribute('data-id');
+            const type = itemTypeFromElement(item);
+            const name = item.querySelector('.file-name')?.innerText.trim() || '';
+            await performItemAction('rename', id, type, name, item);
+            return;
+        }
+
+        const visibilityToggle = e.target.closest('[data-visibility-toggle]');
+        if (visibilityToggle) {
+            e.preventDefault();
+            e.stopPropagation();
+            const item = visibilityToggle.closest('.file-item');
+            if (!item || item.dataset.kind !== 'file') return;
+            const id = item.getAttribute('data-id');
+            const makePublic = item.dataset.public !== '1';
+            const fd = new FormData();
+            fd.append('ids[0][id]', id);
+            fd.append('ids[0][type]', 'file');
+            fd.append('visibility', makePublic ? 'public' : 'private');
+            fd.append('csrf_token', csrfToken);
+            fetch('/bulk/visibility', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updatePublicSwitchForItem(item, makePublic);
+                        showToast(`File set to ${makePublic ? 'public' : 'private'}.`);
+                        applySearchFilter();
+                    } else {
+                        alert(data.error || 'Failed to update visibility');
+                    }
+                })
+                .catch(() => alert('Network error updating visibility'));
             return;
         }
 

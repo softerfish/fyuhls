@@ -2,15 +2,10 @@
 $title = 'DMCA Takedown Notice';
 $metaDescription = 'Submit a DMCA takedown notice for copyrighted material hosted on this site.';
 include __DIR__ . '/header.php';
+include __DIR__ . '/partials/public_form_shell_styles.php';
 ?>
 
     <style>
-        .dmca-shell {
-            max-width: 800px;
-            border: none;
-            box-shadow: none;
-            background: transparent;
-        }
         .dmca-intro {
             text-align: center;
             color: var(--text-muted);
@@ -55,7 +50,8 @@ include __DIR__ . '/header.php';
         }
     </style>
 
-    <div class="auth-container dmca-shell">
+    <div class="public-form-shell">
+    <div class="auth-container public-form-card public-form-card--wide public-form-card--plain">
         <h2>DMCA Takedown Notice</h2>
         <p class="dmca-intro">If you believe that your copyrighted work has been infringed, please complete the form below.</p>
 
@@ -104,6 +100,7 @@ include __DIR__ . '/header.php';
             <?php include __DIR__ . '/../partials/captcha.php'; ?>
             <button type="submit" class="btn">Submit Takedown Notice</button>
         </form>
+    </div>
     </div>
 
 <?php include __DIR__ . '/footer.php'; ?>

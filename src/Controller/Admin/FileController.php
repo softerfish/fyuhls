@@ -135,8 +135,33 @@ class FileController
             }
 
             $fileId = (int)$_POST['file_id'];
+            $deleteReason = trim((string)($_POST['delete_reason'] ?? ''));
+            if ($deleteReason === '') {
+                $_SESSION['error'] = "A deletion reason is required.";
+                header("Location: /admin/files");
+                exit;
+            }
+
             $db = Database::getInstance()->getConnection();
-            
+            $file = \App\Model\File::findAnyStatus($fileId);
+            if (!$file) {
+                $_SESSION['error'] = "File not found.";
+                header("Location: /admin/files");
+                exit;
+            }
+
+            if (!empty($file['user_id']) && !\App\Model\FileDeletionLog::hasOriginalFileId($fileId)) {
+                \App\Model\FileDeletionLog::record(
+                    (int)$file['user_id'],
+                    $fileId,
+                    (string)($file['filename'] ?? 'Deleted file'),
+                    $deleteReason,
+                    Auth::id() ? (int)Auth::id() : null,
+                    'admin',
+                    'Administrator'
+                );
+            }
+
             // Mark for background purge instead of instant hard delete
             $stmt = $db->prepare("UPDATE files SET status = 'pending_purge' WHERE id = ?");
             $stmt->execute([$fileId]);

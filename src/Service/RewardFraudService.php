@@ -134,6 +134,7 @@ class RewardFraudService
             "ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `risk_level` VARCHAR(16) NULL AFTER `risk_score`",
             "ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `risk_reasons_json` JSON NULL AFTER `risk_level`",
             "ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proof_status` VARCHAR(32) NULL AFTER `risk_reasons_json`",
+            "ALTER TABLE `earnings` MODIFY COLUMN `type` ENUM('download_reward','pps_reward','referral','bonus','withdrawal','aggregate_summary') NOT NULL",
             "ALTER TABLE `earnings` MODIFY COLUMN `status` ENUM('held','flagged_review','cleared','reversed','paid','cancelled','pending') NOT NULL DEFAULT 'held'",
             "ALTER TABLE `earnings` ADD COLUMN IF NOT EXISTS `session_id` BIGINT UNSIGNED NULL AFTER `file_id`",
             "ALTER TABLE `earnings` ADD COLUMN IF NOT EXISTS `risk_score` INT NOT NULL DEFAULT 0 AFTER `ip_hash`",
@@ -145,9 +146,30 @@ class RewardFraudService
             "ALTER TABLE `earnings` ADD COLUMN IF NOT EXISTS `country_code` CHAR(2) NULL AFTER `review_note`",
             "ALTER TABLE `earnings` ADD COLUMN IF NOT EXISTS `network_type` VARCHAR(32) NULL AFTER `country_code`",
             "ALTER TABLE `earnings` ADD COLUMN IF NOT EXISTS `asn` VARCHAR(64) NULL AFTER `network_type`",
+            "ALTER TABLE `earnings` ADD COLUMN IF NOT EXISTS `parent_earning_id` BIGINT UNSIGNED NULL AFTER `session_id`",
+            "ALTER TABLE `earnings` ADD COLUMN IF NOT EXISTS `metadata` JSON NULL AFTER `description`",
             "ALTER TABLE `earnings` ADD INDEX IF NOT EXISTS `earnings_status_hold_idx` (`status`, `hold_until`, `created_at`)",
+            "ALTER TABLE `earnings` ADD INDEX IF NOT EXISTS `earnings_parent_type_idx` (`parent_earning_id`, `type`)",
             "ALTER TABLE `reward_receipts` ADD INDEX IF NOT EXISTS `receipt_status_created_idx` (`status`, `created_at`)",
             "ALTER TABLE `reward_receipts` ADD INDEX IF NOT EXISTS `receipt_cookie_idx` (`user_id`, `visitor_cookie_hash`, `created_at`)"
+        ] as $statement) {
+            try {
+                $db->exec($statement);
+            } catch (\Throwable $e) {
+            }
+        }
+
+        foreach ([
+            "UPDATE `earnings`
+             SET `parent_earning_id` = CAST(JSON_UNQUOTE(JSON_EXTRACT(`metadata`, '$.parent_earning_id')) AS UNSIGNED)
+             WHERE `type` = 'referral'
+               AND `parent_earning_id` IS NULL
+               AND JSON_EXTRACT(`metadata`, '$.parent_earning_id') IS NOT NULL",
+            "UPDATE `earnings`
+             SET `parent_earning_id` = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(`description`, '#', -1), ' ', 1) AS UNSIGNED)
+             WHERE `type` = 'referral'
+               AND `parent_earning_id` IS NULL
+               AND `description` LIKE 'Referral commission for earning #%'" 
         ] as $statement) {
             try {
                 $db->exec($statement);
@@ -283,11 +305,39 @@ class RewardFraudService
             $bytesExpected,
         ]);
 
-        $this->recordSessionEventById((int)$db->lastInsertId(), 'start', [
+        $sessionId = (int)$db->lastInsertId();
+
+        $this->recordSessionEventById($sessionId, 'start', [
             'event_public_id' => bin2hex(random_bytes(16)),
             'signature_valid' => 1,
             'bytes_sent' => 0,
         ]);
+
+        // In intelligence mode, persist proxy intel onto the download session
+        // so fraud scoring can use it later without hard-blocking the visitor.
+        if ($this->shouldCaptureProxyIntel()) {
+            try {
+                $security = new \App\Service\SecurityService();
+                $intel = $security->lookupProxyIntel(\App\Service\SecurityService::getClientIp());
+                $db->prepare("
+                    UPDATE download_sessions
+                    SET proxy_intel_risk_score = ?,
+                        proxy_intel_type = ?,
+                        proxy_intel_provider = ?,
+                        proxy_intel_last_seen = ?
+                    WHERE id = ?
+                ")->execute([
+                    $intel['risk'],
+                    $intel['type'],
+                    $intel['provider'],
+                    $intel['last_seen'],
+                    $sessionId,
+                ]);
+            } catch (\Throwable $e) {
+                // non-fatal; don't break the download over an intel lookup failure
+                error_log("PROXY_INTEL: failed to stamp session $publicId: " . $e->getMessage());
+            }
+        }
 
         return $this->findSessionByPublicId($publicId) ?? ['public_id' => $publicId] + $signals;
     }
@@ -366,7 +416,17 @@ class RewardFraudService
             'asn' => isset($session['asn']) && $session['asn'] !== '' ? (string)$session['asn'] : null,
             'network_type' => isset($session['network_type']) && $session['network_type'] !== '' ? (string)$session['network_type'] : null,
             'country_code' => isset($session['country_code']) && preg_match('/^[A-Z]{2}$/', strtoupper((string)$session['country_code'])) ? strtoupper((string)$session['country_code']) : null,
+            'proxy_intel_risk_score' => max(0, min(100, (int)($session['proxy_intel_risk_score'] ?? 0))),
+            'proxy_intel_type' => isset($session['proxy_intel_type']) && $session['proxy_intel_type'] !== '' ? (string)$session['proxy_intel_type'] : null,
+            'proxy_intel_provider' => isset($session['proxy_intel_provider']) && $session['proxy_intel_provider'] !== '' ? (string)$session['proxy_intel_provider'] : null,
+            'proxy_intel_last_seen' => isset($session['proxy_intel_last_seen']) && $session['proxy_intel_last_seen'] !== '' ? (string)$session['proxy_intel_last_seen'] : null,
         ];
+    }
+
+    private function shouldCaptureProxyIntel(): bool
+    {
+        return \App\Service\SecurityService::getVpnProtectionMode() === 'intelligence'
+            && trim((string)Setting::getEncrypted('proxycheck_api_key', '')) !== '';
     }
 
     public function recordDownloadProgress(string $publicId, int $bytesSent, int $bytesExpected): void
@@ -738,7 +798,19 @@ class RewardFraudService
         }
 
         if ($this->isSignalEnabled('rewards_use_proxy_intel')) {
-            $score += (int)($receipt['proxy_intel_risk_score'] ?? 0);
+            $proxyIntelScore = (int)($receipt['proxy_intel_risk_score'] ?? 0);
+            // if the receipt doesn't carry the score directly, pull it from the linked session
+            if ($proxyIntelScore === 0 && !empty($receipt['session_id'])) {
+                try {
+                    $piStmt = $db->prepare("SELECT proxy_intel_risk_score FROM download_sessions WHERE id = ? LIMIT 1");
+                    $piStmt->execute([(int)$receipt['session_id']]);
+                    $proxyIntelScore = (int)($piStmt->fetchColumn() ?: 0);
+                } catch (\Throwable $e) { }
+            }
+            if ($proxyIntelScore > 0) {
+                $score += $proxyIntelScore;
+                $reasons[] = "Proxy intelligence risk score: {$proxyIntelScore}.";
+            }
         }
 
         if ($this->isSignalEnabled('rewards_use_cloudflare_intel')) {

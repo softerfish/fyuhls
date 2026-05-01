@@ -8,6 +8,7 @@ use App\Core\Logger;
 use App\Model\Package;
 use App\Model\Setting;
 use App\Model\User;
+use App\Service\EncryptionService;
 
 class PaymentService
 {
@@ -16,6 +17,19 @@ class PaymentService
     public const DEFAULT_BILLING_PERIOD = 'monthly';
     private const DEFAULT_AFFILIATE_HOLD_DAYS = 5;
     private const STRIPE_WEBHOOK_TOLERANCE = 300;
+    private const STALE_PENDING_PAYMENT_MINUTES = 1440;
+
+    private static function assertDecryptedSecret(string $value, string $label): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            throw new \RuntimeException($label . ' is not configured.');
+        }
+        if (str_starts_with($value, 'ENC:')) {
+            throw new \RuntimeException($label . ' could not be decrypted. Re-save it in Config Hub.');
+        }
+        return $value;
+    }
 
     public static function ensureTablesExist(): void
     {
@@ -102,7 +116,15 @@ class PaymentService
             INSERT INTO transactions (user_id, package_id, amount, currency, gateway, gateway_reference, status, ip_address)
             VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
         ");
-        $stmt->execute([$userId, $packageId, $amount, self::DEFAULT_CURRENCY, $gateway, $reference, $ipAddress]);
+        $stmt->execute([
+            $userId,
+            $packageId,
+            $amount,
+            self::DEFAULT_CURRENCY,
+            $gateway,
+            $reference,
+            EncryptionService::encrypt($ipAddress),
+        ]);
 
         return [
             'id' => (int)$db->lastInsertId(),
@@ -111,6 +133,36 @@ class PaymentService
             'currency' => self::DEFAULT_CURRENCY,
             'billing_period' => self::DEFAULT_BILLING_PERIOD,
             'package' => $package,
+        ];
+    }
+
+    public static function expireStalePendingTransactions(int $olderThanMinutes = self::STALE_PENDING_PAYMENT_MINUTES): array
+    {
+        self::ensureTablesExist();
+
+        $olderThanMinutes = max(60, (int)$olderThanMinutes);
+        $db = Database::getInstance()->getConnection();
+
+        $stmt = $db->prepare("
+            UPDATE transactions
+            SET status = 'failed'
+            WHERE status = 'pending'
+              AND created_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)
+        ");
+        $stmt->execute([$olderThanMinutes]);
+
+        $expired = (int)$stmt->rowCount();
+
+        if ($expired > 0) {
+            Logger::info('stale pending payment transactions expired', [
+                'expired' => $expired,
+                'older_than_minutes' => $olderThanMinutes,
+            ]);
+        }
+
+        return [
+            'expired' => $expired,
+            'older_than_minutes' => $olderThanMinutes,
         ];
     }
 
@@ -125,10 +177,7 @@ class PaymentService
 
     public static function confirmStripeSuccess(string $sessionId): array
     {
-        $secretKey = trim((string)Setting::getEncrypted('payment_stripe_secret_key', ''));
-        if ($secretKey === '') {
-            throw new \RuntimeException('Stripe secret key is not configured.');
-        }
+        $secretKey = self::assertDecryptedSecret((string)Setting::getEncrypted('payment_stripe_secret_key', ''), 'Stripe secret key');
 
         $session = self::httpRequest(
             'GET',
@@ -155,16 +204,24 @@ class PaymentService
         $capture = self::httpRequest(
             'POST',
             $baseUrl . '/v2/checkout/orders/' . rawurlencode($orderId) . '/capture',
-            [],
+            ['_empty_object' => true],
             [
                 'Authorization: Bearer ' . $accessToken,
                 'Content-Type: application/json',
             ]
         );
 
+        $capturedReference = self::extractPayPalReference($capture);
+        if ($capturedReference === '') {
+            throw new \RuntimeException('PayPal capture response did not include an internal payment reference.');
+        }
+        if (!hash_equals($capturedReference, $reference)) {
+            throw new \RuntimeException('PayPal capture response did not match the expected payment reference.');
+        }
+
         $status = strtolower((string)($capture['status'] ?? ''));
         $mapped = $status === 'completed' ? 'completed' : ($status === 'payer_action_required' ? 'pending' : 'failed');
-        return self::applyGatewayStatus('paypal', $reference, $mapped);
+        return self::applyGatewayStatus('paypal', $capturedReference, $mapped);
     }
 
     public static function handleCallback(string $gateway, array $payload, string $signature): array
@@ -187,10 +244,7 @@ class PaymentService
 
     private static function createStripeCheckoutUrl(array $transaction, array $package): string
     {
-        $secretKey = trim((string)Setting::getEncrypted('payment_stripe_secret_key', ''));
-        if ($secretKey === '') {
-            throw new \RuntimeException('Stripe secret key is not configured.');
-        }
+        $secretKey = self::assertDecryptedSecret((string)Setting::getEncrypted('payment_stripe_secret_key', ''), 'Stripe secret key');
 
         $successUrl = SeoService::trustedBaseUrl() . '/payment/stripe/success?session_id={CHECKOUT_SESSION_ID}';
         $cancelUrl = SeoService::trustedBaseUrl() . '/payment/cancel?gateway=stripe&reference=' . rawurlencode((string)$transaction['reference']);
@@ -267,7 +321,8 @@ class PaymentService
         }
 
         foreach ($response['links'] as $link) {
-            if (($link['rel'] ?? '') === 'approve' && !empty($link['href'])) {
+            $rel = strtolower(trim((string)($link['rel'] ?? '')));
+            if (in_array($rel, ['approve', 'payer-action'], true) && !empty($link['href'])) {
                 return (string)$link['href'];
             }
         }
@@ -277,10 +332,7 @@ class PaymentService
 
     private static function handleStripeWebhook(array $payload, string $signature): array
     {
-        $secret = trim((string)Setting::getEncrypted('payment_stripe_webhook_secret', ''));
-        if ($secret === '') {
-            throw new \RuntimeException('Stripe webhook secret is not configured.');
-        }
+        $secret = self::assertDecryptedSecret((string)Setting::getEncrypted('payment_stripe_webhook_secret', ''), 'Stripe webhook secret');
 
         self::verifyStripeWebhookSignature((string)($payload['_raw_body'] ?? ''), $signature, $secret);
         self::claimWebhookEvent('stripe', trim((string)($payload['id'] ?? '')));
@@ -309,19 +361,15 @@ class PaymentService
 
         $eventType = (string)($payload['event_type'] ?? '');
         $resource = $payload['resource'] ?? [];
-        $reference = (string)(
-            $resource['custom_id']
-            ?? $resource['purchase_units'][0]['custom_id']
-            ?? $resource['supplementary_data']['related_ids']['order_id']
-            ?? ''
-        );
+        $reference = self::extractPayPalReference($resource);
 
         if ($reference === '') {
             throw new \RuntimeException('PayPal webhook did not include an internal payment reference.');
         }
 
         $status = match ($eventType) {
-            'PAYMENT.CAPTURE.COMPLETED', 'CHECKOUT.ORDER.APPROVED' => 'completed',
+            'PAYMENT.CAPTURE.COMPLETED' => 'completed',
+            'CHECKOUT.ORDER.APPROVED' => 'pending',
             'PAYMENT.CAPTURE.DENIED' => 'denied',
             'PAYMENT.CAPTURE.REFUNDED' => 'refunded',
             'PAYMENT.CAPTURE.PENDING' => 'pending',
@@ -398,14 +446,27 @@ class PaymentService
             throw $e;
         }
 
-        self::sendPaymentStatusEmail($transaction, $status, $previousStatus, $gateway);
+        try {
+            self::sendPaymentStatusEmail($transaction, $status, $previousStatus, $gateway);
+        } catch (\Throwable $e) {
+            Logger::warning('payment status email failed after commit', [
+                'transaction_id' => (int)$transaction['id'],
+                'gateway' => $gateway,
+                'status' => $status,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
-        Logger::info('payment status applied', [
-            'transaction_id' => (int)$transaction['id'],
-            'gateway' => $gateway,
-            'status' => $status,
-            'previous_status' => $previousStatus,
-        ]);
+        try {
+            Logger::info('payment status applied', [
+                'transaction_id' => (int)$transaction['id'],
+                'gateway' => $gateway,
+                'status' => $status,
+                'previous_status' => $previousStatus,
+            ]);
+        } catch (\Throwable $e) {
+            error_log('Payment status logging failed: ' . $e->getMessage());
+        }
 
         return [
             'transaction_id' => (int)$transaction['id'],
@@ -779,8 +840,8 @@ class PaymentService
     private static function paypalAccessToken(): string
     {
         $clientId = trim((string)Setting::get('payment_paypal_client_id', ''));
-        $clientSecret = trim((string)Setting::getEncrypted('payment_paypal_client_secret', ''));
-        if ($clientId === '' || $clientSecret === '') {
+        $clientSecret = self::assertDecryptedSecret((string)Setting::getEncrypted('payment_paypal_client_secret', ''), 'PayPal client secret');
+        if ($clientId === '') {
             throw new \RuntimeException('PayPal credentials are not configured.');
         }
 
@@ -853,6 +914,29 @@ class PaymentService
         }
     }
 
+    private static function extractPayPalReference(array $payload): string
+    {
+        $candidates = [
+            $payload['custom_id'] ?? null,
+            $payload['reference_id'] ?? null,
+            $payload['purchase_units'][0]['custom_id'] ?? null,
+            $payload['purchase_units'][0]['reference_id'] ?? null,
+            $payload['payments']['captures'][0]['custom_id'] ?? null,
+            $payload['payments']['captures'][0]['reference_id'] ?? null,
+            $payload['purchase_units'][0]['payments']['captures'][0]['custom_id'] ?? null,
+            $payload['purchase_units'][0]['payments']['captures'][0]['reference_id'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $value = trim((string)$candidate);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
     private static function httpRequest(string $method, string $url, array $payload = [], array $headers = []): array
     {
         $ch = curl_init($url);
@@ -869,7 +953,11 @@ class PaymentService
         $body = null;
         if ($method !== 'GET') {
             if ($hasJson) {
-                $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
+                if ($payload === ['_empty_object' => true]) {
+                    $body = '{}';
+                } else {
+                    $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
+                }
             } else {
                 $body = http_build_query($payload, '', '&', PHP_QUERY_RFC3986);
             }
@@ -898,9 +986,27 @@ class PaymentService
 
         $decoded = json_decode($rawBody, true);
         if ($status >= 400) {
-            $message = is_array($decoded)
-                ? ($decoded['error_description'] ?? $decoded['message'] ?? $decoded['error'] ?? 'Gateway request failed.')
-                : 'Gateway request failed.';
+            $message = 'Gateway request failed.';
+            if (is_array($decoded)) {
+                $parts = [];
+                foreach ([
+                    $decoded['error_description'] ?? null,
+                    $decoded['message'] ?? null,
+                    $decoded['error'] ?? null,
+                    $decoded['name'] ?? null,
+                    $decoded['details'][0]['description'] ?? null,
+                    $decoded['details'][0]['issue'] ?? null,
+                    isset($decoded['debug_id']) ? ('debug_id=' . $decoded['debug_id']) : null,
+                ] as $candidate) {
+                    $candidate = trim((string)$candidate);
+                    if ($candidate !== '' && !in_array($candidate, $parts, true)) {
+                        $parts[] = $candidate;
+                    }
+                }
+                if ($parts !== []) {
+                    $message = implode(' | ', $parts);
+                }
+            }
             throw new \RuntimeException($message);
         }
 

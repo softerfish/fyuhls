@@ -9,6 +9,7 @@ use App\Core\View;
 use App\Model\User;
 use App\Service\EncryptionService;
 use App\Service\FeatureService;
+use App\Service\PackageAllowanceService;
 use App\Service\TwoFactor\TotpService;
 
 class TwoFactorController
@@ -29,6 +30,18 @@ class TwoFactorController
     private function isHttpsRequest(): bool
     {
         return \App\Service\SecurityService::isHttpsRequest();
+    }
+
+    private function storageQuotaInfo(int $userId): array
+    {
+        $stmt = Database::getInstance()->getConnection()->prepare('SELECT storage_used FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $used = (int)($stmt->fetchColumn() ?: 0);
+
+        $package = \App\Model\Package::getUserPackage($userId);
+        $limit = (int)($package['max_storage_bytes'] ?? 0);
+
+        return ['used' => $used, 'limit' => $limit];
     }
 
     public function showSetup()
@@ -71,6 +84,8 @@ class TwoFactorController
             'qrUrl' => $qrUrl,
             'secret' => $_SESSION['2fa_secret'],
             'recoveryCodes' => $_SESSION['2fa_recovery'],
+            'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary((int)$userId, \App\Model\Package::getUserPackage((int)$userId) ?: []),
+            'storageQuota' => $this->storageQuotaInfo((int)$userId),
         ]);
     }
 

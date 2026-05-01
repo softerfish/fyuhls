@@ -1,11 +1,11 @@
-<?php include dirname(__DIR__) . '/header.php'; ?>
+<?php
+include dirname(__DIR__) . '/header.php';
+include dirname(__DIR__) . '/partials/shell_helpers.php';
+?>
 <?php $trustedBaseUrl = \App\Service\SeoService::trustedBaseUrl() ?? ''; ?>
 <?php $demoAdminViewer = \App\Service\DemoModeService::currentViewerIsDemoAdmin(); ?>
 
-<div class="page-header mb-4">
-    <h1>Add New Storage Server</h1>
-    <a href="/admin/configuration?tab=storage" class="btn btn-outline-secondary btn-sm">&larr; Back to Servers</a>
-</div>
+<?php renderAdminPageHeader('Add New Storage Server', '', '<a href="/admin/configuration?tab=storage" class="btn btn-outline-secondary btn-sm">&larr; Back to Servers</a>'); ?>
 
 <?php if ($demoAdminViewer): ?>
     <div class="alert alert-warning border-0 shadow-sm small mb-4">
@@ -42,11 +42,7 @@ $tabs = [
 <div class="row g-4">
     <!-- Configuration Form -->
     <div class="col-lg-7">
-        <div class="card shadow-sm h-100">
-            <div class="card-header bg-white py-3">
-                <h5 class="card-title mb-0">Connector Configuration</h5>
-            </div>
-            <div class="card-body">
+        <?php renderAdminCardStart('Connector Configuration', ['cardClass' => 'h-100']); ?>
                 <form method="POST" action="/admin/file-server/add">
                     <?= \App\Core\Csrf::field() ?>
                     <fieldset <?= $demoAdminViewer ? 'disabled' : '' ?>>
@@ -337,8 +333,7 @@ $tabs = [
                     </div>
                     </fieldset>
                 </form>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     </div>
 
     <!-- Walkthrough / Guide -->

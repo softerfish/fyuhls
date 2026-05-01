@@ -31,7 +31,7 @@
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Uploads Tab</h6>
     <ul class="mb-4">
-        <li><strong>Synchronous Uploads:</strong> Turns browser-side concurrent upload processing on or off. Toggle it, then click <strong>Save Upload Configuration</strong>.</li>
+        <li><strong>Synchronous Uploads:</strong> Controls whether the browser runs multiple upload jobs at the same time. Toggle it, then click <strong>Save Upload Configuration</strong>.</li>
         <li><strong>Max Concurrent Threads:</strong> Sets how many browser upload jobs can run at the same time. Change the number, then save the Uploads tab.</li>
         <li><strong>Enable Chunked Uploads:</strong> Allows browser uploads to be split into smaller pieces. Toggle it, then save the Uploads tab.</li>
         <li><strong>Chunk Size (MB):</strong> Sets the chunk size used by upload handling where chunking applies. Change the number, then save the Uploads tab.</li>
@@ -40,6 +40,7 @@
         <li><strong>Deduplication:</strong> Reuses existing stored content when the same checksum and size already exist. Toggle it, then save the Uploads tab.</li>
         <li><strong>Hide Upload Popup:</strong> Keeps the upload tray collapsed by default while uploads continue. Toggle it, then save the Uploads tab.</li>
         <li><strong>Original Name in URL:</strong> Adds the original filename to generated file URLs. Toggle it, then save the Uploads tab.</li>
+        <li><strong>Download Page Actions:</strong> Controls whether signed-in free, premium, or admin users can use the download-page <code>+</code> action to save a deduplicated copy of a file into their own account. Toggle the audience switches, then save the Uploads tab.</li>
         <li><strong>Multipart Object Storage:</strong> This is controlled by the upload settings together with your storage-node and bucket CORS configuration. Use the Uploads tab to allow browser uploads, then use <strong>Storage Nodes</strong> to keep the object-storage side configured correctly.</li>
     </ul>
 

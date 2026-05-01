@@ -13,6 +13,17 @@ use App\Service\DemoModeService;
 use App\Core\Database;
 
 class SecurityController {
+    private function queueConfigSuccess(string $message): void
+    {
+        $_SESSION['config_success'] = true;
+        $_SESSION['config_success_message'] = $message;
+    }
+
+    private function queueConfigError(string $message): void
+    {
+        $_SESSION['config_errors'] = [$message];
+    }
+
     private function abortText(int $status, string $message): void
     {
         http_response_code($status);
@@ -25,7 +36,7 @@ class SecurityController {
             return;
         }
 
-        $_SESSION['error'] = 'This demo admin account is read-only while demo mode is enabled.';
+        $this->queueConfigError('This demo admin account is read-only while demo mode is enabled.');
         header('Location: /admin/configuration?tab=security');
         exit;
     }
@@ -43,7 +54,7 @@ class SecurityController {
         $service->expandColumns();
         $results = $service->encryptLegacyData();
 
-        $_SESSION['success'] = "Successfully migrated {$results['migrated']} items to encrypted format.";
+        $this->queueConfigSuccess("Successfully migrated {$results['migrated']} items to encrypted format.");
         if ($results['errors'] > 0) {
             $detailParts = [];
             foreach (($results['error_details'] ?? []) as $detail) {
@@ -67,8 +78,10 @@ class SecurityController {
                 }
             }
 
-            $_SESSION['error'] = "Encountered {$results['errors']} errors during migration."
-                . (!empty($detailParts) ? ' Example: ' . implode(' | ', array_slice($detailParts, 0, 3)) : '');
+            $this->queueConfigError(
+                "Encountered {$results['errors']} errors during migration."
+                . (!empty($detailParts) ? ' Example: ' . implode(' | ', array_slice($detailParts, 0, 3)) : '')
+            );
         }
 
         header('Location: /admin/configuration?tab=security&sec_tab=migration');
@@ -101,13 +114,13 @@ class SecurityController {
             $migrationService = new \App\Service\Migration\EncryptionMigrationService();
             $pendingCount = $migrationService->getPendingCount();
             if ($pendingCount > 0) {
-                $msg .= " <br><strong>Notice:</strong> You have $pendingCount items pending encryption. Please visit the <a href='?tab=security&sec_tab=migration'>Encryption Migration</a> tab to secure your data.";
+                $msg .= " Notice: You have $pendingCount items pending encryption. Visit Security > Migration to secure that data.";
             }
-            
-            $_SESSION['success'] = $msg;
+
+            $this->queueConfigSuccess($msg);
             $_SESSION['sync_logs'] = $results['logs'];
         } else {
-            $_SESSION['error'] = "Schema sync failed: " . $results['error'];
+            $this->queueConfigError("Schema sync failed: " . $results['error']);
         }
 
         header('Location: /admin/configuration?tab=security&sec_tab=health');
@@ -131,14 +144,19 @@ class SecurityController {
             }
 
             if ($activeTab === 'identity') {
-                $mode = (string)($_POST['vpn_proxy_mode'] ?? 'enforcement');
-                if (!in_array($mode, ['enforcement', 'intelligence'], true)) {
-                    $mode = 'enforcement';
+                $mode = strtolower(trim((string)($_POST['vpn_proxy_mode'] ?? 'none')));
+                if (!in_array($mode, ['none', 'enforcement', 'intelligence'], true)) {
+                    $mode = 'none';
+                }
+
+                $apiKey = trim((string)($_POST['proxycheck_api_key'] ?? ''));
+                if ($apiKey === '') {
+                    $mode = 'none';
                 }
 
                 Setting::set('vpn_proxy_mode', $mode, 'security');
                 Setting::set('block_vpn_traffic', $mode === 'enforcement' ? '1' : '0', 'security');
-                Setting::setEncrypted('proxycheck_api_key', trim($_POST['proxycheck_api_key'] ?? ''), 'security');
+                Setting::setEncrypted('proxycheck_api_key', $apiKey, 'security');
                 Setting::set('vpn_whitelist', trim($_POST['vpn_whitelist'] ?? ''), 'security');
 
                 // Brute Force Limits - ensure we don't save 0 if missing from POST
@@ -153,12 +171,12 @@ class SecurityController {
                 'tab' => $activeTab,
                 'error' => $e->getMessage(),
             ]);
-            $_SESSION['error'] = 'Security settings could not be saved. Review the form values and try again.';
+            $this->queueConfigError('Security settings could not be saved. Review the form values and try again.');
             header('Location: /admin/configuration?tab=security&sec_tab=' . $activeTab);
             exit;
         }
 
-        $_SESSION['success'] = "Security settings updated.";
+        $this->queueConfigSuccess('Security settings updated.');
         header('Location: /admin/configuration?tab=security&sec_tab=' . $activeTab);
     }
 
@@ -176,9 +194,9 @@ class SecurityController {
 
         $sync = new CloudflareSyncService();
         if ($sync->sync()) {
-            $_SESSION['success'] = "Cloudflare IP ranges synced successfully.";
+            $this->queueConfigSuccess('Cloudflare IP ranges synced successfully.');
         } else {
-            $_SESSION['error'] = "Failed to sync Cloudflare IPs. Check logs.";
+            $this->queueConfigError('Failed to sync Cloudflare IPs. Check logs.');
         }
 
         header('Location: /admin/configuration?tab=security&sec_tab=cloudflare');

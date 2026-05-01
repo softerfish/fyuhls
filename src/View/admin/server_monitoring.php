@@ -1,16 +1,15 @@
-<?php include 'header.php'; ?>
-
-<div class="page-header mb-4">
-    <h1>Storage Health Monitoring</h1>
-    <a href="/admin" class="btn btn-outline-secondary btn-sm">&larr; Back to Dashboard</a>
-</div>
-
-<div class="card shadow-sm border-0">
-    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-        <h5 class="card-title mb-0 fw-bold">Connection History (Last 50)</h5>
-        <div class="small text-muted">Auto-refreshes every 60 minutes via Cron.</div>
-    </div>
-    <div class="card-body p-0">
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+renderAdminPageHeader('Storage Health Monitoring', '', '<a href="/admin" class="btn btn-outline-secondary btn-sm">&larr; Back to Dashboard</a>');
+ob_start();
+?>
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="fw-bold">Connection History (Last 50)</div>
+            <div class="small text-muted">Auto-refreshes every 60 minutes via Cron.</div>
+        </div>
+<?php $monitorHeader = ob_get_clean(); ?>
+<?php renderAdminCardStart(null, ['cardClass' => 'card shadow-sm border-0', 'headerClass' => 'card-header bg-white py-3', 'bodyClass' => 'card-body p-0', 'headerHtml' => $monitorHeader]); ?>
         <div class="table-responsive">
             <table class="table table-hover mb-0 align-middle">
                 <thead class="table-light small">
@@ -62,8 +61,7 @@
                 </tbody>
             </table>
         </div>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <div class="row mt-4">
     <div class="col-md-6">

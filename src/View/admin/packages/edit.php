@@ -1,4 +1,7 @@
-<?php include dirname(__DIR__) . '/header.php'; ?>
+<?php
+include dirname(__DIR__) . '/header.php';
+include dirname(__DIR__) . '/partials/shell_helpers.php';
+?>
 
 <style>
     .package-edit-grid {
@@ -22,14 +25,9 @@
     }
 </style>
 
-<div class="page-header">
-    <h1>Edit Package: <?= htmlspecialchars($package['name']) ?></h1>
-    <a href="/admin/packages" class="btn">&larr; Back to Packages</a>
-</div>
+<?php renderAdminPageHeader('Edit Package: ' . (string)$package['name'], '', '<a href="/admin/packages" class="btn">&larr; Back to Packages</a>'); ?>
 
-<div class="card">
-    <div class="card-header">Package Configuration</div>
-    <div class="card-body">
+<?php renderAdminCardStart('Package Configuration'); ?>
         <form method="POST">
             <?= \App\Core\Csrf::field() ?>
             
@@ -117,6 +115,16 @@
                 </label>
             </div>
 
+            <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
+            <div class="form-group package-field-spacer">
+                <label class="package-toggle-label">
+                    <input type="checkbox" name="ppd_enabled" value="1" <?= ($package['ppd_enabled'] ?? 0) ? 'checked' : '' ?> class="package-toggle-input">
+                    Enable Pay-Per-Download (PPD) Rewards
+                </label>
+                <small>Users on this package can earn from downloads of their files.</small>
+            </div>
+            <?php endif; ?>
+
             <?php \App\Core\PluginManager::doAction('admin_package_edit_options', $package); ?>
 
             <?php \App\Core\PluginManager::doAction('admin_package_edit_form_extra', $package); ?>
@@ -125,6 +133,5 @@
                 <button type="submit" class="btn btn-primary">Save Package Changes</button>
             </div>
         </form>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 <?php include dirname(__DIR__) . '/footer.php'; ?>

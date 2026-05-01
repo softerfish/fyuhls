@@ -1,22 +1,35 @@
-<?php include 'header.php'; ?>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+ob_start();
+?>
+<div class="docs-search-wrap position-relative mt-3">
+    <input type="text" id="docsSearchInput" class="form-control border-0 shadow-sm" placeholder="Search docs by page, option, or feature...">
+</div>
+<?php
+$docsActions = ob_get_clean();
+renderAdminPageHeader('Platform Documentation', 'Reference guides for every main admin page and the major configuration areas behind them.', $docsActions);
 
-    <div class="page-header mb-4 flex-wrap gap-3">
-        <div>
-            <h1>Platform Documentation</h1>
-            <p class="text-muted">Reference guides for every main admin page and the major configuration areas behind them.</p>
-            <div class="docs-search-wrap position-relative mt-3">
-                <input type="text" id="docsSearchInput" class="form-control border-0 shadow-sm" placeholder="Search docs by page, option, or feature...">
-            </div>
+function renderDocsModuleStart(string $icon, string $title): void {
+    ob_start();
+    ?>
+        <div class="d-flex align-items-center">
+            <i class="bi <?= htmlspecialchars($icon) ?> text-primary me-2 fs-5"></i>
+            <h5 class="mb-0 fw-bold"><?= htmlspecialchars($title) ?></h5>
         </div>
-    </div>
+    <?php
+    $headerHtml = ob_get_clean();
+    renderAdminCardStart(null, ['headerHtml' => $headerHtml, 'bodyClass' => 'pt-0', 'cardClass' => 'page-guide-card overflow-hidden']);
+}
 
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-body py-3 px-4">
+function renderDocsModuleEnd(): void {
+    renderAdminCardEnd();
+}
+?>
+
+<?php renderAdminCardStart('Quick Jump', ['bodyClass' => 'py-3 px-4', 'cardClass' => 'mb-4']); ?>
             <div class="d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-3">
-                <div>
-                    <h6 class="fw-bold text-dark mb-1">Quick Jump</h6>
-                    <div class="small text-muted">Jump directly to the admin page or feature guide you need.</div>
-                </div>
+                <div class="small text-muted">Jump directly to the admin page or feature guide you need.</div>
                 <div class="d-flex flex-wrap gap-2 docs-toc-list" id="docsToc">
                     <a class="docs-toc-item active btn btn-sm btn-outline-primary" href="#dashboard">Dashboard</a>
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#packages">Packages</a>
@@ -44,20 +57,13 @@
                     <a class="docs-toc-item btn btn-sm btn-outline-primary" href="#storage">Storage Nodes</a>
                 </div>
             </div>
-        </div>
-    </div>
+<?php renderAdminCardEnd(); ?>
 
     <div class="row g-4" id="docsGrid">
                 <div class="col-12 doc-module" id="dashboard" data-keywords="dashboard analytics stats growth todo activity support bundle">
-                    <div class="card page-guide-card border-0 shadow-sm overflow-hidden">
-                        <div class="card-header bg-white py-3 border-0 d-flex align-items-center">
-                            <i class="bi bi-speedometer2 text-primary me-2 fs-5"></i>
-                            <h5 class="mb-0 fw-bold">Dashboard</h5>
-                        </div>
-                        <div class="card-body pt-0">
+                    <?php renderDocsModuleStart('bi-speedometer2', 'Dashboard'); ?>
                             <?php include 'help/dashboard.php'; ?>
-                        </div>
-                    </div>
+                    <?php renderDocsModuleEnd(); ?>
                 </div>
 
                 <div class="col-12 doc-module" id="packages" data-keywords="packages upload limits storage wait time expiry ads premium free">
@@ -301,12 +307,7 @@
                 </div>
 
                 <div class="col-12 doc-module" id="api" data-keywords="api tokens scopes multipart managed upload resumable downloads integrations curl node php">
-                    <div class="card page-guide-card border-0 shadow-sm overflow-hidden">
-                        <div class="card-header bg-white py-3 border-0 d-flex align-items-center">
-                            <i class="bi bi-code-slash text-primary me-2 fs-5"></i>
-                            <h5 class="mb-0 fw-bold">API And Integrations</h5>
-                        </div>
-                        <div class="card-body pt-0">
+                    <?php renderDocsModuleStart('bi-code-slash', 'API And Integrations'); ?>
                             <div class="p-1">
                                 <p class="mb-4">Fyuhls includes a public API for account-bound integrations, desktop tools, and direct upload workflows.</p>
                                 <ul class="extra-small text-muted mb-4">
@@ -319,8 +320,7 @@
                                     <li><strong>References:</strong> Use the frontend <code>/api</code> page for the live endpoint reference and examples.</li>
                                 </ul>
                             </div>
-                        </div>
-                    </div>
+                    <?php renderDocsModuleEnd(); ?>
                 </div>
 
                 <div class="col-12 doc-module" id="search" data-keywords="search admin search exact username email short id filename">
@@ -362,12 +362,7 @@
                 </div>
 
                 <div class="col-12 doc-module" id="supporting-guides" data-keywords="security email cron cron jobs settings monetization uploads downloads multipart support api rewards fraud requests archive dmca captcha proxycheck cloudflare templates">
-                    <div class="card page-guide-card border-0 shadow-sm overflow-hidden">
-                        <div class="card-header bg-white py-3 border-0 d-flex align-items-center">
-                            <i class="bi bi-journal-text text-primary me-2 fs-5"></i>
-                            <h5 class="mb-0 fw-bold">Supporting Tab Guides</h5>
-                        </div>
-                        <div class="card-body pt-0">
+                    <?php renderDocsModuleStart('bi-journal-text', 'Supporting Tab Guides'); ?>
                             <div class="row">
                                 <div class="col-md-6 border-end">
                                     <h6 class="fw-bold fs-7 text-uppercase text-muted mb-3">General / Downloads / Uploads</h6>
@@ -382,8 +377,8 @@
                                 <?php include 'help/cron.php'; ?>
                             </div>
                         </div>
+                    <?php renderDocsModuleEnd(); ?>
                 </div>
-            </div>
         </div>
     </div>
 

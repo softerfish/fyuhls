@@ -10,6 +10,7 @@ use App\Core\Logger;
 use App\Model\Setting;
 use App\Core\Database;
 use App\Service\DemoModeService;
+use App\Service\EncryptionService;
 use App\Service\Migration\EncryptionMigrationService;
 use App\Service\SecurityService;
 
@@ -21,7 +22,7 @@ use App\Service\SecurityService;
  */
 class ConfigurationController
 {
-    private array $allowedTabs = ['general', 'security', 'email', 'storage', 'monetization', 'seo', 'cron', 'downloads', 'uploads'];
+    private array $allowedTabs = ['general', 'security', 'email', 'storage', 'monetization', 'seo', 'cron', 'downloads', 'uploads', 'link_checker'];
     private const MAX_CUSTOM_HEAD_CODE_LENGTH = 20000;
     private const MAX_AD_CODE_LENGTH = 20000;
     private const ALLOWED_AD_SLOT_KEYS = [
@@ -223,6 +224,17 @@ class ConfigurationController
     {
         Auth::requireAdmin();
         $demoAdmin = DemoModeService::currentViewerIsDemoAdmin();
+        $errors = $_SESSION['config_errors'] ?? [];
+        if (!empty($_SESSION['error'])) {
+            $errors[] = (string)$_SESSION['error'];
+        }
+        $successMessage = $_SESSION['config_success_message'] ?? null;
+        if ($successMessage === null && !empty($_SESSION['success'])) {
+            $successMessage = (string)$_SESSION['success'];
+        }
+        if ($successMessage === null && !empty($_SESSION['config_success'])) {
+            $successMessage = 'Configuration updated successfully.';
+        }
 
         $activeTab = $_GET['tab'] ?? 'general';
         if (!in_array($activeTab, $this->allowedTabs)) {
@@ -232,12 +244,14 @@ class ConfigurationController
         // Prepare base data
         $data = [
             'activeTab' => $activeTab,
-            'saved' => $_SESSION['config_success'] ?? false,
-            'errors' => $_SESSION['config_errors'] ?? [],
+            'saved' => $successMessage !== null,
+            'successMessage' => $successMessage,
+            'errors' => $errors,
             'demoAdmin' => $demoAdmin,
+            'demoMode' => Setting::get('demo_mode', '0'),
         ];
         $data = array_merge($data, $this->getConfigurationNoticeData());
-        unset($_SESSION['config_success'], $_SESSION['config_errors']);
+        unset($_SESSION['config_success'], $_SESSION['config_success_message'], $_SESSION['config_errors'], $_SESSION['success'], $_SESSION['error']);
 
         // Lazy Load tab-specific data
         switch ($activeTab) {
@@ -267,6 +281,9 @@ class ConfigurationController
                 break;
             case 'uploads':
                 $data = array_merge($data, $this->getUploadData());
+                break;
+            case 'link_checker':
+                $data = array_merge($data, $this->getLinkCheckerData());
                 break;
         }
 
@@ -322,8 +339,13 @@ class ConfigurationController
     {
         $demoAdmin = DemoModeService::currentViewerIsDemoAdmin();
         $migrationService = new EncryptionMigrationService();
+        $pendingEncryption = $migrationService->getPendingCount();
+        $pendingEncryptionItems = [];
+        if (!$demoAdmin && $pendingEncryption > 0) {
+            $pendingEncryptionItems = $migrationService->getPendingItems(5);
+        }
         
-        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login'];
+        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login','captcha_link_checker'];
         $captchaPlacements = [];
         foreach ($captchaKeys as $ck) {
             $captchaPlacements[$ck] = Setting::get($ck, '0');
@@ -335,9 +357,10 @@ class ConfigurationController
 
         return [
             'migrationService' => $migrationService,
-            'pendingEncryption' => $migrationService->getPendingCount(),
-            'blockVpnTraffic' => Setting::get('block_vpn_traffic', '0') === '1',
-            'vpnProtectionMode' => Setting::get('vpn_proxy_mode', 'enforcement'),
+            'pendingEncryption' => $pendingEncryption,
+            'pendingEncryptionItems' => $pendingEncryptionItems,
+            'blockVpnTraffic' => \App\Service\SecurityService::getVpnProtectionMode() === 'enforcement',
+            'vpnProtectionMode' => \App\Service\SecurityService::getVpnProtectionMode(),
             'proxycheckApiKey' => $demoAdmin ? '' : Setting::getEncrypted('proxycheck_api_key', ''),
             'vpnWhitelist' => Setting::get('vpn_whitelist', ''),
             'rateLimitLogin' => (int)Setting::get('rate_limit_login', '5'),
@@ -517,6 +540,16 @@ class ConfigurationController
         ];
     }
 
+    private function getLinkCheckerData(): array
+    {
+        return [
+            'linkCheckerEnabled' => Setting::get('link_checker_enabled', '1'),
+            'linkCheckerMaxLinks' => Setting::get('link_checker_max_links', '100'),
+            'linkCheckerLinksPerSecond' => Setting::get('link_checker_links_per_second', '25'),
+            'linkCheckerAllowCopyToAccount' => Setting::get('link_checker_allow_copy_to_account', '1'),
+        ];
+    }
+
     /**
      * Unified Save Entry Point
      */
@@ -570,6 +603,9 @@ class ConfigurationController
                 case 'uploads':
                     $this->saveUploadSettings();
                     break;
+                case 'link_checker':
+                    $this->saveLinkCheckerSettings();
+                    break;
             }
         } catch (\RuntimeException $e) {
             Logger::error('Configuration save failed', [
@@ -613,6 +649,7 @@ class ConfigurationController
         $db->exec("UPDATE cron_tasks SET last_run_at = NULL");
 
         $manager = new \App\Service\CronManager();
+        $manager->sync();
         
         // 1. Core Cleanup
         $manager->register('cleanup', function() {
@@ -637,6 +674,10 @@ class ConfigurationController
         // 5. Background Workers
         $manager->register('mail_queue', function() {
             return \App\Service\MailQueueService::processBatch();
+        });
+
+        $manager->register('payment_cleanup', function() {
+            return (new \App\Service\AutomatedTaskService())->cleanupStalePendingPayments(1440);
         });
 
         if (\App\Service\FeatureService::rewardsEnabled()) {
@@ -785,7 +826,7 @@ class ConfigurationController
     {
         $rules = [
             'app_name' => 'required',
-            'admin_notification_email' => 'required|email'
+            'admin_notification_email' => 'email'
         ];
 
         if (!$this->validate($_POST, $rules)) {
@@ -909,11 +950,21 @@ class ConfigurationController
             $this->logActivity('update_setting', 'captcha_secret_key', '********');
         }
 
-        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login'];
+        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login','captcha_link_checker'];
         foreach ($captchaKeys as $ck) {
             $this->updateSetting($ck, isset($_POST[$ck]) ? '1' : '0', 'captcha');
         }
         $this->updateSetting('captcha_admin_login', isset($_POST['captcha_user_login']) ? '1' : '0', 'captcha');
+    }
+
+    private function saveLinkCheckerSettings(): void
+    {
+        $this->updateSetting('link_checker_enabled', isset($_POST['link_checker_enabled']) ? '1' : '0', 'link_checker');
+        $maxLinks = max(1, min(1000, (int)($_POST['link_checker_max_links'] ?? 100)));
+        $this->updateSetting('link_checker_max_links', (string)$maxLinks, 'link_checker');
+        $linksPerSecond = max(1, min(250, (int)($_POST['link_checker_links_per_second'] ?? 25)));
+        $this->updateSetting('link_checker_links_per_second', (string)$linksPerSecond, 'link_checker');
+        $this->updateSetting('link_checker_allow_copy_to_account', isset($_POST['link_checker_allow_copy_to_account']) ? '1' : '0', 'link_checker');
     }
 
     private function saveDownloadSettings(): void
@@ -1245,8 +1296,8 @@ class ConfigurationController
                 Auth::id() ?? 0,
                 $action,
                 $itemType,
-                substr($details ?? '', 0, 1000),
-                SecurityService::getClientIp()
+                EncryptionService::encrypt(substr($details ?? '', 0, 1000)),
+                EncryptionService::encrypt(SecurityService::getClientIp())
             ]);
         } catch (\Exception $e) {
             error_log("Failed to log admin activity: " . $e->getMessage());

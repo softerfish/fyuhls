@@ -72,6 +72,36 @@ class File {
         return $file;
     }
 
+    public static function findByShortId(string $shortId): ?array {
+        self::ensureSchema();
+        $shortId = trim($shortId);
+        if ($shortId === '' || preg_match('/^[a-f0-9]{8}$/i', $shortId) !== 1) {
+            return null;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        try {
+            $stmt = $db->prepare("
+                SELECT f.*, sf.storage_path, sf.storage_provider, sf.mime_type, sf.file_size, sf.file_server_id, sf.provider_etag, sf.file_hash
+                FROM files f
+                JOIN stored_files sf ON f.stored_file_id = sf.id
+                WHERE f.short_id = ?
+                  AND f.status NOT IN ('deleted', 'pending_purge', 'failed', 'abandoned', 'quarantined')
+                LIMIT 1
+            ");
+            $stmt->execute([$shortId]);
+            $file = $stmt->fetch() ?: null;
+        } catch (\PDOException $e) {
+            return null;
+        }
+
+        if ($file) {
+            $file = self::decryptRow($file);
+        }
+
+        return $file;
+    }
+
     public static function findAnyStatus(int|string $id): ?array {
         self::ensureSchema();
         $db = Database::getInstance()->getConnection();
@@ -181,7 +211,7 @@ class File {
             $auditReason = isset($audit['delete_reason']) ? trim((string)$audit['delete_reason']) : '';
             $auditUserId = isset($audit['deleted_by_user_id']) ? (int)$audit['deleted_by_user_id'] : null;
 
-            if (!empty($file['user_id'])) {
+            if (!empty($file['user_id']) && !FileDeletionLog::hasOriginalFileId($id)) {
                 FileDeletionLog::record(
                     (int)$file['user_id'],
                     $id,
@@ -302,18 +332,21 @@ class File {
         return $db->prepare($sql)->execute($values);
     }
 
-    public static function copy(int $id, ?int $targetFolderId = null): int|bool {
+    public static function copy(int $id, ?int $targetFolderId = null, ?string $newFilename = null): int|bool {
         self::ensureSchema();
         $file = self::find($id);
         if (!$file) return false;
 
         $db = Database::getInstance()->getConnection();
-        $newFilename = "Copy of " . $file['filename'];
-        $encFilename = \App\Service\EncryptionService::encrypt($newFilename);
+        $copyName = trim((string)($newFilename ?? ''));
+        if ($copyName === '') {
+            $copyName = "Copy of " . $file['filename'];
+        }
+        $encFilename = \App\Service\EncryptionService::encrypt($copyName);
         $shortId = bin2hex(random_bytes(4));
         
-        $stmt = $db->prepare("INSERT INTO files (user_id, stored_file_id, folder_id, filename, status, short_id) VALUES (?, ?, ?, ?, 'active', ?)");
-        $stmt->execute([$file['user_id'], $file['stored_file_id'], $targetFolderId, $encFilename, $shortId]);
+        $stmt = $db->prepare("INSERT INTO files (user_id, stored_file_id, folder_id, filename, is_public, status, short_id) VALUES (?, ?, ?, ?, ?, 'active', ?)");
+        $stmt->execute([$file['user_id'], $file['stored_file_id'], $targetFolderId, $encFilename, (int)($file['is_public'] ?? 1), $shortId]);
         $newId = (int)$db->lastInsertId();
 
         if ($newId) {
@@ -425,6 +458,37 @@ class File {
             }
             throw $e;
         }
+    }
+
+    public static function findPublicByShortId(string $shortId): ?array {
+        self::ensureSchema();
+        $shortId = trim($shortId);
+        if ($shortId === '') {
+            return null;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        try {
+            $stmt = $db->prepare("
+                SELECT f.*, sf.storage_path, sf.storage_provider, sf.mime_type, sf.file_size, sf.file_server_id, sf.provider_etag, sf.file_hash
+                FROM files f
+                JOIN stored_files sf ON f.stored_file_id = sf.id
+                WHERE f.short_id = ?
+                  AND f.is_public = 1
+                  AND f.status IN ('active', 'ready', 'processing')
+                LIMIT 1
+            ");
+            $stmt->execute([$shortId]);
+            $file = $stmt->fetch() ?: null;
+        } catch (\PDOException $e) {
+            return null;
+        }
+
+        if ($file) {
+            $file = self::decryptRow($file);
+        }
+
+        return $file;
     }
 
     private static function decryptRow(array $row): array {

@@ -1,11 +1,8 @@
-<?php include __DIR__ . '/header.php'; ?>
-
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h1 class="h3 mb-1">Rewards Fraud</h1>
-        <p class="text-muted mb-0">Review held earnings, inspect risk signals, and tune how rewardable traffic is scored and cleared.</p>
-    </div>
-</div>
+<?php
+include __DIR__ . '/header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+renderAdminPageHeader('Rewards Fraud', 'Review held earnings, inspect risk signals, and tune how rewardable traffic is scored and cleared.');
+?>
 
 <div class="row g-3 mb-4">
     <div class="col-md-4 col-xl-2">
@@ -30,9 +27,7 @@
 
 <div class="row g-4">
     <div class="col-lg-5">
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body">
-                <h5 class="fw-bold mb-3">Intelligence Health</h5>
+        <?php renderAdminCardStart('Intelligence Health'); ?>
                 <div class="small text-muted mb-3">Cloudflare is the strongest built-in source for visitor network context. If this looks weak, review Config Hub &gt; Security &gt; Cloudflare before trusting country and network scoring.</div>
                 <div class="alert alert-info border-0 shadow-sm small mb-3">
                     <strong>Want stronger fraud signals?</strong> Turn on <strong>Intelligence mode</strong> in <a href="/admin/configuration?tab=security&sec_tab=identity">Config Hub &gt; Security &gt; Identity &amp; VPN</a>. That lets fyuhls query ProxyCheck, attach proxy/VPN intelligence to reward sessions, and use it in fraud scoring without blocking the visitor.
@@ -53,12 +48,9 @@
                     <span>Detected Visitor IP</span>
                     <strong><?= htmlspecialchars((string)($cloudflareHealth['real_ip_source'] ?? 'Unknown')) ?></strong>
                 </div>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
 
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body">
-                <h5 class="fw-bold mb-3">Protection Settings</h5>
+        <?php renderAdminCardStart('Protection Settings'); ?>
                 <form method="POST" action="/admin/rewards-fraud/save">
                     <?= \App\Core\Csrf::field() ?>
                     <?php
@@ -157,14 +149,11 @@
 
                     <button type="submit" class="btn btn-primary mt-3">Save Rewards Fraud Settings</button>
                 </form>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     </div>
 
     <div class="col-lg-7">
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body">
-                <h5 class="fw-bold mb-3">Review Queue</h5>
+        <?php renderAdminCardStart('Review Queue'); ?>
                 <div class="table-responsive">
                     <table class="table align-middle">
                         <thead>
@@ -218,12 +207,9 @@
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
 
-        <div class="card border-0 shadow-sm">
-            <div class="card-body">
-                <h5 class="fw-bold mb-3">Uploader Risk Scores</h5>
+        <?php renderAdminCardStart('Uploader Risk Scores'); ?>
                 <div class="table-responsive">
                     <table class="table align-middle">
                         <thead>
@@ -252,12 +238,9 @@
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
 
-        <div class="card border-0 shadow-sm mt-4">
-            <div class="card-body">
-                <h5 class="fw-bold mb-3">Network Insights</h5>
+        <?php renderAdminCardStart('Network Insights'); ?>
                 <div class="table-responsive">
                     <table class="table align-middle">
                         <thead>
@@ -288,8 +271,7 @@
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     </div>
 </div>
 

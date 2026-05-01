@@ -1,4 +1,4 @@
-# fyuhls v0.1.4: High-Performance File Hosting Platform
+# fyuhls v0.1.5: High-Performance File Hosting Platform
 
 Does the project look interesting or has it helped you out at all? A star for the project helps a lot.
 
@@ -11,38 +11,56 @@ Note: This project may use affiliate links occasionally. Any revenue earned help
 
 Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a modern PHP 8.2+ MVC architecture, fyuhls is aimed at operators who want a self-hosted file hosting platform with real control over storage, packages, uploads, downloads, monetization, diagnostics, and admin operations.
 
-## v0.1.4
+## v0.1.5
 
-### Storage Server Reliability
-- Fixed admin file-server delivery tests and related storage helper paths so file-server configs now load correctly whether the `config` payload is still an encrypted JSON string from the database or has already been decoded into an array by the admin UI. This prevents `json_decode()` type errors during `/admin/file-server/test-delivery/{id}` and keeps nearby download and rewards storage checks using the same tolerant config handling.
-- Fixed local-storage uploads in the modern browser uploader by adding app-routed multipart part handling for local file servers. This means installs using Local Storage no longer fail with the old multipart-support error just because global chunked uploads are enabled, and Apache/X-SendFile delivery mode is no longer a red herring for that upload path.
+### Deployment Hardening
+- Hardened the Nginx example so normal PHP execution is limited to `index.php`, arbitrary `.php` paths return `404`, `install.php` is blocked after `config/database.php` exists, and `post_install_check.php` is only reachable after installation.
+- Hardened multipart upload completion and plugin operations: assembled objects must exist, match expected size, keep an allowed extension, avoid executable server-side extensions, pass MIME normalization, and match the supplied SHA-256 checksum before final file records are created, while a new admin plugin upload policy switch can disable ZIP uploads outside planned install/update windows.
+- Hardened the admin support bundle and dashboard paths: `/admin/support` now shows a lightweight summary preview, generates the full sanitized bundle only on explicit download/email actions, keeps full JSON out of the email body, sanitizes database exception text before export, and `/admin` dashboard loading now trusts cached `system_stats`, creates the fallback cache directory before lock acquisition, and removes an unused duplicate host-metrics fetch.
+- Expanded the Security migration view so Enterprise Data Encryption shows which table and column references are still pending, and extended at-rest encryption coverage to additional safe metadata fields including payment transaction IPs, API token last-used IPs, and admin activity log details/IPs so new writes avoid leaving those values in plaintext while the migration can sweep older rows.
 
-### Rewards and Affiliate Cleanup
-- Removed legacy numeric internal referral attribution from the public `?ref=` flow so Fyuhls now only accepts the non-guessable public user referral IDs for account-side affiliate tracking.
-- Added a configurable affiliate commission hold window with a default of 5 days, so referred package-sale commission can stay held long enough to absorb normal refund and chargeback risk before it becomes withdrawable.
-- Fixed payment status handling so completed transactions can still transition into `refunded` or `denied`, and those later gateway states now cancel or reverse the related affiliate commission instead of leaving it cleared forever.
-- Corrected affiliate and rewards messaging so PPD users are no longer told that sharing their referral link will earn package-sale commission unless they switch to a PPS-capable model first.
-- Replaced the inflated raw-signup referral counter with a buyer-focused referral metric and stopped held affiliate commission clears from polluting download analytics.
+### Rewards and Referral Integrity
+- Reworked referral-child earnings to use an explicit `parent_earning_id` link instead of human-readable descriptions so referral commission rows stay attached to the original PPD or PPS earning even if labels change, and child referral earnings now track their parent more reliably through held, cleared, cancelled, reversed, and paid states.
+- Added runtime and fresh-install schema support for `parent_earning_id`, referral metadata, and the `pps_reward` earning type, then backfilled existing referral rows from stored metadata or legacy descriptions where possible so older referral earnings are not stranded when the new parent-link column is introduced.
+- Tightened the referral dashboard metric so `Earning Referrals` counts only referred users with cleared or paid PPD/PPS earnings, not held earnings that may still be cancelled or reversed.
 
-### Installer and Post-Install Fixes
-- Made the hidden config path editable again during install, with validation.
-- Stopped `.htaccess` from blocking `post_install_check.php`.
-- Bootstrapped sessions correctly in `post_install_check.php`.
-- Softened and fixed the installer cleanup warning logic.
+### File Manager Consistency
+- Made the file manager list view the default and rebuilt it as a denser table view with columns for name, size, upload date, downloads, public visibility, and row actions.
+- Expanded uploader tooling across bulk links, mass rename, and copy flows: selected files and folders can now generate plain, download-page, HTML, BBCode, and thumbnail embed links with grouped output, copy-all, and `.txt` export; preview-before-apply mass rename supports find/replace, prefix/suffix, remove-text, separator conversion, sequential numbering, and admin regex-lite; and copy workflows now cover duplicating files, copying selected items into another folder, recursively cloning folder structure, and creating alternate filenames that point at the same stored object instead of re-uploading data.
+- Improved selection and trash behavior: the toolbar is now context-aware in Trash, clicking blank space clears selection, `Ctrl`/`Cmd` and `Shift` multi-select work in a desktop-style way on file and folder cards, Deleted File History now lives in Trash as cards with permanent deletion date, actor, and reason, admin deletes from `/admin/files` require and record a deletion reason, and recursive hard folder deletion now removes the full hierarchy after deleting its files instead of only the selected root folder row.
+- Refined shared shell presentation by increasing the public site-name wordmark size by 15%, unifying the logged-in account sidebar across the main file manager, settings, rewards, notifications, affiliate, and 2FA setup pages while keeping the affiliate page separate for guests, and unifying the public auth/support form shell across login, register, forgot password, reset password, contact, DMCA, and 2FA verification pages.
 
-### Download Page Actions and Audit Logging
-- Added the download-page action bar so eligible signed-in users can save a file into their account as a deduplicated logical copy without re-uploading it.
-- Added admin Uploads settings to control whether the download-page save action is available for Free users, Premium users, and Admin users.
-- Added uploader-facing deleted-file history in account settings, with encrypted-at-rest deletion reasons and actor labels.
-- Required delete reasons for admin file removals and wired that requirement through the public download page and the normal file manager delete flow.
-- Centralized file deletion history through the shared hard-delete path so single delete, bulk delete, trash empty, folder tree deletion, pending-purge jobs, and cleanup jobs all log consistently.
-- Fixed save-to-account race conditions by moving dedupe and storage-quota enforcement under the same locked transaction, preventing parallel requests from creating duplicate logical copies or overshooting account storage limits.
-- Stopped uploader-visible deletion history from exposing real admin usernames by using the fixed public label `Administrator`.
-- Encrypted generic user activity log descriptions at rest.
+### Blocked Page and Ad Layout
+- Fixed the VPN/proxy enforcement blocked page so it renders through the normal website template with working CSP nonce injection instead of falling back to raw unstyled HTML, restored blocked-page styling, and updated the copy to explicitly mention blocking VPNs, proxies, Tor exit nodes, and similar relay services.
+- Re-unified the download page family so the main file page and download-style state pages pull shared ad/layout data through the same download page service and shared state partial, including overlay ad support, which reduces drift between the normal download page, File Not Found, Private File, VPN blocked, and related pages while letting left, right, top, bottom, and overlay download ad placements render consistently when the viewer package is configured to show ads.
+- Kept browser-based download starts on the file page by switching the normal JavaScript path to request the signed download URL in the background and launch the actual file download without leaving the visible `/file/{id}` page.
+
+### Support and DMCA Workflow
+- Expanded the unified admin Requests inbox with a DMCA file-removal card that resolves submitted `/file/{short_id}` targets into local files, supports processing selected matches or all matched files, and records the uploader-facing deletion reason `Removed due to DMCA report.` when those files are marked for removal.
+- Tightened DMCA target handling so request URLs must belong to the local site host and file matching uses an exact `short_id` lookup instead of broader mixed numeric matching, then added no-refresh DMCA processing in the admin request detail view with inline success/error feedback, live file-row state updates, and immediate Activity-log updates without closing or reloading the open request panel.
+
+### Admin Shell Consistency
+- Added shared admin shell helpers for page headers and card framing, then moved the main admin workflow pages onto that layer, including Requests, Support, Contacts, Abuse Reports, DMCA, Rewards Fraud, Files, Current Downloads, Withdrawals, Subscriptions, Search Results, Packages, Users, Plugins, Resources, and the Configuration Hub.
+- Moved the main admin edit and operations pages onto the same shared shell pattern, including package edit, user edit, storage-server add/edit/migrate, and the standalone admin Help & Docs index, while keeping the bespoke Dashboard, Admin Docs, and System Status layouts routed through the shared admin page-header helper so their specialized widgets and diagnostics do not drift at the shell level.
+- Reworked Config Hub navigation into grouped clusters for Site, Security, Storage & Delivery, Revenue, and System while keeping existing `?tab=` routes and save flows intact, then rolled out a more structured workspace with shared section-shell styling, left-side in-tab subnavigation for heavier pages, collapsible "How this works" panels, standardized card spacing, smaller Cron status cards, sticky save bars, cleaner callouts, softer utility boxes, tighter anchor-nav behavior, per-tab summary chips, and clearer danger/utility zones across tabs like Security, Cron, Downloads, Uploads, Link Checker, Storage, SEO, Monetization, Email, General, and Storage Servers.
+- Synced Config Hub security notices into the left admin sidebar badge and the main dashboard `Attention Needed` strip, expanded that strip with stale cron heartbeat, Cloudflare IP sync, lingering setup files, SMTP delivery failures, payout-affecting storage delivery warnings, aged pending withdrawals, and reward-fraud backlog, and reworked the Email tab so SMTP tools stay in the narrower working column while the System Email Templates table breaks out into its own full-width section to prevent template subjects and actions from being cut off at normal admin widths.
+
+### Uploader Earnings and API
+- Expanded the uploader rewards dashboard with counted downloads, rejected downloads, rejection explanations, country/network breakdowns, earnings by file, conversion rate, pending/held/cleared/cancelled amount cards, and CSV export.
+- Added uploader-focused API endpoints for listing files and folders, creating folders, renaming, moving, copying, deleting, remote upload create/status/cancel, bulk link generation, earnings stats, payout info, and `/api/v1/openapi.json`, then updated the public API reference with the new scopes (`files.write`, `stats.read`, `remote.upload`) plus curl, PHP, Python, and JavaScript examples.
+- Cleaned up account-side uploader tooling by revealing newly created API tokens clearly with a one-time copy action, showing stored-token rows only as shortened previews, adding revocation confirmation, exposing the full supported scope set (`files.upload`, `files.read`, `files.write`, `stats.read`, and `remote.upload`) in account settings, normalizing remote upload cancellation to store `canceled` consistently on fresh and upgraded installs, preloading the rewards payout modal with each uploader's saved default payment method and payment details, tightening the cancel-button styling, and hardening uploader API file and folder operations so target folders belong to the authenticated account and automation endpoints only mutate active, non-trashed items.
+
+### Payments and Billing
+- Added a logged-in Payments history page that shows transaction history, subscription history, current package billing status, and purchase/refund totals using the same shared account shell as the rest of the user dashboard, and added a background billing cleanup task that marks package-purchase attempts still stuck in `pending` after 24 hours as `failed` so abandoned checkout attempts do not linger forever in account payment history.
+
+### Public Link Checker
+- Added a public footer-linked Link Checker page between `DMCA` and the powered-by credit so visitors and uploaders can batch-check local file links without digging through the account area.
+- The checker supports local file links plus signed-in account folder links, deduplicates pasted URLs, shows clean `Available`, `Not Available`, and `Invalid` results, and includes summary chips plus bulk tools to copy or export available, not-available, or invalid link sets without manually cleaning pasted batches first.
+- Added optional `Copy To Account` actions from Link Checker results, including per-link selection, select-all-eligible, and copy-all-available behavior for signed-in users, plus a new `/admin/configuration` `Link Checker` tab so operators can enable or disable the public checker, change the maximum links processed per batch, set a per-IP links-per-second limit, and control whether copy-to-account is available.
 
 
 ## Table of Contents
-- [Advanced Features](#advanced-features-beta)
+- [Advanced Features](#advanced-features)
 - [What You'll Need Before Starting](#what-youll-need-before-starting)
 - [Hosting Partnerships & Testing](#hosting-partnerships--testing)
 - [Server Requirements](#server-requirements)
@@ -57,14 +75,15 @@ Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a mod
 - [Security Reminders](#security-reminders)
 
 ## Advanced Features
-- **Full-Coverage AES-256 Encryption**: 100% of sensitive user data (IPs, Emails, Filenames, Payment Details) is stored using AES-256 encryption with a fresh random IV per value.
+- **At-Rest Encryption for Core Sensitive Data**: Fyuhls encrypts core sensitive data such as emails, usernames, filenames, payment details, API keys, IP-bearing support and abuse records, and other high-risk metadata using AES-256 with a fresh random IV per value. Some fields are intentionally not encrypted: lookup helpers like username/email search columns and token hashes are hashed so the app can authenticate and search efficiently, while operational and billing fields such as statuses, counters, package IDs, timestamps, amounts, currencies, and gateway references remain plaintext where workflow, reconciliation, filtering, or indexing would be impractical or brittle with full encryption.
 - **Multi-Server Object Storage Architecture**: Connect Local, Backblaze B2, Cloudflare R2, Wasabi, and generic S3-compatible nodes through one storage layer with setup guidance in the admin area.
 - **Direct Multipart Upload Pipeline**: Large uploads use direct-to-storage multipart sessions instead of PHP-side chunk assembly, with resumable sessions, quota reservations, and signed part URLs.
 - **Public API + Personal API Tokens**: Account-bound API tokens support multipart uploads, managed upload shortcuts, owner-scoped file metadata, and application-controlled download links.
+- **Public Link Checker**: An optional footer-linked link checker can validate batches of local file links, summarize available vs unavailable results, and optionally support copy-to-account behavior for signed-in users.
 - **Core Rewards + Two-Factor Security**: Rewards (PPD/PPS/Affiliate) and TOTP-based two-factor authentication are built into the script and can be enabled or disabled from the admin area.
 - **Centralized Email System**: Professional transaction emails (Verification, Password Resets, Payments) with a built-in Mail Queue and Template Editor.
 - **Smart Task Scheduler**: A centralized "Heartbeat" manager handles cleanup, security syncs, and maintenance from a single server cron.
-- **Trusted Proxy + Security Controls**: Built-in proxy/IP hardening, VPN/proxy blocking, Cloudflare trusted proxy syncing, and admin-controlled security policies.
+- **Trusted Proxy + Security Controls**: Built-in proxy/IP hardening, Cloudflare trusted proxy syncing, and admin-controlled VPN/proxy protection modes (`None`, `Enforcement`, and `Intelligence`) so operators can choose between doing nothing, hard-blocking, or collecting proxy intelligence for fraud scoring without blocking the visitor.
 - **High-Performance Delivery**: Signed download redirects, optional CDN redirects for public object-storage files, and native support for X-Accel-Redirect (Nginx), X-SendFile (Apache), and X-LiteSpeed-Location (LiteSpeed).
 - **Sanitized Support Exports**: Admins can generate a plain JSON support bundle with secrets and sensitive values redacted before sharing.
 
@@ -231,25 +250,36 @@ Right after installation:
 ### Config Hub
 Most day-to-day setup now lives in **Admin > Config Hub**.
 1. Open **General** to set the site name, registration behavior, and core public-site options.
-2. Open **Security** to configure login protections, IP controls, captcha, email verification, and built-in two-factor authentication rules.
+2. Open **Security** to configure login protections, IP controls, captcha, email verification, built-in two-factor authentication rules, and the VPN/proxy protection mode used for enforcement or fraud-intelligence collection.
 3. Open **Email** to configure SMTP, test outgoing mail, and edit your templates.
-4. Open **Storage** to add local or external file servers and choose your delivery method.
-5. Open **Uploads** and **Downloads** to set limits, chunking, wait times, direct-link behavior, and guest/free-user rules.
-6. Open **SEO** to manage titles, metadata templates, sitemap/robots output, and verification codes.
+4. Open **Storage** to add local or external file servers, use the add/edit/migrate workflows, and follow the browser-upload CORS guidance for object storage.
+5. Open **Uploads** and **Downloads** to set limits, chunking, wait times, direct-link behavior, guest/free-user rules, and the download-state behavior that controls how blocked or unavailable file pages are shown.
+6. Open **Link Checker** to control whether the public footer tool is enabled, how many links it can process at once, how aggressively it is rate-limited, and whether signed-in users may copy eligible public files into their own account from the checker.
+7. Open **SEO** to manage titles, metadata templates, sitemap/robots output, and verification codes.
+8. Open **Requests** to manage Contact, Abuse, and DMCA requests from one inbox, including DMCA file-removal processing directly from the request detail view.
 
 ### Public API
-Fyuhls includes a public API with a dedicated frontend reference page and a matching static API reference.
+Fyuhls includes a public API with a dedicated frontend reference page, an OpenAPI document, and longer wiki documentation.
 
 Key API capabilities:
 1. Personal API tokens with per-scope access.
 2. Multipart upload session creation and managed upload shortcuts.
 3. Resume-friendly session inspection and part signing.
-4. Owner-scoped file metadata.
-5. Application-controlled download link generation.
+4. App-routed multipart part upload support alongside signed part URLs.
+5. Owner-scoped file and folder metadata plus write operations.
+6. Application-controlled download link generation.
+7. Remote upload management and uploader earnings/payout stats.
+
+Users create their personal API tokens from **/settings**. Current user-facing scopes include:
+- `files.upload`
+- `files.read`
+- `files.write`
+- `stats.read`
+- `remote.upload`
 
 Main references:
 - Frontend API page: `/api`
-- Static API reference: `main/api.html`
+- OpenAPI document: `/api/v1/openapi.json`
 - Detailed wiki guide: `Public API` page in the fyuhls wiki
 
 ### Upload and Delivery Model
@@ -265,9 +295,10 @@ This keeps PHP out of the bulk file-transfer path for high-volume environments.
 ### Rewards and Monetization
 Rewards, affiliate, and payout settings are now part of the core script.
 1. Go to **Admin > Config Hub > Monetization**.
-2. Enable the reward models you want to use.
+2. Enable the reward models you want to use (`PPD`, `PPS`, and/or `Hybrid`).
 3. Set your payout methods, rates, thresholds, and anti-abuse rules.
-4. If you do not want rewards or affiliate features visible on the site, disable them there and the frontend options will be hidden.
+4. Users can switch between the enabled earning models from the account-side affiliate/rewards area, and referral behavior follows the active monetization setup for the install.
+5. If you do not want rewards or affiliate features visible on the site, disable them there and the frontend options will be hidden.
 
 ### Email
 Configure your SMTP settings to enable account verification, password resets, and user notifications.
@@ -289,6 +320,8 @@ location /protected_uploads/ {
 To keep your site healthy and process scheduled jobs, cleanup, queue work, multipart session expiry, stale reservation release, checksum/reconciliation work, and maintenance, add this single entry to your server's **Crontab** (set to run every minute):
 `* * * * * php /home/yourusername/fyuhls/src/Cron/Run.php`
 
+Replace both the PHP binary and install path with the real values for your server. On shared hosting that may look more like `/usr/local/bin/php` or `/opt/cpanel/ea-php82/root/usr/bin/php`, depending on how your host exposes PHP to cron.
+
 ### Support Bundles
 If you need to hand logs to support or an automated agent, use **Admin > Support Center** or the Support Bundle card in **System Status**.
 
@@ -296,6 +329,33 @@ The export is:
 - sanitized
 - secret-redacted
 - downloaded as a plain `.json` file, not a zip archive
+
+### Admin Help
+fyuhls now keeps operator help in two places:
+
+- **Admin > Docs** for the built-in in-app documentation and page guides
+- the **GitHub wiki** for longer setup and workflow guides
+
+The admin sidebar now includes a dedicated **Help** section linking to both.
+
+### Requests Inbox
+Fyuhls includes a unified admin request workflow for support and legal moderation.
+
+From **Admin > Requests** you can:
+- review Contact, Abuse, and DMCA submissions in one inbox
+- reply and add internal notes
+- change request status without leaving the detail view
+- process matched DMCA file removals directly from the request detail panel without reloading the page
+
+### Link Checker
+Fyuhls includes an optional public **Link Checker** that can be placed in the site footer.
+
+When enabled, it can:
+- check batches of local file links
+- summarize available, unavailable, and invalid results
+- support copy-to-account actions for signed-in users if the admin allows it
+
+Its behavior is controlled from **Admin > Config Hub > Link Checker**.
 
 ---
 
@@ -361,17 +421,18 @@ Your PHP installation is missing the `pdo_mysql` extension. Contact your host to
 - Re-run the installer so it can write the hidden config file outside the webroot.
 
 ### "System is already installed"
-The installer detected an existing config. To reinstall, delete `config/database.php` and run `install.php` again.
+The installer detected an existing config. Only delete `config/database.php` and run `install.php` again if you are intentionally resetting the install and have already confirmed the impact and taken any needed backups.
 
 ---
 
 ## Security Reminders
 - The installer (`public/install.php`) and `public/post_install_check.php` are blocked after setup, but you should still delete them manually if they remain on disk.
 - Keep the project root outside the public web root whenever possible so only `public/` is web-accessible.
+- Keep `storage/` protected from direct public access except through the app's intended delivery paths, especially when testing object-storage, CDN, or direct-download behavior.
 - Never share your **encryption_key** found in your off-grid config. If lost, all encrypted data is permanently unrecoverable.
 - Keep your PHP version up to date for security patches.
 
 ---
 
-*Need more help? Check the admin page guides, the fyuhls wiki, or the built-in Bug Report area with the sanitized error log export.*
+*Need more help? Start with **Admin > Docs**, then the fyuhls wiki, and then the built-in Bug Report area with the sanitized error log export if you need to send logs.*
 

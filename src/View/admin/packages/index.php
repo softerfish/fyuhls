@@ -1,16 +1,10 @@
-<?php include dirname(__DIR__) . '/header.php'; ?>
+<?php
+include dirname(__DIR__) . '/header.php';
+include dirname(__DIR__) . '/partials/shell_helpers.php';
+renderAdminPageHeader('User Packages', 'Edit the built-in package limits and feature flags used across registrations, downloads, and uploads.', '<span class="text-muted small">Custom package creation is not available yet.</span>');
+?>
 
-<div class="page-header">
-    <div>
-        <h1>User Packages</h1>
-        <p class="text-muted mb-0">Edit the built-in package limits and feature flags used across registrations, downloads, and uploads.</p>
-    </div>
-    <span class="text-muted small">Custom package creation is not available yet.</span>
-</div>
-
-<div class="card">
-    <div class="card-header">Managed Packages (Limits & Features)</div>
-    <div class="card-body">
+<?php renderAdminCardStart('Managed Packages (Limits & Features)'); ?>
         <table>
             <thead>
                 <tr>
@@ -45,7 +39,6 @@
                 <?php endforeach; ?>
             </tbody>
         </table>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <?php include dirname(__DIR__) . '/footer.php'; ?>

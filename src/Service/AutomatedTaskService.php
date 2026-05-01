@@ -7,6 +7,32 @@ use App\Model\Setting;
 use Exception;
 
 class AutomatedTaskService {
+    private function resolveCorePackageIds(): array
+    {
+        $db = Database::getInstance()->getConnection();
+        $rows = $db->query("SELECT id, level_type FROM packages")->fetchAll();
+
+        $freeId = null;
+        $adminId = null;
+        foreach ($rows as $row) {
+            $levelType = strtolower((string)($row['level_type'] ?? ''));
+            $id = (int)($row['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+
+            if ($levelType === 'free' && $freeId === null) {
+                $freeId = $id;
+            } elseif ($levelType === 'admin' && $adminId === null) {
+                $adminId = $id;
+            }
+        }
+
+        return [
+            'free' => $freeId,
+            'admin' => $adminId,
+        ];
+    }
     
     /**
      * Check for expired premium accounts and move them to Free tier
@@ -14,15 +40,33 @@ class AutomatedTaskService {
     public function downgradeExpiredAccounts(): array {
         $db = Database::getInstance()->getConnection();
         $results = ['downgraded' => 0];
+        $packageIds = $this->resolveCorePackageIds();
+        $freePackageId = (int)($packageIds['free'] ?? 0);
+        $adminPackageId = (int)($packageIds['admin'] ?? 0);
 
-        // 1. Find all users where premium_expiry < NOW() and package_id is NOT Free (2) or Admin (4)
-        $stmt = $db->query("SELECT id, username, email FROM users WHERE premium_expiry IS NOT NULL AND premium_expiry < NOW() AND package_id NOT IN (2, 4)");
+        if ($freePackageId <= 0) {
+            return $results;
+        }
+
+        // 1. Find all users where premium_expiry < NOW() and package_id is not the
+        // resolved Free or Admin package for this install.
+        $sql = "SELECT id, username, email FROM users WHERE premium_expiry IS NOT NULL AND premium_expiry < NOW()";
+        $params = [];
+        $excludedIds = [$freePackageId];
+        if ($adminPackageId > 0) {
+            $excludedIds[] = $adminPackageId;
+        }
+        if (!empty($excludedIds)) {
+            $sql .= " AND package_id NOT IN (" . implode(',', array_fill(0, count($excludedIds), '?')) . ")";
+            $params = $excludedIds;
+        }
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
         $expiredUsers = $stmt->fetchAll();
 
         foreach ($expiredUsers as $user) {
-            // Downgrade to Free tier (2)
-            $upd = $db->prepare("UPDATE users SET package_id = 2, premium_expiry = NULL WHERE id = ?");
-            if ($upd->execute([$user['id']])) {
+            $upd = $db->prepare("UPDATE users SET package_id = ?, premium_expiry = NULL WHERE id = ?");
+            if ($upd->execute([$freePackageId, $user['id']])) {
                 $results['downgraded']++;
                 
                 $username = \App\Service\EncryptionService::decrypt($user['username']);
@@ -43,6 +87,9 @@ class AutomatedTaskService {
     public function sendExpiryReminders(): array {
         $db = Database::getInstance()->getConnection();
         $results = ['reminders_sent' => 0];
+        $packageIds = $this->resolveCorePackageIds();
+        $freePackageId = (int)($packageIds['free'] ?? 0);
+        $adminPackageId = (int)($packageIds['admin'] ?? 0);
 
         // Intervals to check: 7 days and 1 day
         $intervals = [
@@ -59,9 +106,9 @@ class AutomatedTaskService {
                 FROM users 
                 WHERE premium_expiry IS NOT NULL 
                 AND DATE(premium_expiry) = DATE_ADD(CURDATE(), INTERVAL ? DAY)
-                AND package_id NOT IN (2, 4)
+                AND package_id NOT IN (?, ?)
             ");
-            $stmt->execute([$days]);
+            $stmt->execute([$days, $freePackageId, $adminPackageId > 0 ? $adminPackageId : -1]);
             $users = $stmt->fetchAll();
 
             foreach ($users as $user) {
@@ -185,6 +232,14 @@ class AutomatedTaskService {
         $results['purged_downloads'] = $stmt->rowCount();
 
         return $results;
+    }
+
+    /**
+     * Mark abandoned pending package-payment attempts as failed after they have
+     * been stale long enough that they are no longer realistically in-flight.
+     */
+    public function cleanupStalePendingPayments(int $olderThanMinutes = 1440): array {
+        return PaymentService::expireStalePendingTransactions($olderThanMinutes);
     }
 
     /**

@@ -3,6 +3,8 @@
 namespace App\Controller;
 
 use App\Model\File;
+use App\Model\FileDeletionLog;
+use App\Model\Folder;
 use App\Model\Package;
 use App\Model\Setting;
 use App\Model\User;
@@ -11,6 +13,8 @@ use App\Core\View;
 use App\Core\Database;
 use App\Core\Csrf;
 use App\Service\PackageAllowanceService;
+use App\Service\RateLimiterService;
+use App\Service\SecurityService;
 
 class HomeController {
     private function isHttpsRequest(): bool
@@ -240,6 +244,7 @@ class HomeController {
             'isTrash' => true,
             'pageHeading' => 'Trash',
             'pageTitle'   => "Trash - " . $this->siteName(),
+            'fileDeletionHistory' => FileDeletionLog::getByUploader((int)$userId, 24),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
             'storageQuota' => $this->storageQuotaInfo(),
         ]);
@@ -312,6 +317,83 @@ class HomeController {
         View::render('home/api.php');
     }
 
+    public function linkChecker() {
+        if (Setting::get('link_checker_enabled', '1') !== '1') {
+            http_response_code(404);
+            exit('Page not found');
+        }
+
+        $error = '';
+        $success = '';
+        $results = [];
+        $submittedLinks = trim((string)($_POST['links'] ?? ''));
+        $summary = [
+            'submitted' => 0,
+            'unique' => 0,
+            'duplicates_removed' => 0,
+            'invalid_submitted' => 0,
+            'available' => 0,
+            'unavailable' => 0,
+            'invalid' => 0,
+        ];
+        $allowCopyToAccount = Setting::get('link_checker_allow_copy_to_account', '1') === '1';
+        $maxLinks = max(1, min(1000, (int)Setting::get('link_checker_max_links', '100')));
+        $linksPerSecond = max(1, min(250, (int)Setting::get('link_checker_links_per_second', '25')));
+        $captchaEnabled = Setting::get('captcha_link_checker', '0') === '1';
+        $captchaSiteKey = Setting::get('captcha_site_key', '');
+        $captchaActive = $captchaEnabled && $captchaSiteKey !== '';
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $linkCheckerAction = (string)($_POST['link_checker_action'] ?? 'check');
+            if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+                $error = "Security Token Expired. Please refresh.";
+            } elseif ($linkCheckerAction === 'check' && $captchaActive && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
+                $error = "Captcha verification failed. Please try again.";
+            } else {
+                $normalized = $this->normalizeLinkCheckerUrls($submittedLinks);
+                $links = $normalized['urls'];
+                $summary['submitted'] = $normalized['submitted_count'];
+                $summary['unique'] = count($links);
+                $summary['duplicates_removed'] = (int)($normalized['duplicate_count'] ?? 0);
+                $summary['invalid_submitted'] = (int)($normalized['invalid_count'] ?? 0);
+
+                if (empty($links)) {
+                    $error = "Paste at least one valid URL to check.";
+                } elseif (count($links) > $maxLinks) {
+                    $error = "You can check up to {$maxLinks} links at a time.";
+                } elseif (!RateLimiterService::checkWeighted('link_checker_ip', SecurityService::getClientIp(), count($links), $linksPerSecond, 1)) {
+                    $error = "Too many links are being checked from your connection too quickly. Please wait a second and try again.";
+                } else {
+                    $results = $this->buildLinkCheckerResults($links);
+                    $submittedLinks = implode("\n", $links);
+                    $summary = $this->summarizeLinkCheckerResults($summary, $results);
+
+                    if ($linkCheckerAction === 'copy' && $allowCopyToAccount) {
+                        [$copySuccess, $copyError] = $this->processLinkCheckerCopyAction($results, $_POST);
+                        if ($copySuccess !== '') {
+                            $success = $copySuccess;
+                        }
+                        if ($copyError !== '') {
+                            $error = $copyError;
+                        }
+                    }
+                }
+            }
+        }
+
+        View::render('home/link_checker.php', [
+            'error' => $error,
+            'success' => $success,
+            'results' => $results,
+            'submittedLinks' => $submittedLinks,
+            'summary' => $summary,
+            'allowCopyToAccount' => $allowCopyToAccount,
+            'maxLinks' => $maxLinks,
+            'captchaEnabled' => $captchaActive,
+            'captchaSiteKey' => $captchaSiteKey,
+        ]);
+    }
+
 
 
 
@@ -328,6 +410,7 @@ class HomeController {
         View::render('home/notifications.php', [
             'notifications' => $notifications,
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
+            'storageQuota' => $this->storageQuotaInfo(),
         ]);
     }
 
@@ -353,6 +436,8 @@ class HomeController {
                 $error = "Security Token Expired. Please refresh.";
             } elseif ($captchaActive && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                 $error = "Captcha verification failed. Please try again.";
+            } elseif (!RateLimiterService::check('contact_form', SecurityService::getClientIp(), 5, 900)) {
+                $error = "Too many messages have been sent from your connection. Please wait a few minutes and try again.";
             } else {
                 $name = trim($_POST['name'] ?? '');
                 $email = trim($_POST['email'] ?? '');
@@ -417,6 +502,8 @@ class HomeController {
                 $error = "Security Token Expired. Please refresh.";
             } elseif ($captchaActive && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                 $error = "Captcha verification failed. Please try again.";
+            } elseif (!RateLimiterService::check('dmca_form', SecurityService::getClientIp(), 5, 900)) {
+                $error = "Too many notices have been submitted from your connection. Please wait a few minutes and try again.";
             } else {
                 $name = trim($_POST['name'] ?? '');
                 $email = trim($_POST['email'] ?? '');
@@ -497,5 +584,342 @@ class HomeController {
         }
 
         return array_values(array_unique($urls));
+    }
+
+    private function normalizeLinkCheckerUrls(string $raw): array
+    {
+        $raw = str_replace(["\r\n", "\r"], "\n", trim($raw));
+        if ($raw === '') {
+            return ['urls' => [], 'submitted_count' => 0, 'duplicate_count' => 0, 'invalid_count' => 0];
+        }
+
+        $parts = preg_split('/[\n,]+/', $raw) ?: [];
+        $urls = [];
+        $submittedCount = 0;
+        $duplicateCount = 0;
+        $invalidCount = 0;
+        $seen = [];
+
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if ($part === '') {
+                continue;
+            }
+            $submittedCount++;
+
+            if (!preg_match('~^https?://~i', $part)) {
+                $part = 'https://' . ltrim($part, '/');
+            }
+
+            if (filter_var($part, FILTER_VALIDATE_URL)) {
+                $key = strtolower($part);
+                if (isset($seen[$key])) {
+                    $duplicateCount++;
+                    continue;
+                }
+                $seen[$key] = true;
+                $urls[] = $part;
+            } else {
+                $invalidCount++;
+            }
+        }
+
+        return [
+            'urls' => $urls,
+            'submitted_count' => $submittedCount,
+            'duplicate_count' => $duplicateCount,
+            'invalid_count' => $invalidCount,
+        ];
+    }
+
+    private function isLikelyLinkCheckerShortId(string $value): bool
+    {
+        return preg_match('/^[a-f0-9]{8}$/i', $value) === 1;
+    }
+
+    private function buildLinkCheckerResults(array $urls): array
+    {
+        $results = [];
+
+        foreach ($urls as $url) {
+            $results[] = $this->classifyCheckedLink($url);
+        }
+
+        return $results;
+    }
+
+    private function classifyCheckedLink(string $url): array
+    {
+        $result = [
+            'url' => $url,
+            'kind' => 'file',
+            'status' => 'Invalid',
+            'status_class' => 'invalid',
+            'label' => 'Invalid link',
+            'filename' => null,
+            'size' => null,
+            'details' => 'Only local file or folder links can be checked right now.',
+            'short_id' => null,
+            'copy_eligible' => false,
+        ];
+
+        $parts = parse_url($url);
+        if (!is_array($parts) || !$this->isLocalLinkCheckerTarget($parts)) {
+            $result['details'] = 'This link does not belong to the current site.';
+            return $result;
+        }
+
+        $path = trim((string)($parts['path'] ?? ''), '/');
+        $segments = $path !== '' ? explode('/', $path) : [];
+        if (count($segments) < 2 || !in_array(strtolower($segments[0]), ['file', 'folder'], true)) {
+            $result['details'] = 'Only /file/{id} and /folder/{id} links are supported right now.';
+            return $result;
+        }
+
+        $type = strtolower((string)$segments[0]);
+        $shortId = trim(rawurldecode((string)$segments[1]));
+        if ($shortId === '' || !$this->isLikelyLinkCheckerShortId($shortId)) {
+            $result['details'] = $type === 'folder'
+                ? 'The folder link format is not supported.'
+                : 'The file link format is not supported.';
+            return $result;
+        }
+
+        if ($type === 'folder') {
+            return $this->classifyCheckedFolderLink($result, $shortId);
+        }
+
+        $file = File::findPublicByShortId($shortId);
+        if (!$file) {
+            $result['status'] = 'Unavailable';
+            $result['status_class'] = 'deleted';
+            $result['label'] = 'Not available';
+            $result['details'] = 'This link is not currently available.';
+            return $result;
+        }
+
+        $result['short_id'] = (string)($file['short_id'] ?? $shortId);
+        $result['filename'] = (string)($file['filename'] ?? '');
+        $result['size'] = isset($file['file_size']) ? $this->formatLinkCheckerBytes((int)$file['file_size']) : null;
+        $result['status'] = 'Available';
+        $result['status_class'] = 'active';
+        $result['label'] = 'Available';
+        $result['details'] = 'The file link resolves to a public file.';
+        $result['copy_eligible'] = true;
+        return $result;
+    }
+
+    private function classifyCheckedFolderLink(array $result, string $shortId): array
+    {
+        $result['kind'] = 'folder';
+        $result['label'] = 'Not available';
+        $result['size'] = 'Folder';
+
+        $folder = Folder::findByShortId($shortId);
+        if (!$folder) {
+            $result['status'] = 'Unavailable';
+            $result['status_class'] = 'deleted';
+            $result['details'] = 'This link is not currently available.';
+            return $result;
+        }
+
+        $folderUserId = (int)($folder['user_id'] ?? 0);
+        $viewerId = (int)(Auth::id() ?? 0);
+        $canAccess = Auth::check() && ($folderUserId === $viewerId || Auth::isAdmin());
+        if (!$canAccess) {
+            $result['status'] = 'Unavailable';
+            $result['status_class'] = 'deleted';
+            $result['details'] = 'This link is not currently available.';
+            return $result;
+        }
+
+        $status = strtolower((string)($folder['status'] ?? 'active'));
+        if ($status !== 'active') {
+            $result['status'] = 'Unavailable';
+            $result['status_class'] = 'deleted';
+            $result['details'] = 'This link is not currently available.';
+            return $result;
+        }
+
+        $result['short_id'] = (string)($folder['short_id'] ?? $shortId);
+        $result['filename'] = (string)($folder['name'] ?? '');
+        $result['status'] = 'Available';
+        $result['status_class'] = 'active';
+        $result['label'] = 'Available folder';
+        $result['details'] = 'The folder link belongs to your account and is ready to open.';
+        return $result;
+    }
+
+    private function summarizeLinkCheckerResults(array $summary, array $results): array
+    {
+        foreach ($results as $row) {
+            switch ((string)($row['status'] ?? 'Invalid')) {
+                case 'Available':
+                    $summary['available']++;
+                    break;
+                case 'Unavailable':
+                    $summary['unavailable']++;
+                    break;
+                default:
+                    $summary['invalid']++;
+                    break;
+            }
+        }
+
+        return $summary;
+    }
+
+    private function processLinkCheckerCopyAction(array $results, array $post): array
+    {
+        if (!Auth::check()) {
+            return ['', 'You must be logged in to copy files into your account.'];
+        }
+
+        $package = Package::getUserPackage((int)(Auth::id() ?? 0));
+        if (!$this->canCurrentUserUseLinkCheckerCopy($package)) {
+            return ['', 'Copy to account from Link Checker is disabled for your account level or by site configuration.'];
+        }
+
+        $requested = array_values(array_filter(array_map('strval', $post['copy_short_ids'] ?? [])));
+        if (($post['copy_mode'] ?? '') === 'all') {
+            $requested = [];
+            foreach ($results as $row) {
+                if (!empty($row['copy_eligible']) && !empty($row['short_id'])) {
+                    $requested[] = (string)$row['short_id'];
+                }
+            }
+        }
+
+        $requested = array_values(array_unique($requested));
+        if (empty($requested)) {
+            return ['', 'Select at least one available file link to copy into your account.'];
+        }
+
+        $copied = 0;
+        $alreadySaved = 0;
+        $skipped = 0;
+        $userId = (int)(Auth::id() ?? 0);
+        $maxStorage = (int)($package['max_storage_bytes'] ?? 0);
+
+        foreach ($requested as $shortId) {
+            if (!$this->isLikelyLinkCheckerShortId($shortId)) {
+                $skipped++;
+                continue;
+            }
+
+            $file = File::findPublicByShortId($shortId);
+            if (!$file || !$this->isLinkCheckerCopyCandidate($file)) {
+                $skipped++;
+                continue;
+            }
+
+            if (File::userHasStoredFile($userId, (int)$file['stored_file_id'])) {
+                $alreadySaved++;
+                continue;
+            }
+
+            $newFileId = File::createSavedCopyForUser((int)$file['id'], $userId, null, $maxStorage);
+            if ($newFileId) {
+                $copied++;
+                Auth::logActivity('save_file', 'Saved file from link checker: ' . $file['filename'] . ' (Source ID: ' . $file['id'] . ', New ID: ' . $newFileId . ')');
+            } else {
+                $skipped++;
+            }
+        }
+
+        if ($copied === 0 && $alreadySaved > 0 && $skipped === 0) {
+            return ['All selected files were already in your account.', ''];
+        }
+
+        if ($copied === 0) {
+            return ['', 'No selected files could be copied into your account.'];
+        }
+
+        $message = "Added {$copied} file(s) to your account.";
+        if ($alreadySaved > 0) {
+            $message .= " {$alreadySaved} were already saved.";
+        }
+        if ($skipped > 0) {
+            $message .= " {$skipped} could not be copied.";
+        }
+
+        return [$message, ''];
+    }
+
+    private function canCurrentUserUseLinkCheckerCopy(?array $package): bool
+    {
+        if (!Auth::check()) {
+            return false;
+        }
+        if (Setting::get('link_checker_allow_copy_to_account', '1') !== '1') {
+            return false;
+        }
+
+        $tier = $this->resolveLinkCheckerAccountTier($package);
+        $settingMap = [
+            'free' => 'download_page_save_free',
+            'premium' => 'download_page_save_premium',
+            'admin' => 'download_page_save_admin',
+        ];
+        $settingKey = $tier !== null ? ($settingMap[$tier] ?? null) : null;
+        return $settingKey !== null && Setting::get($settingKey, '1') === '1';
+    }
+
+    private function resolveLinkCheckerAccountTier(?array $package): ?string
+    {
+        if (!Auth::check()) {
+            return null;
+        }
+        if (Auth::isAdmin()) {
+            return 'admin';
+        }
+        $levelType = strtolower((string)($package['level_type'] ?? 'free'));
+        return $levelType === 'paid' ? 'premium' : 'free';
+    }
+
+    private function isLinkCheckerCopyCandidate(array $file): bool
+    {
+        $status = strtolower((string)($file['status'] ?? ''));
+        if (!in_array($status, ['active', 'ready', 'processing'], true)) {
+            return false;
+        }
+
+        return (int)($file['is_public'] ?? 0) === 1;
+    }
+
+    private function isLocalLinkCheckerTarget(array $parts): bool
+    {
+        $trusted = parse_url(\App\Service\SeoService::trustedBaseUrl());
+        if (!is_array($trusted)) {
+            return false;
+        }
+
+        $incomingHost = strtolower((string)($parts['host'] ?? ''));
+        $trustedHost = strtolower((string)($trusted['host'] ?? ''));
+        if ($incomingHost === '' || $trustedHost === '' || $incomingHost !== $trustedHost) {
+            return false;
+        }
+
+        $incomingScheme = strtolower((string)($parts['scheme'] ?? ''));
+        $trustedScheme = strtolower((string)($trusted['scheme'] ?? 'https'));
+        return $incomingScheme === '' || $incomingScheme === $trustedScheme;
+    }
+
+    private function formatLinkCheckerBytes(int $bytes): string
+    {
+        if ($bytes < 1024) {
+            return $bytes . ' B';
+        }
+
+        $units = ['KB', 'MB', 'GB', 'TB'];
+        $size = $bytes / 1024;
+        foreach ($units as $unit) {
+            if ($size < 1024 || $unit === 'TB') {
+                return number_format($size, $size >= 10 ? 1 : 2) . ' ' . $unit;
+            }
+            $size /= 1024;
+        }
+
+        return number_format($size, 2) . ' TB';
     }
 }

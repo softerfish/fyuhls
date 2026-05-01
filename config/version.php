@@ -1,7 +1,7 @@
 <?php
 
 return [
-'version' => '0.1.4',
+    'version' => '0.1.5',
     'update' => [
         'github_repo' => 'softerfish/fyuhls',
         'release_asset_name' => '',

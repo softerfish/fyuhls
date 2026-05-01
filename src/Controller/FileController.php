@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Service\FileProcessor;
 use App\Service\DownloadManager;
+use App\Service\DownloadPageService;
 use App\Service\SecurityService;
 use App\Service\StandardFilePayoutPolicy;
 use App\Core\Auth;
@@ -113,119 +114,23 @@ class FileController
 
     private function renderDownloadStatePage(string $titleText, string $heading, string $message, int $statusCode = 200, ?array $package = null, ?array $file = null, array $shareFields = []): void
     {
-        http_response_code($statusCode);
+        $downloadPageService = new DownloadPageService();
+        $viewModel = $downloadPageService->buildStatePageViewModel(
+            $titleText,
+            $heading,
+            $message,
+            $statusCode,
+            $package,
+            $file,
+            $shareFields
+        );
 
-        $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
-        $title = $titleText;
-        $metaDescription = $message;
+        http_response_code((int)$viewModel['statusCode']);
+        $title = (string)$viewModel['title'];
+        $metaDescription = (string)$viewModel['metaDescription'];
 
         require_once dirname(__DIR__, 1) . '/View/home/header.php';
-
-        $showAds = (bool)($package['show_ads'] ?? false);
-        $adLeft = $showAds ? Setting::get('ad_download_left', '') : '';
-        $adRight = $showAds ? Setting::get('ad_download_right', '') : '';
-        $adTop = $showAds ? Setting::get('ad_download_top', '') : '';
-        $adBottom = $showAds ? Setting::get('ad_download_bottom', '') : '';
-
-        echo '<style>
-            .download-page-shell{display:flex;justify-content:center;align-items:center;flex:1;padding:2rem;gap:2rem;max-width:1400px;margin:0 auto;width:100%}
-            .download-page-sidebar{flex:0 0 300px;max-width:300px;display:none;align-self:center}
-            .download-page-sidebar-card{background:#f1f5f9;padding:1rem;border-radius:8px;text-align:center;overflow-wrap:anywhere;word-break:break-all}
-            .download-page-center{flex:1 1 auto;max-width:560px;min-width:0;width:100%}
-            .download-page-card{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:2.5rem;width:100%;box-sizing:border-box}
-            .download-page-top-ad,.download-page-bottom-ad{background:#f1f5f9;padding:.75rem;text-align:center;border-radius:8px;overflow-wrap:anywhere;word-break:break-all}
-            .download-page-top-ad{margin-bottom:1.5rem}
-            .download-page-bottom-ad{margin-top:1.5rem}
-            .download-page-title{font-size:1.25rem;font-weight:700;margin:0 0 .25rem;overflow-wrap:anywhere;word-break:break-all}
-            .download-page-meta{color:#64748b;font-size:.875rem;margin:0 0 2rem}
-            .download-state-copy{color:#64748b;font-size:.95rem;margin:0;line-height:1.7;text-align:center}
-            .download-share-panel{margin-top:1.5rem;padding:1rem;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}
-            .download-share-heading{font-size:1rem;font-weight:700;color:#0f172a;margin:0 0 .75rem}
-            .download-share-row{margin-bottom:.875rem}
-            .download-share-row:last-child{margin-bottom:0}
-            .download-share-label{display:block;font-size:.85rem;font-weight:600;color:#334155;margin-bottom:.4rem}
-            .download-share-control{display:flex;gap:.5rem;align-items:stretch}
-            .download-share-input{flex:1;min-width:0;padding:.75rem .875rem;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font-size:.88rem}
-            .download-share-copy{padding:.75rem 1rem;border:0;border-radius:8px;background:#e2e8f0;color:#0f172a;font-weight:600;cursor:pointer;white-space:nowrap}
-            .download-share-copy:hover{background:#cbd5e1}
-            .download-share-toggle{margin-top:.25rem;padding:0;background:none;border:0;color:#2563eb;font-size:.875rem;font-weight:600;cursor:pointer}
-            .download-share-toggle:hover{text-decoration:underline}
-            .download-share-extra{margin-top:.875rem;padding-top:.875rem;border-top:1px solid #e2e8f0}
-            @media (min-width: 1100px){.download-page-sidebar{display:block}}
-            @media (max-width: 640px){.download-share-control{flex-direction:column}.download-share-copy{width:100%}}
-        </style>';
-
-        echo '<div class="download-page-shell">';
-
-        if ($adLeft !== '') {
-            echo '<div class="download-page-sidebar">';
-            echo '<div class="download-page-sidebar-card">' . $adLeft . '</div>';
-            echo '</div>';
-        }
-
-        echo '<div class="download-page-center">';
-        if ($adTop !== '') {
-            echo '<div class="download-page-top-ad">' . $adTop . '</div>';
-        }
-        echo '<div class="download-page-card">';
-        if ($file !== null) {
-            echo '<h1 class="download-page-title">' . htmlspecialchars((string)($file['filename'] ?? $heading)) . '</h1>';
-            echo '<p class="download-page-meta">' . round(((int)($file['file_size'] ?? 0)) / 1024 / 1024, 2) . ' MB</p>';
-        } else {
-            echo '<h1 class="download-page-title">' . htmlspecialchars($heading) . '</h1>';
-        }
-        echo '<p class="download-state-copy">' . htmlspecialchars($message) . '</p>';
-        $this->renderDownloadSharePanel($shareFields);
-        echo '</div>';
-        if ($adBottom !== '') {
-            echo '<div class="download-page-bottom-ad">' . $adBottom . '</div>';
-        }
-        echo '</div>';
-
-        if ($adRight !== '') {
-            echo '<div class="download-page-sidebar">';
-            echo '<div class="download-page-sidebar-card">' . $adRight . '</div>';
-            echo '</div>';
-        }
-
-        echo '</div>';
-
-        if (!empty($shareFields)) {
-            echo '<script>
-document.querySelectorAll("[data-copy-target]").forEach(function(button) {
-    button.addEventListener("click", async function() {
-        const target = document.getElementById(button.getAttribute("data-copy-target"));
-        if (!target) {
-            return;
-        }
-        try {
-            await navigator.clipboard.writeText(target.value);
-            const original = button.textContent;
-            button.textContent = "Copied";
-            setTimeout(function() {
-                button.textContent = original;
-            }, 1400);
-        } catch (err) {
-            target.focus();
-            target.select();
-        }
-    });
-});
-document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
-    button.addEventListener("click", function() {
-        const target = document.getElementById(button.getAttribute("data-share-toggle"));
-        if (!target) {
-            return;
-        }
-        const expanded = button.getAttribute("aria-expanded") === "true";
-        target.hidden = expanded;
-        button.setAttribute("aria-expanded", expanded ? "false" : "true");
-        button.textContent = expanded ? "More share options" : "Fewer share options";
-    });
-});
-</script>';
-        }
-
+        View::render('home/partials/download_state_page.php', $viewModel);
         require_once dirname(__DIR__, 1) . '/View/home/footer.php';
     }
 
@@ -541,6 +446,32 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         die('File not found');
     }
 
+    private function renderPrivateFilePage(array $file): void
+    {
+        $package = Auth::check() ? Package::getUserPackage(Auth::id() ?? 0) : Package::getGuestPackage();
+        $this->renderDownloadStatePage(
+            'File Not Available - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+            'File Not Available',
+            "There is no file available at this link. It's either deleted, set to private or has not been processed just yet. Try contacting the user that uploaded the file.",
+            403,
+            $package
+        );
+    }
+
+    private function renderVpnBlockedStatePage(?array $package = null, ?array $file = null): void
+    {
+        $shareFields = $file !== null ? $this->buildPublicShareFields($file) : [];
+        $this->renderDownloadStatePage(
+            'VPN / Proxy Detected - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+            'VPN / Proxy Detected',
+            'VPN, proxy, and similar relay services are not allowed for this download tier. Please disable them and refresh the page to continue.',
+            403,
+            $package,
+            $file,
+            $shareFields
+        );
+    }
+
     private function normalizeFilename(?string $name): string
     {
         $name = trim((string)$name);
@@ -651,8 +582,8 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             return;
         }
 
-        $fileId = $_POST['file_id'] ?? $_POST['id'] ?? 0;
-        $file = File::find($fileId);
+        $fileRef = trim((string)($_POST['file_id'] ?? $_POST['id'] ?? ''));
+        $file = $this->resolvePostedFileReference($fileRef);
 
         if (!$file) {
             http_response_code(404);
@@ -709,8 +640,8 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             return;
         }
 
-        $fileId = (int)($_POST['file_id'] ?? 0);
-        $file = File::find($fileId);
+        $fileRef = trim((string)($_POST['file_id'] ?? ''));
+        $file = $this->resolvePostedFileReference($fileRef);
         if (!$file) {
             http_response_code(404);
             echo json_encode(['status' => 'error', 'message' => 'File not found']);
@@ -749,6 +680,19 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
 
         Auth::logActivity('save_file', 'Saved file to account: ' . $file['filename'] . ' (Source ID: ' . $file['id'] . ', New ID: ' . $newFileId . ')');
         echo json_encode(['status' => 'success', 'message' => 'File added to your account.', 'file_id' => $newFileId]);
+    }
+
+    private function resolvePostedFileReference(string $fileRef): ?array
+    {
+        if ($fileRef === '') {
+            return null;
+        }
+
+        if (ctype_digit($fileRef)) {
+            return File::find((int)$fileRef);
+        }
+
+        return File::findByShortId($fileRef);
     }
 
     public function remoteUpload()
@@ -812,6 +756,7 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         if ($bg) {
             try {
                 $db = \App\Core\Database::getInstance()->getConnection();
+                $this->ensureRemoteUploadQueueSchema($db);
                 $stmt = $db->prepare("INSERT INTO remote_upload_queue (user_id, folder_id, url) VALUES (?, ?, ?)");
                 $stmt->execute([Auth::id(), $folderId, $url]);
                 die(json_encode(['success' => true, 'message' => 'Upload queued in background. It will appear in your files shortly.']));
@@ -1112,14 +1057,15 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             die("Captcha verification failed.");
         }
 
-        $fileId = (int)$_POST['file_id'];
+        $fileRef = trim((string)($_POST['file_id'] ?? ''));
         $reason = $_POST['reason'];
         $details = $_POST['details'] ?? '';
-        $file = File::find($fileId);
+        $file = $this->resolvePostedFileReference($fileRef);
         if (!$file) {
             http_response_code(404);
             die("File not found.");
         }
+        $fileId = (int)$file['id'];
 
         $encIp = \App\Service\EncryptionService::encrypt(\App\Service\SecurityService::getClientIp());
         $encDetails = \App\Service\EncryptionService::encrypt($details);
@@ -1182,7 +1128,7 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         header('X-Frame-Options: SAMEORIGIN');
         header('Content-Security-Policy: frame-ancestors \'self\'');
 
-        $file = File::find($id);
+        $file = File::findByShortId($id);
 
         if (!$file) {
             $this->renderDownloadStatePage(
@@ -1194,7 +1140,10 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             return;
         }
 
-        $this->enforceFileAccess($file);
+        if (!$this->canAccessFile($file)) {
+            $this->renderPrivateFilePage($file);
+            return;
+        }
 
         // Referral Tracking (PPS)
         if (\App\Service\FeatureService::affiliateEnabled() && $file['user_id'] && Setting::get('pps_global_status', '1') === '1' && !Auth::check() && empty($_COOKIE['ref'])) {
@@ -1209,108 +1158,92 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
 
         // check require_account_to_download
         if (!Auth::check() && Setting::get('require_account_to_download', '0') === '1') {
-            http_response_code(403);
-            die('Access Denied: You must register an account and log in to download files. <a href="/register">Register</a> | <a href="/login">Log in</a>');
+            $this->renderDownloadStatePage(
+                'Account Required - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Account Required',
+                'You must register an account and log in before this file can be downloaded.',
+                403,
+                $package,
+                $file,
+                $this->buildPublicShareFields($file)
+            );
+            return;
         }
 
         // check blocked countries
         if ($security->isCountryBlocked(\App\Service\SecurityService::getClientIp())) {
-            http_response_code(403);
-            die("Access Denied: Downloads are not available in your region.");
+            $this->renderDownloadStatePage(
+                'Region Blocked - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Downloads Unavailable',
+                'Downloads are not available in your region.',
+                403,
+                $package,
+                $file,
+                $this->buildPublicShareFields($file)
+            );
+            return;
         }
 
-        // check vpn/proxy block
-        if (($package['block_vpn'] ?? 0) && $security->isVpnOrProxy(\App\Service\SecurityService::getClientIp())) {
-            http_response_code(403);
-            die("Access Denied: VPNs and Proxies are not allowed for this user level.");
+        // check vpn/proxy block (only hard-block in enforcement mode)
+        $vpnMode = \App\Service\SecurityService::getVpnProtectionMode();
+        $clientIp = \App\Service\SecurityService::getClientIp();
+        if ($vpnMode === 'enforcement' && ($package['block_vpn'] ?? 0) && $security->isVpnOrProxy($clientIp)) {
+            $this->renderVpnBlockedStatePage($package, $file);
+            return;
+        } elseif ($vpnMode === 'intelligence') {
+            // fire the lookup so it gets cached and logged; result feeds fraud scoring later
+            $security->lookupProxyIntel($clientIp);
         }
 
-        // Only honor direct links after access policy checks complete.
-        if ($package['allow_direct_links'] && isset($_GET['direct'])) {
+        // Eligible packages should auto-start downloads from the normal file URL.
+        // The legacy `?direct=1` hint still works, but it is no longer required.
+        if ($package['allow_direct_links']) {
             File::incrementDownloads((int)$file['id']);
             $this->serveFile($file, null, false);
             exit;
         }
 
         // figure out if we show captcha for this user tier
-        $isGuest = !Auth::check();
-        $isFree  = Auth::check() && ($package['name'] ?? 'Guest') !== 'Guest' && !($package['allow_direct_links'] ?? false);
-        $captchaSiteKey    = Setting::get('captcha_site_key', '');
-        $captchaDownload   = false;
-        if ($captchaSiteKey) {
-            if ($isGuest  && Setting::get('captcha_download_guest', '0') === '1') $captchaDownload = true;
-            if (!$isGuest && Setting::get('captcha_download_free', '0') === '1')  $captchaDownload = true;
-        }
-
-        // countdown settings from package
-        $waitEnabled = ($package['wait_time_enabled'] ?? 0) == 1;
-        $waitTime    = $waitEnabled ? max(0, (int)($package['wait_time'] ?? 0)) : 0;
-
-        // Set title and other data for header.php
-        $title = 'Download: ' . $file['filename'];
-        $metaDescription = 'Download ' . $file['filename'] . ' from ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')) . '.';
-        $filename = $file['filename'];
-        $isPublic = !empty($file['is_public']);
+        $downloadPageService = new DownloadPageService();
+        $viewModel = $downloadPageService->buildShowViewModel($file, $package);
+        $captchaDownload = (bool)$viewModel['captchaDownload'];
+        $captchaSiteKey = (string)$viewModel['captchaSiteKey'];
+        $waitTime = (int)$viewModel['waitTime'];
         $fraud = new \App\Service\RewardFraudService();
         $fraud->ensureVisitorCookie();
-        $streamingEnabled = Setting::get('streaming_support_enabled', '0') === '1';
-        $streamingEligible = $streamingEnabled && $this->isVideoFile($file);
+        $streamingEligible = (bool)$viewModel['streamingEligible'];
         $streamSessionId = null;
         $streamUrl = null;
         $streamCsrf = Csrf::generate();
-        $shareFields = $this->buildPublicShareFields($file);
+        $shareFields = $viewModel['shareFields'];
         if ($streamingEligible && !$captchaDownload && $waitTime <= 0) {
             $streamSession = $fraud->createDownloadSession($file, Auth::id() ? (int)Auth::id() : null, [], 'stream');
             $streamSessionId = $streamSession['public_id'] ?? null;
             if ($streamSessionId !== null) {
-                $streamUrl = (new DownloadManager())->generateSignedUrl((int)$file['id'], $file['filename'], $streamSessionId) . '&stream=1';
+                $streamUrl = (new DownloadManager())->generateSignedUrl((string)($file['short_id'] ?? $file['id']), $file['filename'], $streamSessionId) . '&stream=1';
             }
         }
-        
-        $adLeft = $package['show_ads'] ? Setting::get('ad_download_left', '') : '';
-        $adRight = $package['show_ads'] ? Setting::get('ad_download_right', '') : '';
-        $adTop = $package['show_ads'] ? Setting::get('ad_download_top', '') : '';
-        $adBottom = $package['show_ads'] ? Setting::get('ad_download_bottom', '') : '';
-        $adOverlay = $package['show_ads'] ? Setting::get('ad_download_overlay', '') : '';
-        $reportCaptchaEnabled = Setting::get('captcha_report_file', '0') === '1';
-        $reportCaptchaSiteKey = Setting::get('captcha_site_key', Config::get('turnstile.site_key'));
-        $abuseReportsEnabled = Setting::get('enable_abuse_reports', '1') === '1';
-        $displayMimeType = $this->resolveDisplayMimeType($file);
+        $displayMimeType = $downloadPageService->resolveDisplayMimeType($file);
         $downloadActionVisible = $this->canCurrentUserSaveDownloadedFile($file, $package);
         $downloadAlreadySaved = Auth::check()
             ? File::userHasStoredFile((int)(Auth::id() ?? 0), (int)$file['stored_file_id'])
             : false;
         $canDeleteFile = Auth::check() && ((int)($file['user_id'] ?? 0) === (int)(Auth::id() ?? 0) || Auth::isAdmin());
         $deleteRequiresReason = Auth::isAdmin();
-        $showAds = (bool)($package['show_ads'] ?? false);
+        $title = (string)$viewModel['title'];
+        $metaDescription = (string)$viewModel['metaDescription'];
 
         require_once dirname(__DIR__, 1) . '/View/home/header.php';
-        View::render('home/partials/download_show_page.php', compact(
-            'file',
-            'package',
-            'showAds',
-            'adLeft',
-            'adRight',
-            'adTop',
-            'adBottom',
-            'adOverlay',
-            'streamUrl',
-            'displayMimeType',
-            'streamingEligible',
-            'captchaDownload',
-            'captchaSiteKey',
-            'waitTime',
-            'shareFields',
-            'abuseReportsEnabled',
-            'reportCaptchaEnabled',
-            'reportCaptchaSiteKey',
-            'streamSessionId',
-            'streamCsrf',
-            'downloadActionVisible',
-            'downloadAlreadySaved',
-            'canDeleteFile',
-            'deleteRequiresReason'
-        ));
+        View::render('home/partials/download_show_page.php', array_merge($viewModel, [
+            'streamUrl' => $streamUrl,
+            'displayMimeType' => $displayMimeType,
+            'streamSessionId' => $streamSessionId,
+            'streamCsrf' => $streamCsrf,
+            'downloadActionVisible' => $downloadActionVisible,
+            'downloadAlreadySaved' => $downloadAlreadySaved,
+            'canDeleteFile' => $canDeleteFile,
+            'deleteRequiresReason' => $deleteRequiresReason,
+        ]));
         require_once dirname(__DIR__, 1) . '/View/home/footer.php';
     }
 
@@ -1319,47 +1252,119 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         // prevent clickjacking
         header('X-Frame-Options: SAMEORIGIN');
 
+        $isAjax = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
+        $respondJsonError = static function (string $message, int $statusCode = 400): void {
+            http_response_code($statusCode);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'status' => 'error',
+                'message' => $message,
+            ]);
+            exit;
+        };
+
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            if ($isAjax) {
+                $respondJsonError('Invalid request.', 405);
+            }
             die('Invalid Request');
         }
 
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            if ($isAjax) {
+                $respondJsonError('Security token expired. Please refresh the file page and try again.', 403);
+            }
             die('Error: Security Token Expired. Please refresh.');
         }
 
-        $fileId = $_POST['file_id'] ?? 0;
+        $fileId = trim((string)($_POST['file_id'] ?? ''));
         $manager = new DownloadManager();
         $package = Auth::check() ? Package::getUserPackage(Auth::id() ?? 0) : Package::getGuestPackage();
         $security = new SecurityService();
         $fraud = new \App\Service\RewardFraudService();
+        $file = File::findByShortId($fileId);
+        $shareFields = is_array($file) ? $this->buildPublicShareFields($file) : [];
 
         // check require_account_to_download (again, to stop direct POST manipulation)
         if (!Auth::check() && Setting::get('require_account_to_download', '0') === '1') {
-            http_response_code(403);
-            die("Access Denied: Account required.");
+            if ($isAjax) {
+                $respondJsonError('You must register an account and log in before this file can be downloaded.', 403);
+            }
+            $this->renderDownloadStatePage(
+                'Account Required - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Account Required',
+                'You must register an account and log in before this file can be downloaded.',
+                403,
+                $package,
+                is_array($file) ? $file : null,
+                $shareFields
+            );
+            return;
         }
 
         // check blocked countries (again)
         if ($security->isCountryBlocked(\App\Service\SecurityService::getClientIp())) {
-            http_response_code(403);
-            die("Access Denied: Region blocked.");
+            if ($isAjax) {
+                $respondJsonError('Downloads are not available in your region.', 403);
+            }
+            $this->renderDownloadStatePage(
+                'Region Blocked - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Downloads Unavailable',
+                'Downloads are not available in your region.',
+                403,
+                $package,
+                is_array($file) ? $file : null,
+                $shareFields
+            );
+            return;
         }
 
-        // check vpn/proxy (again, to prevent bypassing ui check)
-        if (($package['block_vpn'] ?? 0) && $security->isVpnOrProxy(\App\Service\SecurityService::getClientIp())) {
-            http_response_code(403);
-            die("Access Denied: VPN detected.");
+        // check vpn/proxy (again, to prevent bypassing ui check - enforcement mode only)
+        $vpnMode = $vpnMode ?? \App\Service\SecurityService::getVpnProtectionMode();
+        if ($vpnMode === 'enforcement' && ($package['block_vpn'] ?? 0) && $security->isVpnOrProxy(\App\Service\SecurityService::getClientIp())) {
+            $file = File::findByShortId($fileId);
+            if ($isAjax) {
+                $respondJsonError('VPN or proxy use is blocked for this download. Disable it, refresh the file page, and try again.', 403);
+            }
+            $this->renderVpnBlockedStatePage($package, is_array($file) ? $file : null);
+            return;
+        } elseif ($vpnMode === 'intelligence') {
+            // fire the lookup (uses runtime cache, so this is a no-op if already called above)
+            $security->lookupProxyIntel(\App\Service\SecurityService::getClientIp());
         }
 
         // check rate limit
         if (!$manager->checkRateLimit(\App\Service\SecurityService::getClientIp())) {
-            http_response_code(429);
-            die('Rate limit exceeded. Please try again in 10 minutes.');
+            if ($isAjax) {
+                $respondJsonError('Too many download attempts were made from your connection. Please try again in 10 minutes.', 429);
+            }
+            $this->renderDownloadStatePage(
+                'Download Rate Limit Reached - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Please Wait Before Trying Again',
+                'Too many download attempts were made from your connection. Please try again in 10 minutes.',
+                429,
+                $package,
+                is_array($file) ? $file : null,
+                $shareFields
+            );
+            return;
         }
 
         // check referrer (anti-hotlink for the button click)
         if (!$manager->validateRequestSource()) {
-            die('Invalid source. Please download from the official page.');
+            if ($isAjax) {
+                $respondJsonError('Please start this download from the official file page.', 403);
+            }
+            $this->renderDownloadStatePage(
+                'Invalid Download Source - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Invalid Download Source',
+                'Please start this download from the official file page.',
+                403,
+                $package,
+                is_array($file) ? $file : null,
+                $shareFields
+            );
+            return;
         }
 
         // verify turnstile captcha only if it was shown for this user tier
@@ -1371,15 +1376,43 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             if (!$isGuest && Setting::get('captcha_download_free', '0')  === '1') $needCaptcha = true;
         }
         if ($needCaptcha && !$manager->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
-            die('CAPTCHA verification failed. Please go back and try again.');
+            if ($isAjax) {
+                $respondJsonError('CAPTCHA verification failed. Please try again.', 403);
+            }
+            $this->renderDownloadStatePage(
+                'CAPTCHA Verification Failed - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Verification Failed',
+                'CAPTCHA verification failed. Please return to the file page and try again.',
+                403,
+                $package,
+                is_array($file) ? $file : null,
+                $shareFields
+            );
+            return;
         }
 
         // generate signed url
-        $file = File::find($fileId);
-        if (!$file)
-            die('File not found');
+        if (!$file) {
+            if ($isAjax) {
+                $respondJsonError('This file is no longer available or the link is invalid.', 404);
+            }
+            $this->renderDownloadStatePage(
+                'File Not Found - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'File Not Found',
+                'This file is no longer available or the link is invalid.',
+                404,
+                $package
+            );
+            return;
+        }
 
-        $this->enforceFileAccess($file);
+        if (!$this->canAccessFile($file)) {
+            if ($isAjax) {
+                $respondJsonError('This file is not available.', 403);
+            }
+            $this->renderPrivateFilePage($file);
+            return;
+        }
         $sessionId = null;
         if ($fraud->shouldRequireVerifiedCompletion($file)) {
             $session = $fraud->createDownloadSession($file, Auth::id() ? (int)Auth::id() : null, [
@@ -1390,7 +1423,16 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             $sessionId = $session['public_id'] ?? null;
         }
 
-        $url = $manager->generateSignedUrl($fileId, $file['filename'], $sessionId);
+        $url = $manager->generateSignedUrl((string)($file['short_id'] ?? $fileId), $file['filename'], $sessionId);
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'status' => 'success',
+                'download_url' => $url,
+            ]);
+            exit;
+        }
 
         // Redirect to the signed URL (which triggers the download)
         header("Location: $url");
@@ -1403,13 +1445,21 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         $expires = (int)($_GET['expires'] ?? 0);
         $sessionId = trim((string)($_GET['session'] ?? ''));
         $streamMode = isset($_GET['stream']) && $_GET['stream'] === '1';
-        $file = File::find($id);
+        $file = File::findByShortId($id);
         if (!$file) {
-            http_response_code(404);
-            die("File not found");
+            $this->renderDownloadStatePage(
+                'File Not Found - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'File Not Found',
+                'This file is no longer available or the link is invalid.',
+                404
+            );
+            return;
         }
 
-        $this->enforceFileAccess($file);
+        if (!$this->canAccessFile($file)) {
+            $this->renderPrivateFilePage($file);
+            return;
+        }
 
         // validate token (anti-leech)
         // Bypass signature check if the user is the owner or an admin
@@ -1417,8 +1467,17 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         if (!$isOwner) {
             $manager = new \App\Service\DownloadManager();
             if (!$manager->validateSignature($id, $token, $expires, $sessionId !== '' ? $sessionId : null)) {
-                http_response_code(403);
-                die("Error: Download link expired or invalid.");
+                $package = Auth::check() ? Package::getUserPackage(Auth::id() ?? 0) : Package::getGuestPackage();
+                $this->renderDownloadStatePage(
+                    'Download Link Expired - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Download Link Expired',
+                    'This download link is invalid or has expired. Please return to the file page and try again.',
+                    403,
+                    $package,
+                    $file,
+                    $this->buildPublicShareFields($file)
+                );
+                return;
             }
         }
 
@@ -1439,8 +1498,16 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         if ($sessionId !== '' && ($streamMode || $fraud->shouldRequireVerifiedCompletion($file))) {
             $validatedSession = $fraud->validateSessionForCurrentVisitor($sessionId, $file);
             if (!$validatedSession) {
-                http_response_code(403);
-                die("Error: Download session is invalid or expired.");
+                $this->renderDownloadStatePage(
+                    'Download Session Expired - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Download Session Expired',
+                    'This download session is invalid or has expired. Please return to the file page and try again.',
+                    403,
+                    $package,
+                    $file,
+                    $this->buildPublicShareFields($file)
+                );
+                return;
             }
             if ($fraud->shouldRequireVerifiedCompletion($file)) {
                 $rewardSessionId = $sessionId;
@@ -1473,7 +1540,8 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
             exit;
         }
 
-        $file = File::find((string)($_POST['file_id'] ?? '0'));
+        $fileRef = trim((string)($_POST['file_id'] ?? ''));
+        $file = $this->resolvePostedFileReference($fileRef);
         if (!$file || !$this->isVideoFile($file)) {
             http_response_code(404);
             echo json_encode(['error' => 'Video file not found']);
@@ -1578,8 +1646,16 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
                 'storage_path' => (string)($file['storage_path'] ?? ''),
                 'file_server_id' => (int)($file['file_server_id'] ?? 0),
             ]);
-            http_response_code(404);
-            die('File is temporarily unavailable.');
+            $this->renderDownloadStatePage(
+                'File Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'File Temporarily Unavailable',
+                'This file is temporarily unavailable. Please try again later.',
+                404,
+                $package,
+                $file,
+                $this->buildPublicShareFields($file)
+            );
+            exit;
         }
 
         // fallback to proxy/local serve
@@ -2135,16 +2211,120 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
                     File::copy($file['id'], $targetFolderId);
                 }
             } else {
-                // Folder copy is more complex (recursive), maybe just skip for now or implement simply
                 $folder = \App\Model\Folder::find($id);
                 if ($folder && ($folder['user_id'] === Auth::id() || Auth::isAdmin())) {
-                    // Simple folder "copy" just creates a new folder with same name in target
-                    \App\Model\Folder::create(Auth::id(), $folder['name'] . ' (Copy)', $targetFolderId);
+                    \App\Model\Folder::copyTree((int)$folder['id'], (int)$folder['user_id'], $targetFolderId);
                 }
             }
         }
 
         echo json_encode(['status' => 'success']);
+    }
+
+    public function bulkRename()
+    {
+        $this->checkAuth();
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die(json_encode(['status' => 'error', 'error' => 'CSRF Mismatch']));
+        }
+
+        $items = $_POST['ids'] ?? [];
+        $action = ($_POST['action'] ?? 'preview') === 'apply' ? 'apply' : 'preview';
+        if (empty($items)) {
+            die(json_encode(['status' => 'error', 'error' => 'No items selected']));
+        }
+
+        $preview = [];
+        $updated = 0;
+        $index = 0;
+        foreach ($items as $item) {
+            $type = $item['type'] ?? '';
+            $id = (int)($item['id'] ?? 0);
+            if ($id <= 0 || !in_array($type, ['file', 'folder'], true)) {
+                continue;
+            }
+
+            $row = $type === 'file' ? File::find($id) : \App\Model\Folder::find($id);
+            if (!$row || ((int)($row['user_id'] ?? 0) !== (int)Auth::id() && !Auth::isAdmin())) {
+                continue;
+            }
+
+            $oldName = (string)($type === 'file' ? $row['filename'] : $row['name']);
+            $newName = $this->buildMassRenameName($oldName, $index);
+            $index++;
+            if ($newName === '' || $newName === $oldName) {
+                continue;
+            }
+
+            $preview[] = [
+                'id' => $id,
+                'type' => $type,
+                'old_name' => $oldName,
+                'new_name' => $newName,
+            ];
+
+            if ($action === 'apply') {
+                if ($type === 'file') {
+                    File::update($id, ['filename' => $newName]);
+                } else {
+                    \App\Model\Folder::update($id, ['name' => $newName]);
+                }
+                $updated++;
+            }
+        }
+
+        echo json_encode(['status' => 'success', 'preview' => $preview, 'updated' => $updated]);
+    }
+
+    private function buildMassRenameName(string $name, int $index): string
+    {
+        $newName = $name;
+        $find = (string)($_POST['find'] ?? '');
+        $replace = (string)($_POST['replace'] ?? '');
+        $remove = (string)($_POST['remove'] ?? '');
+        $regex = Auth::isAdmin() && ($_POST['regex'] ?? '0') === '1';
+
+        if ($find !== '') {
+            if ($regex) {
+                $find = substr($find, 0, 120);
+                $pattern = '/' . str_replace('/', '\/', $find) . '/u';
+                $candidate = @preg_replace($pattern, $replace, $newName);
+                if (is_string($candidate)) {
+                    $newName = $candidate;
+                }
+            } else {
+                $newName = str_replace($find, $replace, $newName);
+            }
+        }
+
+        if ($remove !== '') {
+            $newName = str_replace($remove, '', $newName);
+        }
+
+        $separator = (string)($_POST['separator'] ?? '');
+        if ($separator === 'spaces') {
+            $newName = preg_replace('/[._]+/', ' ', $newName) ?? $newName;
+        } elseif ($separator === 'dots') {
+            $newName = preg_replace('/[\s_]+/', '.', $newName) ?? $newName;
+        } elseif ($separator === 'underscores') {
+            $newName = preg_replace('/[\s.]+/', '_', $newName) ?? $newName;
+        }
+
+        $prefix = (string)($_POST['prefix'] ?? '');
+        $suffix = (string)($_POST['suffix'] ?? '');
+        $sequence = (string)($_POST['sequence'] ?? '');
+        $start = max(0, (int)($_POST['start'] ?? 1));
+        $number = str_pad((string)($start + $index), 3, '0', STR_PAD_LEFT);
+
+        if ($sequence === 'prefix') {
+            $prefix .= $number . ' ';
+        } elseif ($sequence === 'suffix') {
+            $suffix = ' ' . $number . $suffix;
+        }
+
+        $newName = $this->normalizeFilename($prefix . trim($newName) . $suffix);
+        return substr($newName, 0, self::MAX_FILENAME_LENGTH);
     }
 
     public function bulkSetVisibility()
@@ -2225,6 +2405,7 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         }
 
         $db = \App\Core\Database::getInstance()->getConnection();
+        $this->ensureRemoteUploadQueueSchema($db);
         
         $stmt = $db->prepare("SELECT user_id, status FROM remote_upload_queue WHERE id = ?");
         $stmt->execute([$jobId]);
@@ -2251,6 +2432,14 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
 
         \App\Core\Logger::info("Remote Upload Canceled", ['job_id' => $jobId, 'user' => \App\Core\Auth::id()]);
         echo json_encode(['status' => 'success', 'message' => 'Remote upload canceled.']);
+    }
+
+    private function ensureRemoteUploadQueueSchema(\PDO $db): void
+    {
+        try {
+            $db->exec("ALTER TABLE remote_upload_queue MODIFY status ENUM('pending', 'processing', 'completed', 'failed', 'canceled') NOT NULL DEFAULT 'pending'");
+        } catch (\Throwable $e) {
+        }
     }
 
     private function checkAuth()

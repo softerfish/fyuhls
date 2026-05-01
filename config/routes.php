@@ -18,6 +18,7 @@ use App\Controller\Admin\SecurityController;
 use App\Controller\Admin\FileController as AdminFileController;
 use App\Controller\Api\RewardsApiController;
 use App\Controller\Api\UploadApiController;
+use App\Controller\Api\UploaderApiController;
 
 // Public Routes
 $router->get('/', [HomeController::class, 'index']);
@@ -26,6 +27,8 @@ $router->get('/robots.txt', [SeoController::class, 'robotsTxt']);
 $router->get('/sitemap.xml', [SeoController::class, 'sitemapXml']);
 $router->get('/api', [HomeController::class, 'api']);
 $router->get('/faq', [HomeController::class, 'faq']);
+$router->get('/link-checker', [HomeController::class, 'linkChecker']);
+$router->post('/link-checker', [HomeController::class, 'linkChecker']);
 $router->get('/contact', [HomeController::class, 'contact']);
 $router->post('/contact', [HomeController::class, 'contact']);
 $router->get('/dmca', [HomeController::class, 'dmca']);
@@ -42,6 +45,7 @@ $router->get('/verify-email/{token}', [AuthController::class, 'verifyEmail']);
 $router->post('/logout', [AuthController::class, 'logout']);
 $router->get('/affiliate', [RewardsController::class, 'affiliate']);
 $router->get('/rewards', [RewardsController::class, 'rewards']);
+$router->get('/rewards/export.csv', [RewardsController::class, 'exportCsv']);
 $router->post('/rewards/withdraw', [RewardsController::class, 'withdraw']);
 $router->get('/2fa/verify', [TwoFactorController::class, 'showVerify']);
 $router->post('/2fa/verify', [TwoFactorController::class, 'verify']);
@@ -57,6 +61,8 @@ $router->get('/notifications', [HomeController::class, 'notifications']);
 $router->post('/notifications/read', [HomeController::class, 'markNotificationsRead']);
 
 // Checkout & Payments
+$router->get('/plans', [CheckoutController::class, 'plans']);
+$router->get('/payments', [CheckoutController::class, 'history']);
 $router->get('/checkout/{id}', [CheckoutController::class, 'index']);
 $router->post('/checkout/process', [CheckoutController::class, 'process']);
 $router->post('/payment/callback/{gateway}', [CheckoutController::class, 'callback']);
@@ -77,6 +83,7 @@ $router->post('/bulk/move', [FileController::class, 'bulkMove']);
 $router->post('/bulk/trash', [FileController::class, 'bulkTrash']);
 $router->post('/bulk/restore', [FileController::class, 'bulkRestore']);
 $router->post('/bulk/copy', [FileController::class, 'bulkCopy']);
+$router->post('/bulk/rename', [FileController::class, 'bulkRename']);
 $router->post('/bulk/visibility', [FileController::class, 'bulkSetVisibility']);
 $router->post('/trash/empty', [FileController::class, 'emptyTrash']);
 $router->get('/file/{id}', [FileController::class, 'show']);
@@ -125,6 +132,7 @@ $router->get('/admin/requests', [AdminController::class, 'requests']);
 $router->post('/admin/requests/reply', [AdminController::class, 'replyToRequest']);
 $router->post('/admin/requests/note', [AdminController::class, 'addRequestNote']);
 $router->post('/admin/requests/status', [AdminController::class, 'updateRequestStatus']);
+$router->post('/admin/requests/dmca-process', [AdminController::class, 'processDmcaFiles']);
 $router->get('/admin/abuse-reports', [AdminController::class, 'abuseReports']);
 $router->post('/admin/abuse-reports/action', [AdminController::class, 'handleAbuseReport']);
 $router->get('/admin/downloads/current', [AdminController::class, 'currentDownloadsView']);
@@ -170,6 +178,7 @@ $router->post('/admin/security/update', [SecurityController::class, 'updateSetti
 
 // --- Plugins ---
 $router->get('/admin/plugins', [PluginController::class, 'index']);
+$router->post('/admin/plugins/upload-policy', [PluginController::class, 'uploadPolicy']);
 $router->post('/admin/plugins/upload', [PluginController::class, 'upload']);
 $router->post('/admin/plugins/install/{dir}', [PluginController::class, 'install']);
 $router->post('/admin/plugins/activate/{dir}', [PluginController::class, 'activate']);
@@ -181,6 +190,7 @@ $router->post('/admin/plugins/settings/{dir}', [PluginController::class, 'settin
 // --- Enterprise API ---
 $router->post('/api/rewards/receipt', [RewardsApiController::class, 'dropReceipt']);
 $router->post('/api/callback/nginx-completed', [FileController::class, 'nginxDownloadCompleted']);
+$router->get('/api/v1/openapi.json', [UploaderApiController::class, 'openApi']);
 $router->post('/api/v1/uploads/sessions', [UploadApiController::class, 'createSession']);
 $router->post('/api/v1/uploads/managed', [UploadApiController::class, 'createManagedUpload']);
 $router->get('/api/v1/uploads/sessions/{id}', [UploadApiController::class, 'showSession']);
@@ -191,3 +201,17 @@ $router->post('/api/v1/uploads/sessions/{id}/complete', [UploadApiController::cl
 $router->post('/api/v1/uploads/sessions/{id}/abort', [UploadApiController::class, 'abort']);
 $router->get('/api/v1/files/{id}', [UploadApiController::class, 'fileInfo']);
 $router->get('/api/v1/downloads/{id}/link', [UploadApiController::class, 'downloadLink']);
+$router->get('/api/v1/files', [UploaderApiController::class, 'listFiles']);
+$router->get('/api/v1/folders', [UploaderApiController::class, 'listFolders']);
+$router->post('/api/v1/folders', [UploaderApiController::class, 'createFolder']);
+$router->post('/api/v1/files/{id}/rename', [UploaderApiController::class, 'renameFile']);
+$router->post('/api/v1/folders/{id}/rename', [UploaderApiController::class, 'renameFolder']);
+$router->post('/api/v1/items/move', [UploaderApiController::class, 'moveItems']);
+$router->post('/api/v1/items/copy', [UploaderApiController::class, 'copyItems']);
+$router->post('/api/v1/items/delete', [UploaderApiController::class, 'deleteItems']);
+$router->post('/api/v1/bulk-links', [UploaderApiController::class, 'bulkLinks']);
+$router->get('/api/v1/earnings/stats', [UploaderApiController::class, 'earningsStats']);
+$router->get('/api/v1/payouts', [UploaderApiController::class, 'payoutInfo']);
+$router->post('/api/v1/remote-uploads', [UploaderApiController::class, 'createRemoteUpload']);
+$router->get('/api/v1/remote-uploads/{id}', [UploaderApiController::class, 'remoteStatus']);
+$router->post('/api/v1/remote-uploads/{id}/cancel', [UploaderApiController::class, 'cancelRemoteUpload']);

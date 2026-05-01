@@ -1,6 +1,9 @@
-<?php include __DIR__ . '/header.php'; ?>
-<div class="two-factor-verify-shell">
-    <div class="two-factor-verify-card auth-container shadow-lg">
+<?php
+include __DIR__ . '/header.php';
+include __DIR__ . '/partials/public_form_shell_styles.php';
+?>
+<div class="public-form-shell">
+    <div class="public-form-card two-factor-verify-card auth-container shadow-lg">
         <div class="text-center mb-4">
             <div class="two-factor-verify-icon p-3 rounded-circle d-inline-block mb-3">
                 <i class="two-factor-verify-icon-symbol bi bi-shield-lock-fill text-primary"></i>
@@ -45,7 +48,6 @@
     </div>
 </div>
 <style>
-.two-factor-verify-shell{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
 .two-factor-verify-card{max-width:450px;background:#fff;border-radius:12px;padding:2.5rem;border:1px solid var(--border-color)}
 .two-factor-verify-icon{background:rgba(37,99,235,.1)}
 .two-factor-verify-icon-symbol{font-size:2rem}

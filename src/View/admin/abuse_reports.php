@@ -1,12 +1,10 @@
-<?php include 'header.php'; ?>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+renderAdminPageHeader('Abuse Reports');
+?>
 
-<div class="page-header">
-    <h1>Abuse Reports</h1>
-</div>
-
-<div class="card">
-    <div class="card-header">Recent Abuse Reports</div>
-    <div class="card-body">
+<?php renderAdminCardStart('Recent Abuse Reports'); ?>
         <?php if (empty($reports)): ?>
             <p class="abuse-reports-empty">No abuse reports found.</p>
         <?php else: ?>
@@ -54,8 +52,7 @@
                 </tbody>
             </table>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <style>
 .abuse-reports-empty{text-align:center;color:#64748b;padding:2rem}

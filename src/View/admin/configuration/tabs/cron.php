@@ -1,15 +1,42 @@
-<?php $demoMode = \App\Model\Setting::get('demo_mode', '0') === '1'; ?>
-<div class="row g-4 mb-4">
-    <!-- Health Monitor -->
-    <div class="col-md-4">
-        <div class="card shadow-sm h-100 border-0 bg-light">
-            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
-                <?php 
-                $lastTimestamp = (int)\App\Model\Setting::get('last_cron_run_timestamp', 0);
-                $diff = time() - $lastTimestamp;
-                $isHealthy = ($lastTimestamp > 0 && $diff < 1860); // 31 minutes
-                ?>
+<?php
+$demoMode = \App\Model\Setting::get('demo_mode', '0') === '1';
+$lastTimestamp = (int)\App\Model\Setting::get('last_cron_run_timestamp', 0);
+$diff = time() - $lastTimestamp;
+$isHealthy = ($lastTimestamp > 0 && $diff < 1860); // 31 minutes
+?>
+<div class="config-section-shell">
+    <div class="config-section-nav">
+        <div class="config-section-nav__eyebrow">Cron Sections</div>
+        <div class="nav flex-column nav-pills">
+            <a class="nav-link text-start active" href="#cron-status"><i class="bi bi-heart-pulse me-2"></i> Status</a>
+            <a class="nav-link text-start" href="#cron-scheduled"><i class="bi bi-list-task me-2"></i> Scheduled Tasks</a>
+            <a class="nav-link text-start" href="#cron-setup"><i class="bi bi-terminal me-2"></i> Server Setup</a>
+            <a class="nav-link text-start" href="#cron-reference"><i class="bi bi-info-square me-2"></i> Reference Guide</a>
+        </div>
+    </div>
+    <div class="config-section-content">
+        <div class="config-section-intro">
+            <div>
+                <h5 class="config-section-intro__title">Cron Jobs</h5>
+                <p class="config-section-intro__text">Monitor the background engine, adjust task frequencies, and verify the server crontab that keeps cleanup, rewards, email, and storage maintenance moving.</p>
+            </div>
+            <ul class="config-summary-chips">
+                <li class="config-summary-chip <?= $isHealthy ? 'config-summary-chip--success' : 'config-summary-chip--danger' ?>">Heartbeat: <?= $isHealthy ? 'Healthy' : 'Offline' ?></li>
+                <li class="config-summary-chip config-summary-chip--info">Tasks: <?= count($tasks ?? []) ?> registered</li>
+                <li class="config-summary-chip config-summary-chip--info">Runner: every minute</li>
+            </ul>
+        </div>
+        <details class="config-help-panel">
+            <summary>How this works</summary>
+            <div class="config-help-panel__body">
+                <p>Fyuhls expects the cron runner to execute every minute. The heartbeat card below reflects when that engine last checked in, while the task table controls how often individual jobs actually run.</p>
+            </div>
+        </details>
 
+<div id="cron-status"></div>
+<div class="config-status-grid">
+    <div>
+        <?php renderAdminCardStart(null, ['bodyClass' => 'd-flex flex-column align-items-center justify-content-center text-center py-3', 'cardClass' => 'shadow-sm h-100 border-0 bg-light config-status-card']); ?>
                 <div class="mb-2">
                     <?php if ($isHealthy): ?>
                         <div class="cron-health-icon rounded-circle bg-success text-white d-flex align-items-center justify-content-center mx-auto shadow-sm">
@@ -25,33 +52,27 @@
                         <p class="extra-small text-muted">No heartbeat detected in over 31 mins. Check crontab.</p>
                     <?php endif; ?>
                 </div>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     </div>
 
-    <!-- Quick Action Card -->
-    <div class="col-md-8">
-        <div class="card shadow-sm h-100 border-0 bg-primary bg-opacity-10">
-            <div class="card-body d-flex flex-column justify-content-center">
-                <h6 class="text-primary fw-bold mb-1"><i class="bi bi-lightning-charge-fill me-2"></i>Force Run All Tasks</h6>
-                <p class="extra-small text-muted mb-3">Immediately executes all registered tasks regardless of their schedule. Use this to clear space or sync security now.</p>
-                <form method="POST" action="/admin/cron/trigger" class="m-0">
-                    <?= \App\Core\Csrf::field() ?>
-                    <button type="submit" class="btn btn-primary btn-sm px-4 shadow-sm fw-bold">
-                        <i class="bi bi-play-circle me-1"></i> Trigger All Tasks Now
-                    </button>
-                </form>
-            </div>
+    <div>
+        <div class="config-utility-zone h-100">
+            <div class="config-utility-zone__title"><i class="bi bi-lightning-charge-fill me-2"></i>Utility Action</div>
+            <p class="config-utility-zone__text">Immediately execute all registered tasks regardless of schedule. Use this to clear space, sync security, or sweep stale payment history now.</p>
+            <form method="POST" action="/admin/cron/trigger" class="config-utility-zone__actions m-0">
+                <?= \App\Core\Csrf::field() ?>
+                <button type="submit" class="btn btn-primary btn-sm px-4 shadow-sm fw-bold">
+                    <i class="bi bi-play-circle me-1"></i> Trigger All Tasks Now
+                </button>
+            </form>
         </div>
     </div>
 </div>
 
 <div class="row g-4">
     <div class="col-lg-8">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white py-3 border-bottom-0">
-                <h6 class="mb-0 fw-bold"><i class="bi bi-list-task me-2 text-primary"></i> Scheduled Cron Jobs</h6>
-            </div>
+        <div id="cron-scheduled"></div>
+        <?php renderAdminCardStart(null, ['headerHtml' => '<h6 class="mb-0 fw-bold"><i class="bi bi-list-task me-2 text-primary"></i> Scheduled Cron Jobs</h6>', 'bodyClass' => 'p-0', 'cardClass' => 'border-0 shadow-sm config-section-card']); ?>
             <div class="table-responsive">
                 <form method="POST" action="/admin/configuration/save">
                     <?= \App\Core\Csrf::field() ?>
@@ -77,6 +98,7 @@
                                 'account_expiry'    => 'Sends reminder emails before premium accounts expire.',
                                 'server_monitoring' => 'Checks active storage nodes for uptime, latency, and connectivity failures.',
                                 'mail_queue'        => 'Processes queued outbound email in background batches.',
+                                'payment_cleanup'   => 'Marks package-purchase attempts that have been stuck in pending status for more than 24 hours as failed so account billing history stays clean.',
                                 'reward_flush'      => 'Flushes reward queue events into permanent reward records.',
                                 'reward_rollup'     => 'Builds reward and affiliate history summaries for reporting.',
                                 'db_health'         => 'Checks the database schema for missing tables, columns, or drift issues.',
@@ -133,13 +155,13 @@
                     </div>
                 </form>
             </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     </div>
 
     <div class="col-lg-4">
         <!-- Crontab Setup -->
-        <div class="card shadow-sm border-0 bg-dark text-white mb-4">
-            <div class="card-body p-3">
+        <div id="cron-setup"></div>
+        <?php renderAdminCardStart(null, ['bodyClass' => 'p-3', 'cardClass' => 'shadow-sm border-0 bg-dark text-white mb-4 config-section-card']); ?>
                 <h6 class="fw-bold small mb-2"><i class="bi bi-terminal me-2"></i>Server Crontab Setup</h6>
                 <p class="extra-small text-white-50 mb-3">Add this entry to your server to enable the engine. Set to <code>Every Minute</code>.</p>
                 <div class="bg-black bg-opacity-50 p-2 rounded extra-small font-monospace mb-2 text-break">
@@ -150,15 +172,11 @@
                     <?php endif; ?>
                 </div>
                 <div class="extra-small text-info"><i class="bi bi-info-circle me-1"></i> <?= $demoMode ? 'Demo mode hides the real server path. Replace the example path with your actual Fyuhls install path.' : 'Paste this into your cPanel "Cron Jobs" section.' ?></div>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
 
         <!-- Task Reference -->
-        <div class="card shadow-sm border-0">
-            <div class="card-header bg-white py-3">
-                <h6 class="mb-0 fw-bold small"><i class="bi bi-info-square me-2 text-primary"></i> Task Reference Guide</h6>
-            </div>
-            <div class="card-body p-0">
+        <div id="cron-reference"></div>
+        <?php renderAdminCardStart(null, ['headerHtml' => '<h6 class="mb-0 fw-bold small"><i class="bi bi-info-square me-2 text-primary"></i> Task Reference Guide</h6>', 'bodyClass' => 'p-0', 'cardClass' => 'shadow-sm border-0 config-section-card']); ?>
                 <div class="list-group list-group-flush">
                     <?php foreach ($tasks as $task): ?>
                         <?php 
@@ -176,9 +194,10 @@
                         </div>
                     <?php endforeach; ?>
                 </div>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     </div>
+</div>
+</div>
 </div>
 
 <style>
@@ -188,10 +207,14 @@
 .cron-task-description { min-width: 260px; }
 .cron-interval-group { width: 110px; }
 .cron-task-key { font-size: 0.6rem; }
+.cron-quick-card { display:flex; flex-direction:column; justify-content:center; gap:1rem; min-height:100%; }
 @keyframes pulse-red {
     0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
     70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
     100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
 }
 .extra-small { font-size: 0.75rem; }
+@media (min-width: 768px) {
+    .cron-quick-card { flex-direction: row; align-items: center; justify-content: space-between; }
+}
 </style>

@@ -19,6 +19,23 @@ $badgeCounts = [
 ];
 $badgeCounts['requests'] = $badgeCounts['contacts'] + $badgeCounts['abuse'] + $badgeCounts['dmca'];
 
+$configHubNoticeCount = 0;
+try {
+    $pendingEncryption = (new \App\Service\Migration\EncryptionMigrationService())->getPendingCount();
+    $currentKey = \App\Core\Config::get('security.encryption_key', '');
+    $decodedKey = base64_decode($currentKey, true);
+    $isBase64EnterpriseKey = ($decodedKey !== false && strlen($decodedKey) === 32);
+    $keyNeedsAttention = !$isBase64EnterpriseKey;
+    $dbDriftDetected = \App\Model\Setting::get('db_drift_detected', '0') === '1';
+
+    $configHubNoticeCount =
+        ($keyNeedsAttention ? 1 : 0) +
+        ($pendingEncryption > 0 ? 1 : 0) +
+        ($dbDriftDetected ? 1 : 0);
+} catch (\Throwable $e) {
+    $configHubNoticeCount = 0;
+}
+
 $updateAvailable = false;
 try {
     $updateStatus = (new \App\Service\UpdateService())->getStatus(false);
@@ -214,7 +231,9 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                     <li class="nav-item">
                         <a class="nav-link <?= str_contains($currentUri, '/admin/configuration') ? 'active' : '' ?>" href="/admin/configuration">
                             <i class="bi bi-cpu me-2"></i> Config Hub
-                            <?php if ($cronOffline): ?>
+                            <?php if ($configHubNoticeCount > 0): ?>
+                                <span class="badge bg-warning text-dark rounded-pill float-end"><?= $configHubNoticeCount ?></span>
+                            <?php elseif ($cronOffline): ?>
                                 <span class="badge bg-danger rounded-pill float-end" title="Cron Jobs Offline">
                                     <i class="bi bi-exclamation-triangle-fill"></i>
                                 </span>
@@ -236,6 +255,21 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                             <?php endif; ?>
                         </a>
                     </li>
+                    <li class="nav-item mt-3">
+                        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted text-uppercase small">
+                            <span>Help</span>
+                        </h6>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= str_contains($currentUri, '/admin/docs') ? 'active' : '' ?>" href="/admin/docs">
+                            <i class="bi bi-book me-2"></i> In-App Docs
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="https://github.com/softerfish/fyuhls/wiki/" target="_blank" rel="noopener noreferrer">
+                            <i class="bi bi-journal-text me-2"></i> GitHub Wiki
+                        </a>
+                    </li>
                 </ul>
 
                 <hr>
@@ -252,12 +286,6 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                                 <i class="bi bi-box-arrow-right me-2"></i> Logout
                             </button>
                         </form>
-                    </li>
-                    <li class="nav-item mt-4">
-                        <hr class="mx-3 opacity-25">
-                        <a class="nav-link <?= str_contains($currentUri, '/admin/docs') ? 'active' : '' ?>" href="/admin/docs">
-                            <i class="bi bi-book me-2"></i> Documentation
-                        </a>
                     </li>
                 </ul>
             </div>

@@ -1,4 +1,7 @@
-<?php include 'header.php'; ?>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+?>
 <?php
 $stats = $bundle['stats'] ?? [];
 $history = $bundle['history'] ?? [];
@@ -27,12 +30,107 @@ if ($latestHistoryDay !== null) {
     reset($history);
 }
 
+$pendingEncryption = 0;
+$securityKeyNeedsAttention = false;
+$securityDbDriftDetected = \App\Model\Setting::get('db_drift_detected', '0') === '1';
+$cloudflareSyncMissing = false;
+$setupFilesPresent = [];
+$apacheLikePpdFallbackCount = 0;
+$nginxHealthSummary = [
+    'has_warning' => false,
+    'skipped_total' => 0,
+    'missing_viewer_identity' => 0,
+    'missing_client_ip' => 0,
+    'last_issue_at' => null,
+];
+$agedPendingWithdrawals = 0;
+$oldestPendingWithdrawalAt = null;
+$fraudQueueCount = 0;
+try {
+    $pendingEncryption = (new \App\Service\Migration\EncryptionMigrationService())->getPendingCount();
+    $currentKey = \App\Core\Config::get('security.encryption_key', '');
+    $decodedKey = base64_decode($currentKey, true);
+    $securityKeyNeedsAttention = !($decodedKey !== false && strlen($decodedKey) === 32);
+
+    $root = defined('BASE_PATH') ? BASE_PATH : realpath(__DIR__ . '/../../..');
+    $installPath = $root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'install.php';
+    $postInstallCheckPath = $root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'post_install_check.php';
+    $schemaPath = $root . DIRECTORY_SEPARATOR . 'database';
+    if (file_exists($installPath)) {
+        $setupFilesPresent[] = 'install.php';
+    }
+    if (file_exists($postInstallCheckPath)) {
+        $setupFilesPresent[] = 'post_install_check.php';
+    }
+    if (is_dir($schemaPath)) {
+        $setupFilesPresent[] = 'database/';
+    }
+
+    $cloudflareSyncMissing = empty(\App\Model\Setting::get('cloudflare_last_sync', '0')) || \App\Model\Setting::get('cloudflare_last_sync', '0') === '0';
+
+    $ppdMinDownloadPercent = max(0, (int)\App\Model\Setting::get('ppd_min_download_percent', '0'));
+    if ($ppdMinDownloadPercent > 0) {
+        $dashboardDb = \App\Core\Database::getInstance()->getConnection();
+        $apacheFallbackStmt = $dashboardDb->query("SELECT COUNT(*) FROM file_servers WHERE delivery_method IN ('apache', 'litespeed') AND status IN ('active', 'read-only')");
+        $apacheLikePpdFallbackCount = (int)$apacheFallbackStmt->fetchColumn();
+    }
+
+    $nginxHealthSummary = (new \App\Service\NginxDownloadLogService())->getHealthSummary(24);
+
+    if (\App\Service\FeatureService::rewardsEnabled()) {
+        $dashboardDb = isset($dashboardDb) ? $dashboardDb : \App\Core\Database::getInstance()->getConnection();
+        try {
+            $withdrawalsTableExists = (bool)$dashboardDb->query("SHOW TABLES LIKE 'withdrawals'")->fetch();
+            if ($withdrawalsTableExists) {
+                $agedRow = $dashboardDb->query("
+                    SELECT COUNT(*) AS pending_count, MIN(created_at) AS oldest_pending_at
+                    FROM withdrawals
+                    WHERE status = 'pending' AND created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                ")->fetch(\PDO::FETCH_ASSOC) ?: [];
+                $agedPendingWithdrawals = (int)($agedRow['pending_count'] ?? 0);
+                $oldestPendingWithdrawalAt = $agedRow['oldest_pending_at'] ?? null;
+            }
+        } catch (\Throwable $inner) {
+            $agedPendingWithdrawals = 0;
+            $oldestPendingWithdrawalAt = null;
+        }
+
+        try {
+            $earningsTableExists = (bool)$dashboardDb->query("SHOW TABLES LIKE 'earnings'")->fetch();
+            if ($earningsTableExists) {
+                $fraudQueueCount = (int)$dashboardDb->query("SELECT COUNT(*) FROM earnings WHERE status IN ('held', 'flagged_review')")->fetchColumn();
+            }
+        } catch (\Throwable $inner) {
+            $fraudQueueCount = 0;
+        }
+    }
+} catch (\Throwable $e) {
+    $pendingEncryption = 0;
+    $securityKeyNeedsAttention = false;
+    $cloudflareSyncMissing = false;
+    $setupFilesPresent = [];
+    $apacheLikePpdFallbackCount = 0;
+    $nginxHealthSummary = [
+        'has_warning' => false,
+        'skipped_total' => 0,
+        'missing_viewer_identity' => 0,
+        'missing_client_ip' => 0,
+        'last_issue_at' => null,
+    ];
+    $agedPendingWithdrawals = 0;
+    $oldestPendingWithdrawalAt = null;
+    $fraudQueueCount = 0;
+}
+
 $attentionItems = [];
 if (($widgets['support_diagnostics']['recent_errors'] ?? 0) > 0) {
     $attentionItems[] = ['warning', 'Recent Errors', $count($widgets['support_diagnostics']['recent_errors'] ?? 0) . ' recent errors logged', '/admin/status#recent-system-errors'];
 }
 if (($widgets['automation']['overdue_tasks'] ?? 0) > 0) {
     $attentionItems[] = ['danger', 'Overdue Tasks', $count($widgets['automation']['overdue_tasks'] ?? 0) . ' automation tasks overdue', '/admin/configuration?tab=cron'];
+}
+if (empty($widgets['automation']['healthy'])) {
+    $attentionItems[] = ['danger', 'Cron Heartbeat', 'Cron heartbeat is stale or not reporting recently', '/admin/configuration?tab=cron'];
 }
 if (($widgets['moderation_queue']['abuse_pending'] ?? 0) > 0 || ($widgets['moderation_queue']['dmca_pending'] ?? 0) > 0) {
     $attentionItems[] = ['warning', 'Moderation Queue', $count(($widgets['moderation_queue']['abuse_pending'] ?? 0) + ($widgets['moderation_queue']['dmca_pending'] ?? 0)) . ' reports waiting', '/admin/requests'];
@@ -42,6 +140,40 @@ if (($widgets['storage_capacity']['nodes_over_80'] ?? 0) > 0 || (($widgets['stor
 }
 if (empty($widgets['support_diagnostics']['smtp_configured'])) {
     $attentionItems[] = ['info', 'SMTP Missing', 'Email delivery is not configured', '/admin/configuration?tab=email'];
+}
+if (!empty($widgets['support_diagnostics']['smtp_configured']) && (int)($widgets['email_queue']['failed'] ?? 0) > 0) {
+    $attentionItems[] = ['warning', 'SMTP Failures', $count($widgets['email_queue']['failed'] ?? 0) . ' queued email failure' . ((int)($widgets['email_queue']['failed'] ?? 0) === 1 ? '' : 's') . ' need review', '/admin/configuration?tab=email'];
+}
+if ($securityKeyNeedsAttention) {
+    $attentionItems[] = ['warning', 'Encryption Key', 'Security settings are still using a legacy or invalid encryption key', '/admin/configuration?tab=security&sec_tab=keys'];
+}
+if ($pendingEncryption > 0) {
+    $attentionItems[] = ['warning', 'Encryption Migration', $count($pendingEncryption) . ' encrypted data item' . ($pendingEncryption === 1 ? '' : 's') . ' still pending migration', '/admin/configuration?tab=security&sec_tab=migration'];
+}
+if ($securityDbDriftDetected) {
+    $attentionItems[] = ['danger', 'Database Health', 'Schema drift needs repair before it causes broader admin issues', '/admin/configuration?tab=security&sec_tab=health'];
+}
+if ($cloudflareSyncMissing) {
+    $attentionItems[] = ['warning', 'Cloudflare IP Sync', 'Trusted proxy IP ranges have not been synced yet', '/admin/configuration?tab=security&sec_tab=cloudflare'];
+}
+if (!empty($setupFilesPresent)) {
+    $attentionItems[] = ['danger', 'Setup Files Present', implode(', ', $setupFilesPresent) . ' should be removed from production', '/admin/configuration?tab=security&sec_tab=health'];
+}
+if ($apacheLikePpdFallbackCount > 0) {
+    $attentionItems[] = ['warning', 'Storage Delivery Fallback', $count($apacheLikePpdFallbackCount) . ' storage server' . ($apacheLikePpdFallbackCount === 1 ? '' : 's') . ' are forcing app-controlled payout verification', '/admin/configuration?tab=storage'];
+}
+if (!empty($nginxHealthSummary['has_warning'])) {
+    $attentionItems[] = ['danger', 'Nginx Payout Health', $count($nginxHealthSummary['skipped_total'] ?? 0) . ' Nginx completion event' . ((int)($nginxHealthSummary['skipped_total'] ?? 0) === 1 ? '' : 's') . ' were skipped in the last 24 hours', '/admin/configuration?tab=downloads'];
+}
+if ($agedPendingWithdrawals > 0) {
+    $copy = $count($agedPendingWithdrawals) . ' withdrawal request' . ($agedPendingWithdrawals === 1 ? '' : 's') . ' have been pending for more than 24 hours';
+    if ($oldestPendingWithdrawalAt) {
+        $copy .= ' (oldest ' . $timeText((string)$oldestPendingWithdrawalAt) . ')';
+    }
+    $attentionItems[] = ['warning', 'Aged Withdrawals', $copy, '/admin/withdrawals'];
+}
+if ($fraudQueueCount > 0) {
+    $attentionItems[] = ['warning', 'Fraud Review Queue', $count($fraudQueueCount) . ' reward item' . ($fraudQueueCount === 1 ? '' : 's') . ' are waiting in held or flagged review states', '/admin/rewards-fraud'];
 }
 
 $todaySummary = [];
@@ -119,31 +251,29 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
 <?php }
 ?>
 
-<div class="page-header">
-    <div>
-        <h1>Dashboard</h1>
-        <p class="text-muted mb-0">Drag widgets into any order and collapse the ones you do not need to see right now.</p>
-    </div>
-    <div class="dashboard-header-actions">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="dashboardResetLayoutBtn">Reset layout</button>
-    </div>
-</div>
+<?php renderAdminPageHeader('Dashboard', 'Drag widgets into any order and collapse the ones you do not need to see right now.', '<div class="dashboard-header-actions"><button type="button" class="btn btn-outline-secondary btn-sm" id="dashboardResetLayoutBtn">Reset layout</button></div>'); ?>
 
 <div class="row g-3 mb-4">
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Total Users</div><div class="h4 mb-0 fw-bold"><?= $count($stats['total_users'] ?? 0) ?></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Total Files</div><div class="h4 mb-0 fw-bold"><?= $count($stats['total_files'] ?? 0) ?></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Storage Used</div><div class="h4 mb-0 fw-bold"><?= $size($stats['total_storage_bytes'] ?? 0) ?></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm p-3 h-100"><div class="dashboard-summary-label small text-muted mb-1 text-uppercase fw-bold">Cache Status</div><div class="h4 mb-0 fw-bold"><span class="dashboard-summary-badge badge <?= $isLive ? 'bg-warning text-dark' : 'bg-success' ?> rounded-pill"><?= $isLive ? 'LIVE (SLOW)' : 'OPTIMIZED' ?></span></div></div></div>
+    <div class="col-6 col-lg-3"><?php renderAdminStatCard('Total Users', $count($stats['total_users'] ?? 0), 'dashboard-summary-card', 'h4 mb-0'); ?></div>
+    <div class="col-6 col-lg-3"><?php renderAdminStatCard('Total Files', $count($stats['total_files'] ?? 0), 'dashboard-summary-card', 'h4 mb-0'); ?></div>
+    <div class="col-6 col-lg-3"><?php renderAdminStatCard('Storage Used', $size($stats['total_storage_bytes'] ?? 0), 'dashboard-summary-card', 'h4 mb-0'); ?></div>
+    <div class="col-6 col-lg-3"><?php renderAdminStatCard('Cache Status', '<span class="dashboard-summary-badge badge ' . ($isLive ? 'bg-warning text-dark' : 'bg-success') . ' rounded-pill">' . ($isLive ? 'LIVE (SLOW)' : 'OPTIMIZED') . '</span>', 'dashboard-summary-card', 'h4 mb-0'); ?></div>
 </div>
 
 <?php if (!empty($attentionItems)): ?>
-<div class="dashboard-attention-strip card border-0 shadow-sm mb-4">
+<?php
+ob_start();
+?>
     <div class="dashboard-attention-header">
         <div>
             <div class="dashboard-attention-title">Attention Needed</div>
             <div class="dashboard-attention-subtitle">Things worth checking right now before they turn into support pain.</div>
         </div>
     </div>
+<?php
+$dashboardAttentionHeader = ob_get_clean();
+renderAdminCardStart(null, ['headerHtml' => $dashboardAttentionHeader, 'cardClass' => 'dashboard-attention-strip mb-4']);
+?>
     <div class="dashboard-attention-grid">
         <?php foreach ($attentionItems as [$severity, $title, $copy, $href]): ?>
             <a href="<?= htmlspecialchars($href) ?>" class="dashboard-attention-item dashboard-attention-item--<?= htmlspecialchars($severity) ?>">
@@ -152,21 +282,29 @@ function dashboardMiniList(array $rows, string $empty = 'Nothing to show yet.'):
             </a>
         <?php endforeach; ?>
     </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 <?php endif; ?>
 
 <?php if (!empty($todaySummary)): ?>
-<div class="dashboard-today-strip card border-0 shadow-sm mb-4">
+<?php
+ob_start();
+?>
     <div class="dashboard-today-title">What changed today</div>
+<?php
+$dashboardTodayHeader = ob_get_clean();
+renderAdminCardStart(null, ['headerHtml' => $dashboardTodayHeader, 'cardClass' => 'dashboard-today-strip mb-4']);
+?>
     <div class="dashboard-today-items">
         <?php foreach ($todaySummary as $item): ?>
             <span class="dashboard-today-chip"><?= htmlspecialchars($item) ?></span>
         <?php endforeach; ?>
     </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 <?php endif; ?>
 
-<div class="alert alert-light border shadow-sm mb-4"><strong>Dashboard Layout:</strong> drag any widget to reorder it. Use the arrow button to collapse it down to the title bar. Your layout is saved in this browser.</div>
+<?php renderAdminCardStart('Dashboard Layout', ['cardClass' => 'mb-4']); ?>
+    <div class="status-muted-copy mb-0">Drag any widget to reorder it. Use the arrow button to collapse it down to the title bar. Your layout is saved in this browser.</div>
+<?php renderAdminCardEnd(); ?>
 
 <div id="dashboardWidgetGrid" class="dashboard-widget-grid">
     <?php dashboardWidgetStart('support_diagnostics', 'Support and Diagnostics', 'Logs, SMTP, and plugin surface'); ?>

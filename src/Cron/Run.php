@@ -32,6 +32,7 @@ try {
 
     $manager = new CronManager();
     $manager->ensureTableExists();
+    $manager->sync();
 
     // 1. File & Cache Cleanup
     $manager->register('cleanup', function() {
@@ -71,6 +72,12 @@ try {
     // 6. Background Email Worker
     $manager->register('mail_queue', function() {
         return \App\Service\MailQueueService::processBatch();
+    });
+
+    // 6b. Stale Pending Payment Cleanup
+    $manager->register('payment_cleanup', function() {
+        $auto = new \App\Service\AutomatedTaskService();
+        return $auto->cleanupStalePendingPayments(1440);
     });
 
     if (\App\Service\FeatureService::rewardsEnabled()) {

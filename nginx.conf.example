@@ -40,12 +40,37 @@ location /uploads/ {
     deny all;
 }
 
-# 3. PHP EXECUTION
+# 3. SETUP HELPER LOCKDOWN
 # ----------------------------------------------------------
-# Tells Nginx which PHP version to use. Usually PHP 8.2 or 8.3-fpm.
+# After installation, config/database.php exists. At that point,
+# block setup helpers even if the files were not removed.
 # ----------------------------------------------------------
-location ~ \.php$ {
-    try_files $uri =404;
+location = /install.php {
+    if (-f $document_root/../config/database.php) {
+        return 403;
+    }
+
+    include fastcgi_params;
+    fastcgi_pass unix:/run/php/php8.2-fpm.sock; # check your server's version!
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+}
+
+location = /post_install_check.php {
+    if (!-f $document_root/../config/database.php) {
+        return 403;
+    }
+
+    include fastcgi_params;
+    fastcgi_pass unix:/run/php/php8.2-fpm.sock; # check your server's version!
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+}
+
+# 4. PHP EXECUTION
+# ----------------------------------------------------------
+# Only route the front controller through PHP-FPM. This prevents
+# stray helper scripts from becoming reachable by default.
+# ----------------------------------------------------------
+location = /index.php {
     include fastcgi_params;
     fastcgi_pass unix:/run/php/php8.2-fpm.sock; # check your server's version!
     fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -55,7 +80,11 @@ location ~ \.php$ {
     add_header X-Frame-Options "SAMEORIGIN" always;
 }
 
-# 4. HIDE PRIVATE FOLDERS & HIDDEN FILES
+location ~ \.php$ {
+    return 404;
+}
+
+# 5. HIDE PRIVATE FOLDERS & HIDDEN FILES
 # ----------------------------------------------------------
 # Stops people from looking at your code, config, or logs.
 # ----------------------------------------------------------

@@ -47,6 +47,24 @@ class DiagnosticsService {
         ];
     }
 
+    public function generateSupportPreview(array $context = []): array {
+        $issueDescription = trim((string)($context['issue_description'] ?? ''));
+
+        return [
+            'metadata' => [
+                'timestamp' => date('c'),
+                'software' => 'fyuhls',
+                'version' => $this->getAppVersion(),
+                'submitted_issue' => $issueDescription !== '' ? $this->sanitizeString($issueDescription) : null,
+                'support_email' => self::SUPPORT_EMAIL,
+                'preview_only' => true,
+            ],
+            'checks' => $this->getSystemChecks(),
+            'plugins' => $this->getPluginSummary(),
+            'full_bundle_note' => 'The exported bundle is generated only when you download or email it, and includes sanitized config and recent sanitized logs.',
+        ];
+    }
+
     public function generateSupportEmailBody(array $bundle): string {
         $summary = $bundle['summary'] ?? [];
         $checks = $bundle['checks'] ?? [];
@@ -73,8 +91,7 @@ class DiagnosticsService {
             '- FFmpeg Ready: ' . (($checks['ffmpeg_ready'] ?? false) ? 'yes' : 'no'),
             '- SMTP Configured: ' . (($checks['smtp_configured'] ?? false) ? 'yes' : 'no'),
             '',
-            'Sanitized Bundle JSON:',
-            json_encode($bundle, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
+            'The full sanitized support bundle is attached as JSON.',
         ];
 
         return implode("\n", $lines);
@@ -127,7 +144,7 @@ class DiagnosticsService {
             if (!$db) return 'Database connection not initialized';
             return $db->getAttribute(\PDO::ATTR_SERVER_VERSION) ?: 'Unknown';
         } catch (\Throwable $e) {
-            return 'Error connecting to DB: ' . $e->getMessage();
+            return 'Error connecting to DB: ' . $this->sanitizeString($e->getMessage());
         }
     }
 

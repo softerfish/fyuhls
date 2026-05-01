@@ -46,12 +46,6 @@ class DashboardService
             $stats = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($stats) {
-                $liveTotalFiles = (int)$this->db->query("SELECT COUNT(*) FROM files WHERE status = 'active'")->fetchColumn();
-                if ((int)($stats['total_files'] ?? 0) !== $liveTotalFiles) {
-                    $this->refreshSystemStats();
-                    $stmt = $this->db->query("SELECT * FROM system_stats WHERE id = 1");
-                    $stats = $stmt->fetch(PDO::FETCH_ASSOC) ?: $stats;
-                }
                 return $stats;
             }
         } catch (\Exception $e) {
@@ -66,17 +60,17 @@ class DashboardService
             if ($cached) return $cached;
         }
 
+        // Ensure directory exists before opening the lock/cache files.
+        if (!is_dir(dirname($cacheFile))) {
+            @mkdir(dirname($cacheFile), 0755, true);
+        }
+
         // Try to get a lock so only one request calculates the live stats
         $lockFile = $cacheFile . '.lock';
         $fp = @fopen($lockFile, 'w');
         if ($fp && flock($fp, LOCK_EX | LOCK_NB)) {
             // We got the lock, calculate live
             $liveStats = $this->calculateLiveStats();
-            
-            // Ensure directory exists
-            if (!is_dir(dirname($cacheFile))) {
-                @mkdir(dirname($cacheFile), 0755, true);
-            }
             
             @file_put_contents($cacheFile, json_encode($liveStats));
             flock($fp, LOCK_UN);

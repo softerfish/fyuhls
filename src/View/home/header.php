@@ -48,7 +48,7 @@ $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1
             z-index: 50;
         }
         .home-logo {
-            font-size: 1.5rem;
+            font-size: 1.725rem;
             font-weight: 700;
             color: var(--primary-color);
             text-decoration: none;

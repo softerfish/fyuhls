@@ -1,17 +1,19 @@
 <?php
 $title = 'Current Live Downloads';
 include __DIR__ . '/header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+ob_start();
 ?>
-
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2>Current Live Downloads</h2>
     <div>
         <span class="badge bg-primary" id="activeCount">0 Active</span>
         <button class="btn btn-sm btn-outline-secondary ms-2" type="button" id="refreshBtn">
             <i class="bi bi-arrow-clockwise"></i> Refresh Now
         </button>
     </div>
-</div>
+<?php
+$currentDownloadsActions = ob_get_clean();
+renderAdminPageHeader('Current Live Downloads', '', $currentDownloadsActions);
+?>
 
 <?php if (\App\Model\Setting::get('track_current_downloads', '0') !== '1'): ?>
 <div class="alert alert-warning">
@@ -19,8 +21,7 @@ include __DIR__ . '/header.php';
 </div>
 <?php endif; ?>
 
-<div class="card">
-    <div class="card-body p-0">
+<?php renderAdminCardStart(null, ['bodyClass' => 'card-body p-0']); ?>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" id="downloadsTable">
                 <thead class="table-light">
@@ -38,8 +39,7 @@ include __DIR__ . '/header.php';
                 </tbody>
             </table>
         </div>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <script>
 let refreshTimer;

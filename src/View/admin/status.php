@@ -1,4 +1,7 @@
-<?php include 'header.php'; ?>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+?>
 
 <style>
     .status-overview-grid {
@@ -244,14 +247,11 @@
     .status-log-card { margin-bottom: 2rem; }
 </style>
 
-<div class="page-header">
-    <h1>System Status</h1>
-</div>
+<?php renderAdminPageHeader('System Status'); ?>
 
 <?php if (!empty($runtimeSecurityNotices)): ?>
     <?php foreach ($runtimeSecurityNotices as $notice): ?>
-        <div class="card mb-4 border-warning">
-            <div class="card-body">
+        <?php renderAdminCardStart(null, ['cardClass' => 'mb-4 border-warning']); ?>
                 <h2 class="h5 mb-2 text-warning"><?= htmlspecialchars((string)($notice['title'] ?? 'Security notice')) ?></h2>
                 <p class="status-muted-copy mb-2"><?= htmlspecialchars((string)($notice['message'] ?? '')) ?></p>
                 <?php if (!empty($notice['config_path'])): ?>
@@ -260,36 +260,28 @@
                 <?php if (!empty($notice['suggested_value'])): ?>
                     <div class="status-small-copy"><strong>Suggested replacement app_key:</strong> <code><?= htmlspecialchars((string)$notice['suggested_value']) ?></code></div>
                 <?php endif; ?>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     <?php endforeach; ?>
 <?php endif; ?>
 
 <div class="status-overview-grid">
-    <div class="card status-overview-card">
-        <div class="status-eyebrow">Uploads Path</div>
-        <div class="status-value"><?= $writable === 'ok' ? 'Writable' : 'Not Writable' ?></div>
-    </div>
-    <div class="card status-overview-card">
-        <div class="status-eyebrow">Image Thumbnails</div>
-        <div class="status-value"><?= $gdOk ? 'GD Installed' : 'GD Missing' ?></div>
-    </div>
-    <div class="card status-overview-card">
-        <div class="status-eyebrow">Video Thumbnails</div>
-        <div class="status-value"><?= $ffmpegOk ? 'FFmpeg Ready' : 'Not Configured' ?></div>
-    </div>
-    <div class="card status-overview-card">
-        <div class="status-eyebrow">Rate Limit Blocks</div>
-        <div class="status-value-lg"><?= (int)$blocked ?></div>
-    </div>
+    <?php renderAdminStatCard('Uploads Path', $writable === 'ok' ? 'Writable' : 'Not Writable', 'status-overview-card', 'status-value'); ?>
+    <?php renderAdminStatCard('Image Thumbnails', $gdOk ? 'GD Installed' : 'GD Missing', 'status-overview-card', 'status-value'); ?>
+    <?php renderAdminStatCard('Video Thumbnails', $ffmpegOk ? 'FFmpeg Ready' : 'Not Configured', 'status-overview-card', 'status-value'); ?>
+    <?php renderAdminStatCard('Rate Limit Blocks', (string)(int)$blocked, 'status-overview-card', 'status-value-lg'); ?>
 </div>
 
-<div class="card mb-4">
-    <div class="card-header status-card-header status-card-header-between">
+<?php
+ob_start();
+?>
+    <div class="status-card-header-between">
         <span>Application Updates</span>
         <a href="/admin/status?refresh_update=1" class="btn btn-sm status-header-btn">Refresh</a>
     </div>
-    <div class="card-body status-card-body">
+<?php
+$statusUpdatesHeader = ob_get_clean();
+renderAdminCardStart(null, ['headerHtml' => $statusUpdatesHeader, 'bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']);
+?>
         <div class="status-grid-md">
             <div>
                 <div class="status-label">Installed</div>
@@ -367,12 +359,9 @@
                 </div>
             </div>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card mb-4">
-    <div class="card-header status-card-header">Multipart Upload Health</div>
-    <div class="card-body status-card-body">
+<?php renderAdminCardStart('Multipart Upload Health', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
         <div class="status-grid-sm">
             <div>
                 <div class="status-label">Active Sessions</div>
@@ -407,12 +396,9 @@
                 <div class="status-metric-lg <?= !empty($uploadStats['expired_reservations']) ? 'status-danger' : '' ?>"><?= (int)($uploadStats['expired_reservations'] ?? 0) ?></div>
             </div>
         </div>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card mb-4">
-    <div class="card-header status-card-header">Download Delivery Diagnostics</div>
-    <div class="card-body status-card-body">
+<?php renderAdminCardStart('Download Delivery Diagnostics', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
         <div class="status-grid-sm mb-3">
             <div>
                 <div class="status-label">CDN Eligible Public Files</div>
@@ -454,12 +440,9 @@
                 </div>
             </div>
         </div>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card mb-4">
-    <div class="card-header status-card-header">Recent Multipart Sessions</div>
-    <div class="card-body p-0">
+<?php renderAdminCardStart('Recent Multipart Sessions', ['bodyClass' => 'p-0', 'cardClass' => 'mb-4']); ?>
         <?php if (empty($recentUploadSessions)): ?>
             <div class="status-empty">No multipart upload sessions recorded yet.</div>
         <?php else: ?>
@@ -523,12 +506,9 @@
                 </table>
             </div>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card mb-4">
-    <div class="card-header status-card-header">Recent Quota Reservations</div>
-    <div class="card-body p-0">
+<?php renderAdminCardStart('Recent Quota Reservations', ['bodyClass' => 'p-0', 'cardClass' => 'mb-4']); ?>
         <?php if (empty($recentReservations)): ?>
             <div class="status-empty">No quota reservations recorded yet.</div>
         <?php else: ?>
@@ -564,12 +544,9 @@
                 </table>
             </div>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card mb-4">
-    <div class="card-header status-card-header">Host Environment</div>
-    <div class="card-body status-card-body">
+<?php renderAdminCardStart('Host Environment', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
         <div class="status-host-grid">
             <div>
                 <div class="status-label mb-3">System Specs</div>
@@ -607,17 +584,21 @@
                 </div>
             </div>
         </div>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card mb-4">
-    <div class="card-header status-card-header status-card-header-between">
+<?php
+ob_start();
+?>
+    <div class="status-card-header-between">
         <span>Support Bundle</span>
         <?php if (empty($demoAdmin)): ?>
             <a href="/admin/support" class="btn btn-sm status-header-btn">Open Support Center</a>
         <?php endif; ?>
     </div>
-    <div class="card-body status-card-body">
+<?php
+$statusSupportHeader = ob_get_clean();
+renderAdminCardStart(null, ['headerHtml' => $statusSupportHeader, 'bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']);
+?>
         <p class="status-support-copy">
             <?= !empty($demoAdmin)
                 ? 'Support bundle tools are hidden for the demo admin account.'
@@ -627,8 +608,7 @@
             Email target: <strong><?= htmlspecialchars($supportEmail) ?></strong><br>
             SMTP status: <?= $smtpConfigured ? 'Configured for direct send' : 'Not configured, download-only mode' ?>
         </div>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <?php if (!$gdOk || !$ffmpegOk): ?>
 <div class="alert alert-warning mb-4">
@@ -644,18 +624,17 @@
 </div>
 <?php endif; ?>
 
-<div class="card status-log-card" id="recent-system-errors">
-    <div class="card-header status-card-header">Recent System Errors</div>
-    <div class="card-body status-card-body">
+<?php renderAdminCardStart('Recent System Errors', ['bodyClass' => 'status-card-body', 'cardClass' => 'status-log-card', 'cardId' => 'recent-system-errors']); ?>
         <div class="status-log-size">
             Current log size: <strong><?= htmlspecialchars((string)($logSizeReadable ?? '0 B')) ?></strong> / <?= htmlspecialchars((string)($logMaxReadable ?? '25 MB')) ?> cap.
         </div>
         <pre class="status-log-pre"><?php if (empty($errors)): ?>(no recent errors)<?php else: foreach ($errors as $line): ?><?= htmlspecialchars($line) ?><?php endforeach; endif; ?></pre>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card">
-    <div class="card-header status-card-header status-card-header-between">
+<?php
+ob_start();
+?>
+    <div class="status-card-header-between">
         <span>Application Logs</span>
         <?php if (empty($demoAdmin)): ?>
             <form method="POST" action="/admin/logs/clear" data-confirm-message="Permanently clear all application logs?">
@@ -665,7 +644,10 @@
             </form>
         <?php endif; ?>
     </div>
-    <div class="card-body status-card-body">
+<?php
+$statusLogsHeader = ob_get_clean();
+renderAdminCardStart(null, ['headerHtml' => $statusLogsHeader, 'bodyClass' => 'status-card-body']);
+?>
         <div class="status-muted-copy">
             <?= !empty($demoAdmin)
                 ? 'Recent entries are shown in a redacted format for the demo admin account.'
@@ -706,8 +688,7 @@
                 <div class="status-muted-copy mb-0">No application log entries recorded yet.</div>
             <?php endif; ?>
         </div>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

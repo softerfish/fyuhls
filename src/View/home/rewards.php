@@ -5,18 +5,6 @@ $extraHead = '
 <link rel="stylesheet" href="/assets/css/filemanager.css?v=' . time() . '">
 <style>
     .rewards-shell { margin-top: 1rem; }
-    .rewards-plan-card { text-align: center; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); }
-    .rewards-plan-current { margin-bottom: 0.25rem; font-size: 0.875rem; color: var(--text-color); font-weight: 600; }
-    .rewards-plan-name { color: var(--primary-color); }
-    .rewards-plan-expiry { font-size: 0.75rem; color: var(--text-muted); }
-    .rewards-plan-limit { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem; }
-    .rewards-plan-expiry--tight { margin-bottom: 0.5rem; }
-    .rewards-plan-expiry--wide { margin-bottom: 1.25rem; }
-    .rewards-plan-button { width: auto; padding: 0.5rem 1.5rem; }
-    .rewards-account-title { margin-top: 0; }
-    .rewards-nav { list-style: none; padding: 0.5rem 0; margin: 0; }
-    .rewards-trash-item { padding: 0; display: flex; justify-content: space-between; align-items: center; min-height: 40px; }
-    .rewards-trash-link { flex: 1; padding: 0.6rem 0.75rem; display: block; }
     .rewards-toolbar-note {
         font-size: 0.8125rem;
         color: var(--text-muted);
@@ -39,6 +27,7 @@ $extraHead = '
         white-space: nowrap;
         justify-self: end;
     }
+    .rewards-hero-buttons { display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; }
     .rewards-stats {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -90,6 +79,11 @@ $extraHead = '
     .rewards-referral-input { flex: 1; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; }
     .rewards-copy-btn { width: auto; }
     .rewards-empty-cell { text-align: center; color: var(--text-muted); padding: 3rem; }
+    .rewards-mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .rewards-mini-card { background: #fff; border: 1px solid var(--border-color); border-radius: 10px; padding: 1rem; }
+    .rewards-mini-label { color: var(--text-muted); font-size: 0.78rem; margin-bottom: 0.35rem; }
+    .rewards-mini-value { font-weight: 800; font-size: 1.15rem; color: var(--text-color); }
+    .rewards-export-link { justify-self: end; white-space: nowrap; }
     .rewards-modal { display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; padding: 1rem; }
     .rewards-modal-card { background: white; padding: 2.5rem; border-radius: 16px; width: 450px; max-width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
     .rewards-modal-title { margin-top: 0; margin-bottom: 0.5rem; font-size: 1.5rem; }
@@ -98,7 +92,8 @@ $extraHead = '
     .rewards-modal-field--last { margin-bottom: 2rem; }
     .rewards-modal-row { display: flex; gap: 1rem; justify-content: flex-end; }
     .rewards-modal-cancel, .rewards-modal-submit { width: auto; }
-    .rewards-modal-cancel { background: #f1f5f9; }
+    .rewards-modal-cancel { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; opacity: 1; }
+    .rewards-modal-cancel:hover { background: #e2e8f0; color: #0f172a; }
     @media (max-width: 900px) {
         .rewards-hero-actions {
             grid-template-columns: 1fr;
@@ -107,70 +102,48 @@ $extraHead = '
             justify-self: start;
         }
     }
+    .rewards-glossary {
+        margin-top: 3rem;
+        padding: 1.5rem;
+        background: #f8fafc;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+    }
+    .rewards-glossary-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        margin-bottom: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .rewards-glossary-list {
+        margin: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 0.25rem 2rem;
+    }
+    .rewards-glossary-list dt {
+        font-weight: 600;
+        font-size: 0.8125rem;
+        color: var(--text-color);
+        margin-top: 0.75rem;
+    }
+    .rewards-glossary-list dd {
+        margin: 0;
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+    }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>';
 
 include __DIR__ . '/header.php'; 
+include __DIR__ . '/partials/account_sidebar_styles.php';
 ?>
 
 <div class="fm-container rewards-shell">
-    <div class="fm-sidebar">
-        <div class="sidebar-section">
-            <div class="rewards-plan-card">
-                <?php 
-                $userId = \App\Core\Auth::id();
-                $pkgNameStr = 'Free Plan';
-                $expiryStr = 'Lifetime Free Account';
-                $userPkg = null;
-                
-                if ($userId) {
-                    if (\App\Core\Auth::isAdmin()) {
-                        $pkgNameStr = 'Admin';
-                    } else {
-                        $userPkg = \App\Model\Package::getUserPackage($userId);
-                        if ($userPkg) {
-                            $pkgNameStr = $userPkg['name'] ?? 'Free Plan';
-                            if (!empty($userPkg['premium_expiry'])) {
-                                $expiryStr = 'Renews on ' . date('M d, Y', strtotime($userPkg['premium_expiry']));
-                            }
-                        }
-                    }
-                }
-                $isPaidPlan = (\App\Core\Auth::isAdmin() || strtolower((string)($userPkg['level_type'] ?? 'free')) === 'paid');
-                ?>
-                <div class="rewards-plan-current">
-                    Current Plan: <span class="rewards-plan-name"><?= htmlspecialchars($pkgNameStr) ?></span>
-                </div>
-                <div class="rewards-plan-expiry <?= $isPaidPlan ? 'rewards-plan-expiry--tight' : 'rewards-plan-expiry--wide' ?>">
-                    <?= htmlspecialchars($expiryStr) ?>
-                </div>
-                <?php if (!empty($dailyDownloadLimitSummary['label']) && array_key_exists('value', $dailyDownloadLimitSummary)): ?>
-                    <div class="rewards-plan-limit">
-                        <?= htmlspecialchars($dailyDownloadLimitSummary['label']) ?>: <?= htmlspecialchars($dailyDownloadLimitSummary['value']) ?>
-                    </div>
-                <?php endif; ?>
-                <?php if (!$isPaidPlan): ?>
-                    <button class="btn btn-warning rewards-plan-button" data-nav-url="/#pricing">View Plans</button>
-                <?php endif; ?>
-            </div>
-            <h3 class="rewards-account-title">Account</h3>
-            <ul class="rewards-nav">
-                <li data-nav-url="/">All Files</li>
-                <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
-                    <li data-nav-url="/rewards" class="active">My Rewards</li>
-                    <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
-                        <li data-nav-url="/affiliate">Affiliate</li>
-                    <?php endif; ?>
-                <?php endif; ?>
-                <li data-nav-url="/settings">Settings</li>
-                <li data-nav-url="/recent">Recent</li>
-                <li data-nav-url="/shared">Shared</li>
-                <li class="sidebar-trash-item rewards-trash-item">
-                    <span data-nav-url="/trash" class="rewards-trash-link">Trash</span>
-                </li>
-            </ul>
-        </div>
-    </div>
+    <?php include __DIR__ . '/partials/account_sidebar.php'; ?>
     <div class="fm-main">
         <div class="fm-toolbar">
             <div class="toolbar-left">
@@ -186,7 +159,10 @@ include __DIR__ . '/header.php';
         <div class="rewards-hero-card">
             <div class="rewards-hero-actions">
                 <span class="rewards-toolbar-note">Track cleared earnings, held activity, payout requests, and the recent reward performance this install is actually crediting.</span>
-                <button class="btn btn-primary" id="showWithdrawModalBtn" type="button">Request Payout</button>
+                <div class="rewards-hero-buttons">
+                    <a class="btn btn-white rewards-export-link" href="/rewards/export.csv">Export CSV</a>
+                    <button class="btn btn-primary" id="showWithdrawModalBtn" type="button">Request Payout</button>
+                </div>
             </div>
         </div>
         <?php $db = \App\Core\Database::getInstance()->getConnection(); ?>
@@ -204,12 +180,28 @@ include __DIR__ . '/header.php';
                 <div class="label">Pending Processing</div>
                 <div class="value rewards-balance-warn"><?= number_format($pendingRewards) ?> <small class="rewards-balance-meta">downloads</small></div>
             </div>
+            <div class="reward-card">
+                <div class="label">Counted Downloads</div>
+                <div class="value"><?= number_format($countedDownloads ?? 0) ?></div>
+            </div>
+            <div class="reward-card">
+                <div class="label">Rejected Downloads</div>
+                <div class="value rewards-balance-warn"><?= number_format($rejectedDownloads ?? 0) ?></div>
+            </div>
             <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
                 <div class="reward-card">
                     <div class="label">Earning Referrals</div>
                     <div class="value"><?= $referralCount ?></div>
                 </div>
             <?php endif; ?>
+        </div>
+
+        <?php $amountsByStatus = is_array($amountsByStatus ?? null) ? $amountsByStatus : []; ?>
+        <div class="rewards-mini-grid">
+            <div class="rewards-mini-card"><div class="rewards-mini-label">Pending Amount</div><div class="rewards-mini-value">$<?= number_format((float)($amountsByStatus['pending'] ?? 0), 4) ?></div></div>
+            <div class="rewards-mini-card"><div class="rewards-mini-label">Held Amount</div><div class="rewards-mini-value">$<?= number_format((float)($amountsByStatus['held'] ?? 0), 4) ?></div></div>
+            <div class="rewards-mini-card"><div class="rewards-mini-label">Cleared Amount</div><div class="rewards-mini-value">$<?= number_format((float)($amountsByStatus['cleared'] ?? 0), 4) ?></div></div>
+            <div class="rewards-mini-card"><div class="rewards-mini-label">Cancelled Amount</div><div class="rewards-mini-value">$<?= number_format((float)($amountsByStatus['cancelled'] ?? 0), 4) ?></div></div>
         </div>
 
         <!-- Analytics Chart -->
@@ -243,19 +235,76 @@ include __DIR__ . '/header.php';
                     <th>Last Activity</th>
                     <th>File</th>
                     <th>Downloads</th>
+                    <th>Rejected</th>
+                    <th>Conversion</th>
                     <th class="text-end">Total Earned</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($recentEarnings)): ?>
-                    <tr><td colspan="4" class="rewards-empty-cell">No earnings yet. Once your files start generating eligible traffic under the current reward rules, activity will appear here.</td></tr>
+                    <tr><td colspan="6" class="rewards-empty-cell">No earnings yet. Once your files start generating eligible traffic under the current reward rules, activity will appear here.</td></tr>
                 <?php else: ?>
                     <?php foreach ($recentEarnings as $row): ?>
+                        <?php
+                        $fileDownloads = max(0, (int)($row['file_downloads'] ?? 0));
+                        $counted = (int)($row['counted_downloads'] ?? $row['total_downloads'] ?? 0);
+                        $rejected = (int)($row['rejected_downloads'] ?? 0);
+                        $conversion = $fileDownloads > 0 ? round(($counted / $fileDownloads) * 100, 1) . '%' : 'n/a';
+                        ?>
                         <tr>
                             <td><?= date('M d, Y', strtotime($row['last_activity'])) ?></td>
                             <td><?= htmlspecialchars(\App\Service\EncryptionService::decrypt($row['filename'] ?? 'Unknown File')) ?></td>
-                            <td><?= number_format($row['total_downloads']) ?></td>
+                            <td><?= number_format($counted) ?></td>
+                            <td><?= number_format($rejected) ?></td>
+                            <td><?= htmlspecialchars($conversion) ?></td>
                             <td class="text-end"><strong>$<?= number_format($row['total_amount'], 4) ?></strong></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+
+        <div class="card-header rewards-section-header rewards-section-header--spaced">Country / Tier Performance</div>
+        <table class="earnings-table">
+            <thead><tr><th>Country</th><th>Network</th><th>Downloads</th><th class="text-end">Earnings</th></tr></thead>
+            <tbody>
+                <?php if (empty($countryTierRows)): ?>
+                    <tr><td colspan="4" class="rewards-empty-cell">No country or tier data yet.</td></tr>
+                <?php else: ?>
+                    <?php foreach ($countryTierRows as $row): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($row['country_code'] ?: 'Unknown') ?></td>
+                            <td><?= htmlspecialchars($row['network_type'] ?: 'Standard') ?></td>
+                            <td><?= number_format((int)$row['downloads']) ?></td>
+                            <td class="text-end"><strong>$<?= number_format((float)$row['earnings'], 4) ?></strong></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+
+        <div class="card-header rewards-section-header rewards-section-header--spaced">Why Was This Not Counted?</div>
+        <table class="earnings-table">
+            <thead><tr><th>Date</th><th>File</th><th>Status</th><th>Reason</th></tr></thead>
+            <tbody>
+                <?php if (empty($downloadExplanations)): ?>
+                    <tr><td colspan="4" class="rewards-empty-cell">No rejected or reviewed download explanations yet.</td></tr>
+                <?php else: ?>
+                    <?php foreach ($downloadExplanations as $row): ?>
+                        <?php
+                        $reasons = json_decode((string)($row['risk_reasons_json'] ?? ''), true);
+                        $reasonText = is_array($reasons) && !empty($reasons)
+                            ? implode(', ', array_map('strval', $reasons))
+                            : 'No rejection reason was recorded for this download.';
+                        $statusText = (($row['risk_level'] ?? '') === 'not_counted')
+                            ? 'not_counted'
+                            : (string)($row['status'] ?? '');
+                        ?>
+                        <tr>
+                            <td><?= date('M d, Y', strtotime($row['created_at'])) ?></td>
+                            <td><?= htmlspecialchars(\App\Service\EncryptionService::decrypt($row['filename'] ?? 'Unknown File')) ?></td>
+                            <td><?= htmlspecialchars($statusText) ?></td>
+                            <td><?= htmlspecialchars($reasonText) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 <?php endif; ?>
@@ -298,6 +347,38 @@ include __DIR__ . '/header.php';
                 <?php endif; ?>
             </tbody>
         </table>
+
+        <div class="rewards-glossary">
+            <div class="rewards-glossary-title">What do these terms mean?</div>
+            <dl class="rewards-glossary-list">
+                <dt>Available Balance</dt>
+                <dd>Cleared earnings you can withdraw right now.</dd>
+
+                <dt>Pending Processing</dt>
+                <dd>Downloads waiting to be evaluated by the fraud and eligibility checks. These haven't been counted or rejected yet.</dd>
+
+                <dt>Counted Downloads</dt>
+                <dd>Downloads that passed all checks and earned you money.</dd>
+
+                <dt>Rejected Downloads</dt>
+                <dd>Downloads that were flagged or filtered out (duplicates, suspicious traffic, self-downloads, etc.) and did not count toward earnings.</dd>
+
+                <dt>Conversion</dt>
+                <dd>The percentage of a file's total downloads that were actually counted as qualifying. Higher conversion means more of your traffic is earning.</dd>
+
+                <dt>Pending Amount</dt>
+                <dd>Earnings from downloads still being reviewed. These will move to cleared or cancelled once processed.</dd>
+
+                <dt>Held Amount</dt>
+                <dd>Earnings temporarily held for manual review before being released.</dd>
+
+                <dt>Cleared Amount</dt>
+                <dd>Earnings that have been approved and added to your available balance.</dd>
+
+                <dt>Cancelled Amount</dt>
+                <dd>Earnings that were revoked after review (fraud, policy violation, etc.).</dd>
+            </dl>
+        </div>
     </div>
 </div>
 
@@ -329,7 +410,7 @@ include __DIR__ . '/header.php';
                     ?>
                     <?php foreach ($supportedMethods as $m): ?>
                         <?php if (isset($methods[$m])): ?>
-                            <option value="<?= $m ?>"><?= $methods[$m] ?></option>
+                            <option value="<?= $m ?>" <?= (($defaultWithdrawalMethod ?? '') === $m) ? 'selected' : '' ?>><?= $methods[$m] ?></option>
                         <?php endif; ?>
                     <?php endforeach; ?>
                 </select>
@@ -337,7 +418,7 @@ include __DIR__ . '/header.php';
 
             <div class="form-group rewards-modal-field--last">
                 <label class="form-label" id="detailsLabel">Payment Details</label>
-                <textarea name="details" class="form-control" rows="3" placeholder="Enter your PayPal email address..." required></textarea>
+                <textarea name="details" id="withdrawDetails" class="form-control" rows="3" placeholder="Enter your PayPal email address..." required><?= htmlspecialchars((string)($defaultWithdrawalDetails ?? '')) ?></textarea>
             </div>
 
             <div class="rewards-modal-row">
@@ -364,7 +445,7 @@ include __DIR__ . '/header.php';
 
     function updateDetailsHint(method) {
         const label = document.getElementById('detailsLabel');
-        const textarea = document.querySelector('textarea[name="details"]');
+        const textarea = document.getElementById('withdrawDetails');
         switch(method) {
             case 'paypal':
                 textarea.placeholder = "Enter your PayPal email address...";
@@ -386,6 +467,7 @@ include __DIR__ . '/header.php';
     document.getElementById('withdrawMethod')?.addEventListener('change', function(event) {
         updateDetailsHint(event.target.value);
     });
+    updateDetailsHint(document.getElementById('withdrawMethod')?.value || 'paypal');
 
     document.getElementById('withdrawForm').addEventListener('submit', function(e) {
         e.preventDefault();

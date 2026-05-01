@@ -15,18 +15,39 @@ class RateLimiterService {
      */
     public static function check(string $action, string $key, int $limit, int $windowSeconds): bool {
         try {
-            return self::runCheck($action, $key, $limit, $windowSeconds);
+            return self::runCheck($action, $key, 1, $limit, $windowSeconds);
         } catch (PDOException $e) {
             // If table doesn't exist (SQLSTATE 42S02), create it and retry once
             if ($e->getCode() === '42S02') {
                 self::createTable();
-                return self::runCheck($action, $key, $limit, $windowSeconds);
+                return self::runCheck($action, $key, 1, $limit, $windowSeconds);
+            }
+            if ($e->getCode() === '42S22') {
+                self::ensureWeightColumn();
+                return self::runCheck($action, $key, 1, $limit, $windowSeconds);
             }
             throw $e;
         }
     }
 
-    private static function runCheck(string $action, string $key, int $limit, int $windowSeconds): bool {
+    public static function checkWeighted(string $action, string $key, int $cost, int $limit, int $windowSeconds): bool {
+        $cost = max(1, $cost);
+        try {
+            return self::runCheck($action, $key, $cost, $limit, $windowSeconds);
+        } catch (PDOException $e) {
+            if ($e->getCode() === '42S02') {
+                self::createTable();
+                return self::runCheck($action, $key, $cost, $limit, $windowSeconds);
+            }
+            if ($e->getCode() === '42S22') {
+                self::ensureWeightColumn();
+                return self::runCheck($action, $key, $cost, $limit, $windowSeconds);
+            }
+            throw $e;
+        }
+    }
+
+    private static function runCheck(string $action, string $key, int $cost, int $limit, int $windowSeconds): bool {
         $db = Database::getInstance()->getConnection();
         $now = time();
         $cutoff = $now - $windowSeconds;
@@ -40,16 +61,18 @@ class RateLimiterService {
         }
 
         try {
-            $stmt = $db->prepare("SELECT COUNT(*) FROM rate_limits WHERE action = ? AND identifier = ? AND created_at >= FROM_UNIXTIME(?)");
+            self::ensureWeightColumn();
+
+            $stmt = $db->prepare("SELECT COALESCE(SUM(weight), 0) FROM rate_limits WHERE action = ? AND identifier = ? AND created_at >= FROM_UNIXTIME(?)");
             $stmt->execute([$action, $key, $cutoff]);
             $count = (int)$stmt->fetchColumn();
 
-            if ($count >= $limit) {
+            if (($count + $cost) > $limit) {
                 return false;
             }
 
-            $stmt = $db->prepare("INSERT INTO rate_limits (action, identifier, created_at) VALUES (?, ?, FROM_UNIXTIME(?))");
-            $stmt->execute([$action, $key, $now]);
+            $stmt = $db->prepare("INSERT INTO rate_limits (action, identifier, weight, created_at) VALUES (?, ?, ?, FROM_UNIXTIME(?))");
+            $stmt->execute([$action, $key, $cost, $now]);
 
             return true;
         } finally {
@@ -81,10 +104,31 @@ class RateLimiterService {
             `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             `action` VARCHAR(50) NOT NULL,
             `identifier` VARCHAR(128) NOT NULL,
+            `weight` INT UNSIGNED NOT NULL DEFAULT 1,
             `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
             INDEX `action_identifier_created` (`action`, `identifier`, `created_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
         $db->exec($sql);
+    }
+
+    private static function ensureWeightColumn(): void {
+        static $weightColumnReady = false;
+        if ($weightColumnReady) {
+            return;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        try {
+            $stmt = $db->query("SHOW COLUMNS FROM rate_limits LIKE 'weight'");
+            $hasColumn = $stmt && $stmt->fetch() !== false;
+            if (!$hasColumn) {
+                $db->exec("ALTER TABLE rate_limits ADD COLUMN weight INT UNSIGNED NOT NULL DEFAULT 1 AFTER identifier");
+            }
+        } catch (PDOException $e) {
+            // Ignore and let callers surface real failures if the table itself is missing.
+        }
+
+        $weightColumnReady = true;
     }
 }

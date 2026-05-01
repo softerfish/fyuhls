@@ -1,8 +1,10 @@
-<?php include 'header.php'; ?>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+renderAdminPageHeader('Contact Messages');
+?>
 
-<div class="card">
-    <div class="card-header">Contact Messages</div>
-    <div class="card-body">
+<?php renderAdminCardStart('Contact Messages'); ?>
         <?php if (empty($messages)): ?>
             <p class="contacts-empty-state">No contact messages yet.</p>
         <?php else: ?>
@@ -34,8 +36,7 @@
                 </tbody>
             </table>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <style>
 .contacts-empty-state{text-align:center;color:#64748b;padding:2rem}

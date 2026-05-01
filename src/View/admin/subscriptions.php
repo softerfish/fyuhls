@@ -1,13 +1,10 @@
-<?php include 'header.php'; ?>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+renderAdminPageHeader('Premium Subscriptions', '', '<button type="button" class="btn btn-primary" data-alert-message="Feature coming soon: Manual subscription creation">Add Subscription</button>');
+?>
 
-<div class="page-header">
-    <h1>Premium Subscriptions</h1>
-    <button type="button" class="btn btn-primary" data-alert-message="Feature coming soon: Manual subscription creation">Add Subscription</button>
-</div>
-
-<div class="card">
-    <div class="card-header">Managed Subscriptions (Payments & Status)</div>
-    <div class="card-body">
+<?php renderAdminCardStart('Managed Subscriptions (Payments & Status)'); ?>
         <?php if (empty($subscriptions)): ?>
             <p class="subscriptions-empty-state">No subscriptions found in the system yet.</p>
         <?php else: ?>
@@ -43,8 +40,7 @@
                 </tbody>
             </table>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <style>
 .subscriptions-empty-state{text-align:center;color:#64748b;padding:2rem}

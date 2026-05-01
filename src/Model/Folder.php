@@ -57,6 +57,29 @@ class Folder {
         return $folder;
     }
 
+    public static function findByShortId(string $shortId): ?array {
+        self::ensureSchema();
+        $shortId = trim($shortId);
+        if ($shortId === '') {
+            return null;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        try {
+            $stmt = $db->prepare("SELECT * FROM folders WHERE short_id = ? LIMIT 1");
+            $stmt->execute([$shortId]);
+            $folder = $stmt->fetch() ?: null;
+        } catch (\PDOException $e) {
+            return null;
+        }
+
+        if ($folder) {
+            $folder['name'] = \App\Service\EncryptionService::decrypt($folder['name']);
+        }
+
+        return $folder;
+    }
+
     public static function getByUser(int $userId, ?int $parentId = null): array {
         self::ensureSchema();
         $db = Database::getInstance()->getConnection();
@@ -229,6 +252,9 @@ class Folder {
         $db = Database::getInstance()->getConnection();
         $allFolderIds = array_merge([$folderId], self::getAllRecursiveFolderIds($folderId));
         $inClause = implode(',', array_map('intval', $allFolderIds));
+        if ($inClause === '') {
+            return;
+        }
 
         $stmt = $db->query("SELECT id FROM files WHERE folder_id IN ($inClause)");
         $fileIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -236,7 +262,41 @@ class Folder {
             \App\Model\File::hardDelete((int)$fileId);
         }
 
-        $db->prepare("DELETE FROM folders WHERE id = ?")->execute([$folderId]);
+        $orderedFolderIds = array_reverse($allFolderIds);
+        foreach ($orderedFolderIds as $deleteFolderId) {
+            $db->prepare("DELETE FROM folders WHERE id = ?")->execute([(int)$deleteFolderId]);
+        }
+    }
+
+    public static function copyTree(int $folderId, int $userId, ?int $targetParentId = null, ?string $newName = null): ?int
+    {
+        self::ensureSchema();
+        $folder = self::find($folderId);
+        if (!$folder || (int)($folder['user_id'] ?? 0) !== $userId || ($folder['status'] ?? 'active') !== 'active') {
+            return null;
+        }
+
+        $copyName = trim((string)($newName ?? ''));
+        if ($copyName === '') {
+            $copyName = (string)$folder['name'] . ' (Copy)';
+        }
+
+        $newFolderId = self::create($userId, $copyName, $targetParentId);
+        $db = Database::getInstance()->getConnection();
+
+        $stmtFiles = $db->prepare("SELECT id FROM files WHERE user_id = ? AND folder_id = ? AND status IN ('active', 'hidden', 'ready', 'processing')");
+        $stmtFiles->execute([$userId, $folderId]);
+        foreach ($stmtFiles->fetchAll(PDO::FETCH_COLUMN) as $fileId) {
+            \App\Model\File::copy((int)$fileId, $newFolderId);
+        }
+
+        $stmtFolders = $db->prepare("SELECT id FROM folders WHERE user_id = ? AND parent_id = ? AND status = 'active'");
+        $stmtFolders->execute([$userId, $folderId]);
+        foreach ($stmtFolders->fetchAll(PDO::FETCH_COLUMN) as $childFolderId) {
+            self::copyTree((int)$childFolderId, $userId, $newFolderId, null);
+        }
+
+        return $newFolderId;
     }
 
     public static function purgeDeletedByUser(int $userId): void

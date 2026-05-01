@@ -419,8 +419,8 @@ body {
 /* File Grid Items */
 .file-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-    gap: 1.25rem;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: 0.875rem;
     align-items: stretch;
 }
 
@@ -428,13 +428,21 @@ body {
 .file-grid.list-view {
     grid-template-columns: 1fr;
     gap: 0;
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: white;
+}
+
+.fm-list-header {
+    display: none;
 }
 
 .file-item {
     position: relative;
     border: 1px solid var(--border-color);
-    border-radius: 16px;
-    padding: 0.9rem 0.9rem 1rem;
+    border-radius: 11px;
+    padding: 0.63rem 0.63rem 0.7rem;
     text-align: center;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     background: white;
@@ -443,7 +451,7 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    min-height: 220px;
+    min-height: 154px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
     overflow: hidden;
 }
@@ -462,9 +470,9 @@ body {
 
 .file-hover-controls {
     position: absolute;
-    top: 0.65rem;
-    left: 0.65rem;
-    right: 0.65rem;
+    top: 0.45rem;
+    left: 0.45rem;
+    right: 0.45rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -479,8 +487,8 @@ body {
 }
 
 .file-options-trigger {
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -499,16 +507,16 @@ body {
 }
 
 .trigger-icon {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
 }
 
 .file-select {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 10px;
+    width: 22px;
+    height: 22px;
+    border-radius: 8px;
     background: rgba(255, 255, 255, 0.96);
     border: 1px solid rgba(203, 213, 225, 0.9);
     box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
@@ -522,8 +530,8 @@ body {
 }
 
 .item-checkbox {
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
     cursor: pointer;
     accent-color: var(--primary-color);
     border: 2px solid var(--border-color);
@@ -531,9 +539,9 @@ body {
 }
 
 .file-preview {
-    margin: 1.6rem 0 0.95rem;
+    margin: 1.12rem 0 0.66rem;
     width: 100%;
-    min-height: 82px;
+    min-height: 57px;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -541,14 +549,14 @@ body {
 }
 
 .file-preview img {
-    width: 72px;
-    height: 72px;
+    width: 50px;
+    height: 50px;
     object-fit: contain;
-    border-radius: 10px;
+    border-radius: 7px;
 }
 
 .file-preview .file-icon {
-    font-size: 3rem;
+    font-size: 2.1rem;
 }
 
 .file-info {
@@ -557,10 +565,10 @@ body {
 }
 
 .file-name {
-    font-size: 0.95rem;
+    font-size: 0.82rem;
     font-weight: 600;
     color: var(--text-color);
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.25rem;
     line-height: 1.35;
     white-space: normal;
     overflow: hidden;
@@ -586,8 +594,17 @@ body {
 }
 
 .file-meta {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
+}
+
+.folder-count-badge {
+    display: none;
+}
+
+.file-list-cell,
+.file-list-actions {
+    display: none;
 }
 
 .file-stats,
@@ -597,10 +614,12 @@ body {
 }
 
 .file-grid.list-view .file-item {
-    display: flex;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) 120px 130px 80px 100px 80px;
+    column-gap: 0;
     align-items: center;
     text-align: left;
-    padding: 0.5rem 1rem;
+    padding: 0;
     border-radius: 0;
     border-bottom: 1px solid var(--border-color);
     border-top: none;
@@ -608,47 +627,275 @@ body {
     border-right: none;
     min-height: 0;
     overflow: visible;
+    box-shadow: none;
+    transform: none;
+    min-width: 760px;
+}
+
+.file-grid.list-view .file-item:hover {
+    border-color: var(--border-color);
+    background: #f8fafc;
+    transform: none;
+    box-shadow: none;
+}
+
+.file-grid.list-view .fm-list-header {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) 120px 130px 80px 100px 80px;
+    align-items: center;
+    min-width: 760px;
+    min-height: 52px;
+    background: #f3f4f7;
+    border-bottom: 1px solid var(--border-color);
+    color: #737b99;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.file-grid.list-view .fm-list-header > div {
+    padding: 0 1rem;
+}
+
+.fm-list-sort-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+}
+
+.fm-list-sort-btn:hover {
+    color: var(--primary-color);
+}
+
+.fm-list-sort-btn.is-active {
+    color: inherit;
+}
+
+.fm-list-sort-btn.is-active::after {
+    content: " \25BE";
+    font-size: 0.72em;
+}
+
+.fm-list-sort-btn.is-active.is-alt::after {
+    content: " \25B4";
+}
+
+.file-grid.list-view .fm-list-select {
+    display: flex;
+    justify-content: center;
+}
+
+.file-grid.list-view .fm-list-select input {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+}
+
+.file-grid.list-view .file-hover-controls {
+    position: static;
+    opacity: 1;
+    grid-column: 1;
+    grid-row: 1;
+    width: 42px;
+    height: 52px;
+    display: flex;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+}
+
+.file-grid.list-view .file-hover-controls .file-options-trigger {
+    display: none;
 }
 
 .file-grid.list-view .file-select {
-    position: static;
-    margin-right: 1rem;
     opacity: 1;
+    width: 42px;
+    height: 52px;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
 }
 
 .file-grid.list-view .file-preview {
-    margin-bottom: 0;
-    margin-right: 1rem;
-    margin-top: 0;
+    grid-column: 2;
+    grid-row: 1;
+    margin: 0;
+    width: 22px;
+    justify-self: start;
     min-height: 0;
+    height: 52px;
+    padding-left: 1rem;
+    cursor: pointer;
 }
 
 .file-grid.list-view .file-preview img {
-    width: 32px;
-    height: 32px;
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
 }
 
 .file-grid.list-view .file-preview .file-icon {
-    font-size: 1.25rem;
+    font-size: 1rem;
+    line-height: 1;
 }
 
 .file-grid.list-view .file-info {
-    flex: 1;
+    grid-column: 2;
+    grid-row: 1;
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0 1rem 0 2.35rem;
+    height: 52px;
+    text-align: left;
+    overflow: hidden;
+    box-sizing: border-box;
+    cursor: pointer;
 }
 
 .file-grid.list-view .file-name {
     display: block;
     white-space: nowrap;
     text-overflow: ellipsis;
+    overflow: hidden;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1.2;
+    -webkit-line-clamp: unset;
+    flex: 1 1 auto;
+}
+
+.file-grid.list-view .folder-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 0.35rem;
+    border-radius: 6px;
+    background: #eef2f7;
+    color: #4b5563;
+    font-size: 0.75rem;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+.file-grid.list-view .file-meta {
+    display: none;
+}
+
+.file-grid.list-view .file-list-cell,
+.file-grid.list-view .file-list-actions {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    min-height: 52px;
+    padding: 0 1rem;
+    color: #7b829e;
+    font-size: 0.9rem;
+}
+
+.file-grid.list-view .file-list-size {
+    grid-column: 3;
+}
+
+.file-grid.list-view .file-list-upload {
+    grid-column: 4;
+}
+
+.file-grid.list-view .file-list-downloads {
+    grid-column: 5;
+}
+
+.file-grid.list-view .file-list-public {
+    grid-column: 6;
+    justify-content: center;
+}
+
+.file-grid.list-view .file-list-actions {
+    grid-column: 7;
+    justify-content: flex-end;
+    gap: 0.35rem;
+}
+
+.fm-switch-indicator {
+    position: relative;
+    display: inline-flex;
+    width: 40px;
+    height: 22px;
+    border: 0;
+    border-radius: 999px;
+    background: #c7ced8;
+    padding: 0;
+    flex: 0 0 auto;
+}
+
+.fm-switch-indicator::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.22);
+}
+
+.fm-switch-indicator.is-on {
+    background: #25a55b;
+}
+
+.fm-switch-indicator.is-on::after {
+    transform: translateX(18px);
+}
+
+.fm-public-toggle {
+    cursor: pointer;
+}
+
+.fm-row-action {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background: transparent;
+    color: #74809a;
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 1.15rem;
+    line-height: 1;
+}
+
+.fm-row-action:hover {
+    background: #eef2f7;
+    color: var(--text-color);
+}
+
+.fm-row-action-danger {
+    color: #ef4444;
+    font-size: 1.5rem;
+    font-weight: 300;
 }
 
 @media (max-width: 900px) {
     .file-grid {
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 1rem;
+        grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+        gap: 0.7rem;
     }
 }
 

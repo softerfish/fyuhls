@@ -1,8 +1,9 @@
-<?php include __DIR__ . '/../header.php'; ?>
+<?php
+include __DIR__ . '/../header.php';
+include __DIR__ . '/../partials/shell_helpers.php';
+?>
 
-<div class="page-header">
-    <h1>Edit User: <?= htmlspecialchars($user['username']) ?></h1>
-</div>
+<?php renderAdminPageHeader('Edit User: ' . (string)$user['username']); ?>
 
 <?php if (!empty($error)): ?>
     <div class="user-edit-feedback alert alert-danger"><?= htmlspecialchars($error) ?></div>
@@ -11,12 +12,17 @@
     <div class="user-edit-feedback alert alert-success"><?= htmlspecialchars($success) ?></div>
 <?php endif; ?>
 
-<div class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
+<?php
+ob_start();
+?>
+    <div class="d-flex justify-content-between align-items-center">
         <span>Account Details</span>
         <a href="/admin/users" class="btn btn-sm btn-secondary">Back to Users</a>
     </div>
-    <div class="card-body">
+<?php
+$userEditHeader = ob_get_clean();
+renderAdminCardStart(null, ['headerHtml' => $userEditHeader]);
+?>
         <form method="POST">
             <?= \App\Core\Csrf::field() ?>
 
@@ -142,8 +148,7 @@
                 </div>
             <?php endif; ?>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <style>
 .user-edit-feedback{margin-bottom:1.5rem}

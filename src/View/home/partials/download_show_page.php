@@ -155,7 +155,7 @@ $downloadActionButtonTitle = !empty($downloadAlreadySaved) ? 'Already in your ac
 
             <form method="POST" action="/file/generate-link" id="downloadForm">
                 <?= \App\Core\Csrf::field() ?>
-                <input type="hidden" name="file_id" value="<?= (int)($downloadFile['id'] ?? 0) ?>">
+                <input type="hidden" name="file_id" value="<?= htmlspecialchars((string)($downloadFile['short_id'] ?? '')) ?>">
                 <input type="hidden" name="timezone_offset" id="rfTimezoneOffset" value="">
                 <input type="hidden" name="platform_bucket" id="rfPlatformBucket" value="">
                 <input type="hidden" name="screen_bucket" id="rfScreenBucket" value="">
@@ -200,7 +200,7 @@ $downloadActionButtonTitle = !empty($downloadAlreadySaved) ? 'Already in your ac
                         <button type="button" class="modal-close" id="closeAbuseModalBtn">&times;</button>
                     </div>
                     <form id="abuseForm">
-                        <input type="hidden" name="file_id" value="<?= (int)($downloadFile['id'] ?? 0) ?>">
+                        <input type="hidden" name="file_id" value="<?= htmlspecialchars((string)($downloadFile['short_id'] ?? '')) ?>">
                         <?= \App\Core\Csrf::field() ?>
                         <div class="modal-body">
                             <div class="form-group">
@@ -238,14 +238,14 @@ $downloadActionButtonTitle = !empty($downloadAlreadySaved) ? 'Already in your ac
             <?php if (!empty($downloadActionVisible)): ?>
             <form id="downloadSaveForm" hidden>
                 <?= \App\Core\Csrf::field() ?>
-                <input type="hidden" name="file_id" value="<?= (int)($downloadFile['id'] ?? 0) ?>">
+                <input type="hidden" name="file_id" value="<?= htmlspecialchars((string)($downloadFile['short_id'] ?? '')) ?>">
             </form>
             <?php endif; ?>
 
             <?php if (!empty($canDeleteFile)): ?>
             <form id="downloadDeleteForm" hidden>
                 <?= \App\Core\Csrf::field() ?>
-                <input type="hidden" name="file_id" value="<?= (int)($downloadFile['id'] ?? 0) ?>">
+                <input type="hidden" name="file_id" value="<?= htmlspecialchars((string)($downloadFile['short_id'] ?? '')) ?>">
                 <input type="hidden" name="delete_reason" id="downloadDeleteReasonField" value="">
             </form>
             <?php if (!empty($deleteRequiresReason)): ?>
@@ -358,6 +358,64 @@ function setDownloadActionStatus(message, kind) {
         status.classList.add("download-action-status--" + kind);
     }
     status.style.display = message ? "block" : "none";
+}
+
+const downloadForm = document.getElementById("downloadForm");
+if (downloadForm && window.fetch && window.FormData) {
+    downloadForm.addEventListener("submit", function(event) {
+        event.preventDefault();
+
+        const submitBtn = downloadForm.querySelector("button[type='submit']");
+        if (submitBtn && submitBtn.disabled) {
+            return;
+        }
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+        }
+        setDownloadActionStatus("Preparing your download...", "");
+
+        fetch(downloadForm.action, {
+            method: "POST",
+            body: new FormData(downloadForm),
+            credentials: "same-origin",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json"
+            }
+        })
+        .then(function(resp) {
+            return resp.json().catch(function() {
+                throw new Error("The download server returned an unexpected response.");
+            }).then(function(data) {
+                if (!resp.ok || !data || data.status !== "success" || !data.download_url) {
+                    throw new Error((data && data.message) ? data.message : "Could not start the download.");
+                }
+                return data;
+            });
+        })
+        .then(function(data) {
+            let downloadFrame = document.getElementById("downloadHiddenFrame");
+            if (!downloadFrame) {
+                downloadFrame = document.createElement("iframe");
+                downloadFrame.id = "downloadHiddenFrame";
+                downloadFrame.hidden = true;
+                downloadFrame.setAttribute("aria-hidden", "true");
+                document.body.appendChild(downloadFrame);
+            }
+            downloadFrame.src = data.download_url;
+            setDownloadActionStatus("Your download should begin shortly.", "success");
+            if (submitBtn) {
+                submitBtn.disabled = false;
+            }
+        })
+        .catch(function(error) {
+            setDownloadActionStatus(error.message || "Could not start the download.", "error");
+            if (submitBtn) {
+                submitBtn.disabled = false;
+            }
+        });
+    });
 }
 
 const closeAdOverlayBtn = document.getElementById("closeAdOverlayBtn");
@@ -658,7 +716,7 @@ if (cancelAbuseModalBtn) {
     const status = document.getElementById("rewardStreamStatus");
     if (!player) return;
     const sessionId = <?= json_encode($streamSessionId) ?>;
-    const fileId = <?= (int)$file['id'] ?>;
+    const fileId = <?= json_encode((string)($downloadFile['short_id'] ?? '')) ?>;
     const csrfToken = <?= json_encode($streamCsrf) ?>;
     let lastReported = 0;
     let completed = false;

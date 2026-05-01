@@ -3,6 +3,7 @@
 namespace App\Model;
 
 use App\Core\Database;
+use App\Service\EncryptionService;
 
 class ApiToken
 {
@@ -93,13 +94,14 @@ class ApiToken
     {
         self::ensureSchema();
         $db = Database::getInstance()->getConnection();
+        $encryptedIp = $ip !== null && $ip !== '' ? EncryptionService::encrypt($ip) : null;
         $stmt = $db->prepare("
             UPDATE api_tokens
             SET last_used_at = NOW(), last_used_ip = ?
             WHERE id = ?
               AND (last_used_at IS NULL OR last_used_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE))
         ");
-        $stmt->execute([$ip, $id]);
+        $stmt->execute([$encryptedIp, $id]);
     }
 
     public static function hasScope(array $token, string $scope): bool
@@ -113,6 +115,9 @@ class ApiToken
         $row['scopes'] = [];
         if (!empty($row['scopes_json'])) {
             $row['scopes'] = json_decode((string)$row['scopes_json'], true) ?: [];
+        }
+        if (isset($row['last_used_ip']) && is_string($row['last_used_ip']) && str_starts_with($row['last_used_ip'], 'ENC:')) {
+            $row['last_used_ip'] = EncryptionService::decrypt($row['last_used_ip']);
         }
         return $row;
     }

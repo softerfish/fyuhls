@@ -71,6 +71,14 @@
             border-radius: 10px;
             margin-bottom: 1rem;
         }
+        .checkout-error-note {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #b91c1c;
+            padding: 0.9rem 1rem;
+            border-radius: 10px;
+            margin-bottom: 1rem;
+        }
         .total-row {
             display: flex;
             justify-content: space-between;
@@ -122,6 +130,11 @@
                     The <?= htmlspecialchars(ucfirst($cancelledGateway)) ?> checkout was cancelled. You can try again whenever you're ready.
                 </div>
             <?php endif; ?>
+            <?php if (!empty($checkoutError)): ?>
+                <div class="checkout-error-note">
+                    <?= htmlspecialchars((string)$checkoutError) ?>
+                </div>
+            <?php endif; ?>
             <form id="checkoutForm" method="POST" action="/checkout/process">
                 <?= \App\Core\Csrf::field() ?>
                 <input type="hidden" name="package_id" value="<?= $package['id'] ?>">
@@ -151,7 +164,7 @@
 
                     <?php if (empty($stripeEnabled) && empty($paypalEnabled)): ?>
                         <div class="gateway-note">
-                            No payment gateways are currently enabled for this install. Configure Stripe or PayPal in Config Hub to accept upgrades.
+                            No payment gateways are currently ready for this install. Turn on Stripe or PayPal and save the required credentials in Config Hub before users can complete upgrades.
                         </div>
                     <?php endif; ?>
                 </div>

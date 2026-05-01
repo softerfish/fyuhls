@@ -9,6 +9,7 @@ use App\Core\Logger;
 use App\Service\Security\PathValidator;
 use ZipArchive;
 use App\Core\View;
+use App\Model\Setting;
 
 class PluginController
 {
@@ -62,7 +63,29 @@ class PluginController
             }
         }
 
-        View::render('admin/plugins/index.php', ['plugins' => $allPlugins]);
+        View::render('admin/plugins/index.php', [
+            'plugins' => $allPlugins,
+            'pluginUploadsEnabled' => Setting::get('plugin_uploads_enabled', '1') === '1',
+        ]);
+    }
+
+    public function uploadPolicy()
+    {
+        $this->checkAuth();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->abortText(405, "Method Not Allowed");
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, "CSRF Token Mismatch");
+        }
+
+        Setting::set('plugin_uploads_enabled', isset($_POST['plugin_uploads_enabled']) ? '1' : '0', 'security');
+        Logger::info('plugin upload policy updated', [
+            'admin_id' => Auth::id(),
+            'enabled' => isset($_POST['plugin_uploads_enabled']),
+        ]);
+
+        header("Location: /admin/plugins");
     }
 
     public function settings(string $dir)
@@ -100,6 +123,10 @@ class PluginController
 
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
             die("CSRF Token Mismatch");
+        }
+
+        if (Setting::get('plugin_uploads_enabled', '1') !== '1') {
+            $this->abortText(403, "Plugin ZIP uploads are disabled by policy.");
         }
 
         if (!isset($_FILES['plugin_zip']) || !is_array($_FILES['plugin_zip'])) {

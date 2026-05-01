@@ -4,8 +4,10 @@ $extraHead = '
 <link rel="stylesheet" href="/assets/css/filemanager.css?v=' . time() . '">
 ';
 include __DIR__ . '/header.php';
+include __DIR__ . '/partials/account_sidebar_styles.php';
 ?>
 <div class="two-factor-setup-container fm-container">
+    <?php include __DIR__ . '/partials/account_sidebar.php'; ?>
     <div class="two-factor-setup-main fm-main">
         <div class="fm-toolbar">
             <div class="toolbar-left">
@@ -81,9 +83,8 @@ document.getElementById('qr-container').appendChild(qr);
 </script>
 <style>
 .extra-small { font-size: 0.75rem; }
-.fm-main { background: #fdfdfd; }
 .two-factor-setup-container { margin-top: 1rem; }
-.two-factor-setup-main { margin-left: auto; margin-right: auto; max-width: 980px; }
+.two-factor-setup-main { background: #fdfdfd; margin-left: auto; margin-right: auto; max-width: 980px; }
 .two-factor-setup-content { max-width: 850px; padding: 0 2rem 2rem 2rem; }
 .two-factor-setup-code { letter-spacing: 0.3rem; border-color: var(--primary-color); width: 40%; margin-bottom: 3rem !important; }
 </style>

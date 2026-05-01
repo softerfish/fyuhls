@@ -1,4 +1,7 @@
-<?php include dirname(__DIR__) . '/header.php'; ?>
+<?php
+include dirname(__DIR__) . '/header.php';
+include dirname(__DIR__) . '/partials/shell_helpers.php';
+?>
 <?php $trustedBaseUrl = \App\Service\SeoService::trustedBaseUrl() ?? ''; ?>
 <?php
 $demoAdminViewer = \App\Service\DemoModeService::currentViewerIsDemoAdmin();
@@ -7,10 +10,7 @@ $hiddenKeyPlaceholder = $demoAdminViewer
     : 'Saved value hidden. Enter a new value to replace it.';
 ?>
 
-<div class="page-header mb-4">
-    <h1>Edit Storage Server: <?= htmlspecialchars($server['name']) ?></h1>
-    <a href="/admin/configuration?tab=storage" class="btn btn-outline-secondary btn-sm">&larr; Back to Servers</a>
-</div>
+<?php renderAdminPageHeader('Edit Storage Server: ' . (string)$server['name'], '', '<a href="/admin/configuration?tab=storage" class="btn btn-outline-secondary btn-sm">&larr; Back to Servers</a>'); ?>
 
 <?php if ($demoAdminViewer): ?>
     <div class="alert alert-warning border-0 shadow-sm small mb-4">
@@ -56,11 +56,7 @@ if (!isset($tabs[$activeTab])) {
 <div class="row g-4">
     <!-- Configuration Form -->
     <div class="col-lg-7">
-        <div class="card shadow-sm h-100">
-            <div class="card-header bg-white py-3">
-                <h5 class="card-title mb-0">Server Configuration</h5>
-            </div>
-            <div class="card-body">
+        <?php renderAdminCardStart('Server Configuration', ['cardClass' => 'h-100']); ?>
                 <form method="POST">
                     <?= \App\Core\Csrf::field() ?>
                     <fieldset <?= $demoAdminViewer ? 'disabled' : '' ?>>
@@ -342,8 +338,7 @@ if (!isset($tabs[$activeTab])) {
                     </div>
                     </fieldset>
                 </form>
-            </div>
-        </div>
+        <?php renderAdminCardEnd(); ?>
     </div>
 
     <!-- Stats & Health -->

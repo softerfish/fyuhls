@@ -7,6 +7,22 @@ use App\Core\Database;
 use App\Model\Setting;
 
 class SecurityService {
+    public static function getVpnProtectionMode(): string
+    {
+        $configuredMode = strtolower(trim((string)Setting::get('vpn_proxy_mode', '')));
+        $apiKey = trim((string)Setting::getEncrypted('proxycheck_api_key', ''));
+
+        if ($apiKey === '') {
+            return 'none';
+        }
+
+        if (in_array($configuredMode, ['enforcement', 'intelligence'], true)) {
+            return $configuredMode;
+        }
+
+        return Setting::get('block_vpn_traffic', '0') === '1' ? 'enforcement' : 'intelligence';
+    }
+
     public static function isHttpsRequest(): bool
     {
         if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
@@ -58,6 +74,7 @@ class SecurityService {
 
     
     private static array $runtimeCache = [];
+    private static array $runtimeIntelCache = [];
 
     /**
      * Normalize an IP address to its standard representation (v4 or v6).
@@ -68,64 +85,86 @@ class SecurityService {
     }
 
     /**
-     * Check if IP is a VPN/Proxy using external API or local database
+     * Check if IP is a VPN/Proxy. Thin wrapper around lookupProxyIntel.
      */
     public function isVpnOrProxy(string $ip): bool {
+        $intel = $this->lookupProxyIntel($ip);
+        return !empty($intel['is_proxy']);
+    }
+
+    /**
+     * Query ProxyCheck and return structured intelligence data.
+     * Results are cached for 24 hours in security_cache.
+     *
+     * @return array{is_proxy: bool, type: string|null, provider: string|null, last_seen: string|null, risk: int}
+     */
+    public function lookupProxyIntel(string $ip): array {
         $ip = self::normalizeIp($ip);
 
-        // 1. Static Runtime Cache (Single Request Performance)
-        if (isset(self::$runtimeCache[$ip])) {
-            return self::$runtimeCache[$ip];
+        $emptyIntel = ['is_proxy' => false, 'type' => null, 'provider' => null, 'last_seen' => null, 'risk' => 0];
+
+        // runtime cache so a single request never hits the API twice
+        if (isset(self::$runtimeIntelCache[$ip])) {
+            return self::$runtimeIntelCache[$ip];
         }
 
         if ($ip === '127.0.0.1' || $ip === '::1') {
-            return self::$runtimeCache[$ip] = false;
+            return self::$runtimeIntelCache[$ip] = $emptyIntel;
         }
 
-        // 2. Proxy Check (Never block the proxy itself - prevents site-wide lockout)
+        // never flag the reverse proxy itself
         if (self::isTrustedProxy($ip)) {
-            return self::$runtimeCache[$ip] = false;
+            return self::$runtimeIntelCache[$ip] = $emptyIntel;
         }
 
-        // 3. Admin Whitelist Check
+        // admin whitelist
         if ($this->isWhitelisted($ip)) {
-            return self::$runtimeCache[$ip] = false;
+            return self::$runtimeIntelCache[$ip] = $emptyIntel;
         }
 
         $db = Database::getInstance()->getConnection();
         $encIp = \App\Service\EncryptionService::encrypt($ip);
 
-        // 1. Check Cache (24 hour TTL)
+        // check database cache (24 hour TTL)
         try {
-            $stmt = $db->prepare("SELECT is_vpn FROM security_cache WHERE ip_address = ? AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR) LIMIT 1");
+            $stmt = $db->prepare("SELECT is_vpn, proxy_intel_json FROM security_cache WHERE ip_address = ? AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR) LIMIT 1");
             $stmt->execute([$encIp]);
             $cached = $stmt->fetch();
             if ($cached !== false) {
-                return (bool)$cached['is_vpn'];
+                $intel = $emptyIntel;
+                $intel['is_proxy'] = (bool)$cached['is_vpn'];
+                if (!empty($cached['proxy_intel_json'])) {
+                    $decoded = json_decode($cached['proxy_intel_json'], true);
+                    if (is_array($decoded)) {
+                        $intel = array_merge($intel, $decoded);
+                        $intel['is_proxy'] = (bool)$cached['is_vpn'];
+                    }
+                }
+                return self::$runtimeIntelCache[$ip] = $intel;
             }
         } catch (\Exception $e) { }
 
-        // 3. Negative Quota Caching (Protection against API exhaustion)
+        // negative quota cache - API known-down, fail-soft allow
         $apiDownKey = 'proxycheck_api_unavailable';
         $apiDownUntil = (int)Setting::get($apiDownKey, '0');
         if ($apiDownUntil > time()) {
-            error_log("VPN_BLOCK: Skipping check for $ip because API is cached as unavailable/exhausted until " . date('H:i:s', $apiDownUntil));
-            return self::$runtimeCache[$ip] = false; // API is known-down, fail-soft allow
+            error_log("PROXY_INTEL: skipping check for $ip, API cached as unavailable until " . date('H:i:s', $apiDownUntil));
+            return self::$runtimeIntelCache[$ip] = $emptyIntel;
         }
 
-        // 4. Not in cache, hit API if configured
+        // hit ProxyCheck API if configured
         $apiKey = Setting::getEncrypted('proxycheck_api_key', '');
-        $isVpn = false;
+        $intel = $emptyIntel;
 
         if ($apiKey) {
-            $url = "https://proxycheck.io/v2/{$ip}?key={$apiKey}&vpn=1&asn=1";
-            
+            $url = "https://proxycheck.io/v2/{$ip}?key={$apiKey}&vpn=1&asn=1&risk=1";
+
             $ch = curl_init($url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // Keep security high
-            curl_setopt($ch, CURLOPT_USERAGENT, 'FileHosting/1.0 (VPN-Blocker)');
-            
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_USERAGENT, 'Fyuhls/1.0 (ProxyIntel)');
+
             $response = curl_exec($ch);
             $err = curl_error($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -133,36 +172,50 @@ class SecurityService {
 
             if ($response !== false) {
                 $data = json_decode($response, true);
-                
-                // Handle API Errors / Quota Limits
+
+                // handle API errors / quota limits
                 if (isset($data['status']) && $data['status'] === 'error') {
-                    if (str_contains($data['message'], 'Queries per day exceeded')) {
-                        error_log("VPN_BLOCK: Quota exceeded for ProxyCheck.io. Caching failure for 1 hour.");
+                    if (str_contains($data['message'] ?? '', 'Queries per day exceeded')) {
+                        error_log("PROXY_INTEL: quota exceeded for ProxyCheck.io, caching failure for 1 hour.");
                         Setting::set($apiDownKey, (string)(time() + 3600), 'security');
-                        return self::$runtimeCache[$ip] = false;
-                    } else {
-                        error_log("VPN_BLOCK: ProxyCheck.io Error for $ip: " . ($data['message'] ?? 'Unknown Error'));
+                        return self::$runtimeIntelCache[$ip] = $emptyIntel;
+                    }
+                    error_log("PROXY_INTEL: ProxyCheck.io error for $ip: " . ($data['message'] ?? 'Unknown'));
+                }
+
+                if (isset($data[$ip]) && is_array($data[$ip])) {
+                    $ipData = $data[$ip];
+                    $isProxy = isset($ipData['proxy']) && $ipData['proxy'] === 'yes';
+                    $intel = [
+                        'is_proxy' => $isProxy,
+                        'type' => isset($ipData['type']) ? substr((string)$ipData['type'], 0, 32) : null,
+                        'provider' => isset($ipData['provider']) ? substr((string)$ipData['provider'], 0, 128) : null,
+                        'last_seen' => isset($ipData['last seen']) ? substr((string)$ipData['last seen'], 0, 64) : null,
+                        'risk' => isset($ipData['risk']) ? max(0, min(100, (int)$ipData['risk'])) : 0,
+                    ];
+                    if ($isProxy) {
+                        error_log("PROXY_INTEL: detected proxy for $ip (type: " . ($intel['type'] ?? 'unknown') . ", risk: " . $intel['risk'] . ")");
                     }
                 }
-
-                if (isset($data[$ip]['proxy']) && $data[$ip]['proxy'] === 'yes') {
-                    $isVpn = true;
-                    error_log("VPN_BLOCK: Detected VPN for $ip (Type: " . ($data[$ip]['type'] ?? 'unknown') . ")");
-                }
             } else {
-                error_log("VPN_BLOCK: cURL error fetching ProxyCheck.io for $ip: $err (HTTP: $httpCode)");
+                error_log("PROXY_INTEL: cURL error for $ip: $err (HTTP: $httpCode)");
             }
-        } else {
-            error_log("VPN_BLOCK: Missing ProxyCheck API Key in settings.");
         }
+        // no API key - silently return empty intel (no log spam on every request)
 
-        // 5. Store in Cache
+        // store in cache
         try {
+            $intelJson = json_encode([
+                'type' => $intel['type'],
+                'provider' => $intel['provider'],
+                'last_seen' => $intel['last_seen'],
+                'risk' => $intel['risk'],
+            ], JSON_UNESCAPED_SLASHES);
             $db->prepare("DELETE FROM security_cache WHERE ip_address = ?")->execute([$encIp]);
-            $db->prepare("INSERT INTO security_cache (ip_address, is_vpn) VALUES (?, ?)")->execute([$encIp, (int)$isVpn]);
+            $db->prepare("INSERT INTO security_cache (ip_address, is_vpn, proxy_intel_json) VALUES (?, ?, ?)")->execute([$encIp, (int)$intel['is_proxy'], $intelJson]);
         } catch (\Exception $e) { }
 
-        return self::$runtimeCache[$ip] = $isVpn;
+        return self::$runtimeIntelCache[$ip] = $intel;
     }
 
     /**

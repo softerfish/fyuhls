@@ -8,11 +8,24 @@ use App\Core\Database;
 use App\Core\View;
 use App\Model\Setting;
 use App\Model\User;
+use App\Service\EncryptionService;
 use App\Service\FeatureService;
 use App\Service\PackageAllowanceService;
 
 class RewardsController
 {
+    private function storageQuotaInfo(int $userId): array
+    {
+        $stmt = Database::getInstance()->getConnection()->prepare('SELECT storage_used FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $used = (int)($stmt->fetchColumn() ?: 0);
+
+        $package = \App\Model\Package::getUserPackage($userId);
+        $limit = (int)($package['max_storage_bytes'] ?? 0);
+
+        return ['used' => $used, 'limit' => $limit];
+    }
+
     public function affiliate()
     {
         if (!FeatureService::affiliateEnabled()) {
@@ -41,6 +54,7 @@ class RewardsController
             'referralCommission' => Setting::get('referral_commission_percent', '50', 'rewards'),
             'user' => $user,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary(Auth::id() ? (int)Auth::id() : null, Auth::id() ? (\App\Model\Package::getUserPackage((int)Auth::id()) ?: []) : []),
+            'storageQuota' => Auth::id() ? $this->storageQuotaInfo((int)Auth::id()) : ['used' => 0, 'limit' => 0],
         ]);
     }
 
@@ -60,6 +74,11 @@ class RewardsController
         $userId = Auth::id();
         $user = Auth::user();
         $userModel = (string)($user['monetization_model'] ?? 'ppd');
+        $defaultWithdrawalMethod = trim((string)($user['payment_method'] ?? ''));
+        $defaultWithdrawalDetails = '';
+        if (!empty($user['payment_details'])) {
+            $defaultWithdrawalDetails = (string)EncryptionService::decrypt((string)$user['payment_details']);
+        }
 
         $stmt = $db->prepare("SELECT SUM(amount) FROM earnings WHERE user_id = ? AND status IN ('pending', 'cleared')");
         $stmt->execute([$userId]);
@@ -82,8 +101,43 @@ class RewardsController
         $stmt->execute([$userId]);
         $pendingRewards = (int) $stmt->fetchColumn();
 
+        $stmt = $db->prepare("SELECT COUNT(*) FROM earnings WHERE user_id = ? AND type = 'download_reward' AND status IN ('held', 'cleared', 'paid')");
+        $stmt->execute([$userId]);
+        $countedDownloads = (int)$stmt->fetchColumn();
+
         $stmt = $db->prepare("
-            SELECT MAX(e.created_at) as last_activity, f.filename, SUM(e.amount) as total_amount, COUNT(e.id) as total_downloads
+            SELECT
+                (SELECT COUNT(*) FROM reward_receipts WHERE user_id = ? AND status = 'flagged') +
+                (SELECT COUNT(*) FROM earnings WHERE user_id = ? AND type = 'download_reward' AND status IN ('flagged_review', 'reversed', 'cancelled'))
+        ");
+        $stmt->execute([$userId, $userId]);
+        $rejectedDownloads = (int)$stmt->fetchColumn();
+
+        $stmt = $db->prepare("
+            SELECT status, SUM(amount) as total
+            FROM earnings
+            WHERE user_id = ?
+            GROUP BY status
+        ");
+        $stmt->execute([$userId]);
+        $amountsByStatus = [
+            'pending' => 0.0,
+            'held' => 0.0,
+            'cleared' => 0.0,
+            'cancelled' => 0.0,
+            'flagged_review' => 0.0,
+            'paid' => 0.0,
+            'reversed' => 0.0,
+        ];
+        foreach ($stmt->fetchAll() as $row) {
+            $amountsByStatus[(string)$row['status']] = (float)$row['total'];
+        }
+
+        $stmt = $db->prepare("
+            SELECT MAX(e.created_at) as last_activity, f.filename, f.downloads as file_downloads, e.file_id,
+                   SUM(e.amount) as total_amount, COUNT(e.id) as total_downloads,
+                   SUM(CASE WHEN e.status IN ('held', 'cleared', 'paid') THEN 1 ELSE 0 END) as counted_downloads,
+                   SUM(CASE WHEN e.status IN ('flagged_review', 'reversed', 'cancelled') THEN 1 ELSE 0 END) as rejected_downloads
             FROM earnings e
             LEFT JOIN files f ON e.file_id = f.id
             WHERE e.user_id = ? AND e.type = 'download_reward'
@@ -111,6 +165,39 @@ class RewardsController
             $analytics[] = $match ?: ['day' => $date, 'downloads' => 0, 'earnings' => 0.00];
         }
 
+        $stmt = $db->prepare("
+            SELECT DATE(created_at) as day, SUM(amount) as earnings, COUNT(*) as downloads
+            FROM earnings
+            WHERE user_id = ? AND type = 'download_reward'
+            GROUP BY DATE(created_at)
+            ORDER BY day DESC
+            LIMIT 30
+        ");
+        $stmt->execute([$userId]);
+        $earningsByDay = $stmt->fetchAll();
+
+        $stmt = $db->prepare("
+            SELECT country_code, network_type, COUNT(*) as downloads, SUM(amount) as earnings
+            FROM earnings
+            WHERE user_id = ? AND type = 'download_reward'
+            GROUP BY country_code, network_type
+            ORDER BY earnings DESC, downloads DESC
+            LIMIT 25
+        ");
+        $stmt->execute([$userId]);
+        $countryTierRows = $stmt->fetchAll();
+
+        $stmt = $db->prepare("
+            SELECT rr.created_at, rr.status, rr.risk_level, rr.risk_reasons_json, rr.country_code, f.filename
+            FROM reward_receipts rr
+            LEFT JOIN files f ON rr.file_id = f.id
+            WHERE rr.user_id = ? AND rr.status IN ('flagged', 'processed')
+            ORDER BY rr.created_at DESC
+            LIMIT 25
+        ");
+        $stmt->execute([$userId]);
+        $downloadExplanations = $stmt->fetchAll();
+
         $referralCount = 0;
         if (FeatureService::affiliateEnabled()) {
             $stmt = $db->prepare("
@@ -120,7 +207,7 @@ class RewardsController
                 WHERE u.referrer_id = ?
                   AND COALESCE(u.referrer_source, '') = 'referral'
                   AND e.type IN ('download_reward', 'pps_reward')
-                  AND e.status IN ('held', 'cleared', 'paid')
+                  AND e.status IN ('cleared', 'paid')
             ");
             $stmt->execute([$userId]);
             $referralCount = (int)$stmt->fetchColumn();
@@ -131,12 +218,66 @@ class RewardsController
             'totalPaid' => $totalPaid,
             'availableBalance' => $availableBalance,
             'pendingRewards' => $pendingRewards,
+            'countedDownloads' => $countedDownloads,
+            'rejectedDownloads' => $rejectedDownloads,
+            'amountsByStatus' => $amountsByStatus,
             'recentEarnings' => $recentEarnings,
             'analytics' => $analytics,
+            'earningsByDay' => $earningsByDay,
+            'countryTierRows' => $countryTierRows,
+            'downloadExplanations' => $downloadExplanations,
             'userModel' => $userModel,
             'referralCount' => $referralCount,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary((int)$userId, \App\Model\Package::getUserPackage((int)$userId) ?: []),
+            'storageQuota' => $this->storageQuotaInfo((int)$userId),
+            'defaultWithdrawalMethod' => $defaultWithdrawalMethod,
+            'defaultWithdrawalDetails' => $defaultWithdrawalDetails,
         ]);
+    }
+
+    public function exportCsv()
+    {
+        if (!FeatureService::rewardsEnabled()) {
+            http_response_code(404);
+            exit('Not found');
+        }
+        if (!Auth::check()) {
+            header('Location: /login');
+            exit;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            SELECT e.created_at, e.type, e.status, e.amount, e.country_code, e.network_type,
+                   e.description, e.risk_score, e.risk_reasons_json, f.filename
+            FROM earnings e
+            LEFT JOIN files f ON e.file_id = f.id
+            WHERE e.user_id = ?
+            ORDER BY e.created_at DESC
+            LIMIT 5000
+        ");
+        $stmt->execute([Auth::id()]);
+
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="earnings-export.csv"');
+        $out = fopen('php://output', 'wb');
+        fputcsv($out, ['date', 'file', 'type', 'status', 'amount', 'country', 'network', 'risk_score', 'reasons', 'description']);
+        foreach ($stmt->fetchAll() as $row) {
+            fputcsv($out, [
+                $row['created_at'],
+                \App\Service\EncryptionService::decrypt($row['filename'] ?? '') ?: '',
+                $row['type'],
+                $row['status'],
+                $row['amount'],
+                $row['country_code'],
+                $row['network_type'],
+                $row['risk_score'],
+                $row['risk_reasons_json'],
+                $row['description'],
+            ]);
+        }
+        fclose($out);
+        exit;
     }
 
     public function withdraw()

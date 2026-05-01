@@ -8,6 +8,15 @@
         <li><strong>DMCA:</strong> Copyright notices that often require careful investigation, file review, and a clear response trail.</li>
     </ul>
 
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">What Is On The Page</h6>
+    <ul class="extra-small text-muted mb-4">
+        <li class="mb-2"><strong>Inbox filters:</strong> The top buttons split the queue into All, Archive, Contact, DMCA, and Abuse views.</li>
+        <li class="mb-2"><strong>Status filter:</strong> The small status field narrows the current queue to one status label without leaving the page.</li>
+        <li class="mb-2"><strong>Open:</strong> Expands the full request detail row, including the request body, target, signature where applicable, workflow tools, and activity history.</li>
+        <li class="mb-2"><strong>Reply:</strong> Available on Contact and DMCA rows. It sends the message directly from the request record and keeps the reply trail attached to the item.</li>
+        <li><strong>Delete File:</strong> Available on Abuse rows. This is a moderation action for the reported file, not a status-only action.</li>
+    </ul>
+
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Best Workflow</h6>
     <ol class="guide-steps mb-4">
         <li><strong>Filter by type first:</strong> Work DMCA, abuse, and contact queues separately if the inbox is busy.</li>
@@ -26,6 +35,17 @@
         <li class="mb-2"><strong>Abuse statuses:</strong> Pending, Reviewed, Action Taken, and Dismissed. <strong>Action Taken</strong> and <strong>Dismissed</strong> move the report into Archive.</li>
         <li class="mb-2"><strong>DMCA target links:</strong> Submitted links are normalized into a one-per-line list and shown as clickable links in the admin view.</li>
         <li><strong>Activity:</strong> Replies, internal notes, and status changes all stay attached to the request so the review trail survives handoff.</li>
+    </ul>
+
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">DMCA File Removal Workflow</h6>
+    <ul class="extra-small text-muted mb-4">
+        <li class="mb-2"><strong>Process Removal of Files:</strong> DMCA requests now include a dedicated card below Request Details that tries to match each submitted URL to a local Fyuhls file.</li>
+        <li class="mb-2"><strong>Checkboxes:</strong> Each matched file gets its own checkbox so you can remove only the links covered by the current review.</li>
+        <li class="mb-2"><strong>Process Selected Files:</strong> Removes only the checked matched files.</li>
+        <li class="mb-2"><strong>Process All Files for Removal:</strong> Removes every matched local file from that DMCA request in one action.</li>
+        <li class="mb-2"><strong>Unavailable rows:</strong> URLs that do not match a local file, or files already deleted or pending purge, are shown but cannot be processed again.</li>
+        <li class="mb-2"><strong>No page refresh:</strong> The DMCA removal form updates inline. After a successful action, the matching rows switch to an already-processed state.</li>
+        <li><strong>Live activity:</strong> The Activity section is updated immediately with the new removal event, so the audit trail stays visible without reloading the inbox.</li>
     </ul>
 
     <div class="alert alert-warning border-0 shadow-sm small mb-3">

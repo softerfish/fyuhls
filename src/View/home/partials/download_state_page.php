@@ -28,9 +28,22 @@
     .download-share-toggle{margin-top:.25rem;padding:0;background:none;border:0;color:#2563eb;font-size:.875rem;font-weight:600;cursor:pointer}
     .download-share-toggle:hover{text-decoration:underline}
     .download-share-extra{margin-top:.875rem;padding-top:.875rem;border-top:1px solid #e2e8f0}
+    .download-overlay-wrap{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center}
+    .download-overlay-card{position:relative;max-width:90%;max-height:90%;background:#fff;padding:2rem;border-radius:12px;overflow:auto}
+    .download-overlay-close{position:absolute;top:10px;right:10px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;font-weight:700}
+    .download-overlay-body{overflow-wrap:anywhere;word-break:break-all}
     @media (min-width: 1100px){.download-page-sidebar{display:block}}
     @media (max-width: 640px){.download-share-control{flex-direction:column}.download-share-copy{width:100%}}
 </style>
+
+<?php if (($adOverlay ?? '') !== ''): ?>
+<div id="adOverlayWrap" class="download-overlay-wrap">
+    <div class="download-overlay-card">
+        <button type="button" id="closeAdOverlayBtn" class="download-overlay-close">&times;</button>
+        <div class="download-overlay-body"><?= $adOverlay ?></div>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="download-page-shell">
     <?php if (($adLeft ?? '') !== ''): ?>
@@ -110,6 +123,14 @@ document.querySelectorAll("[data-share-toggle]").forEach(function(button) {
         button.setAttribute("aria-expanded", expanded ? "false" : "true");
         button.textContent = expanded ? "More share options" : "Fewer share options";
     });
+});
+</script>
+<?php endif; ?>
+
+<?php if (($adOverlay ?? '') !== ''): ?>
+<script>
+document.getElementById("closeAdOverlayBtn")?.addEventListener("click", function() {
+    document.getElementById("adOverlayWrap")?.remove();
 });
 </script>
 <?php endif; ?>

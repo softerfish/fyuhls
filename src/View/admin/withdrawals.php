@@ -1,12 +1,10 @@
-<?php include 'header.php'; ?>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+renderAdminPageHeader('Withdrawal Requests');
+?>
 
-<div class="page-header">
-    <h1>Withdrawal Requests</h1>
-</div>
-
-<div class="card">
-    <div class="card-header">Pending & Recent Withdrawals</div>
-    <div class="card-body">
+<?php renderAdminCardStart('Pending & Recent Withdrawals'); ?>
         <?php if (empty($withdrawals)): ?>
             <p class="withdrawals-empty-state">No withdrawal requests found.</p>
         <?php else: ?>
@@ -77,8 +75,7 @@
                 <button type="submit" class="btn btn-primary">Save Changes</button>
             </div>
         </form>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <style>
 .withdrawals-empty-state{text-align:center;color:#64748b;padding:2rem}

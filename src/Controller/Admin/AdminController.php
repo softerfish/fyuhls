@@ -470,6 +470,136 @@ class AdminController
         throw new \RuntimeException('Unknown request type.');
     }
 
+    private function resolveDmcaTargetFiles(?string $raw): array
+    {
+        $lines = preg_split('/\r\n|\r|\n/', trim((string)$raw)) ?: [];
+        $targets = [];
+
+        foreach ($lines as $line) {
+            $url = trim($line);
+            if ($url === '') {
+                continue;
+            }
+
+            $shortId = $this->extractShortIdFromDmcaUrl($url);
+            $file = $shortId !== null ? $this->findFileByExactShortId($shortId) : null;
+            $targets[] = [
+                'url' => $url,
+                'short_id' => $shortId,
+                'file_id' => (int)($file['id'] ?? 0),
+                'filename' => isset($file['filename']) ? (string)$file['filename'] : null,
+                'status' => isset($file['status']) ? (string)$file['status'] : null,
+                'matched' => $file !== null,
+            ];
+        }
+
+        return $targets;
+    }
+
+    private function extractShortIdFromDmcaUrl(string $url): ?string
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts) || !$this->isDmcaTargetLocal($parts)) {
+            return null;
+        }
+
+        $path = (string)($parts['path'] ?? '');
+        if ($path === '') {
+            return null;
+        }
+
+        $segments = array_values(array_filter(explode('/', trim($path, '/')), static fn(string $segment): bool => $segment !== ''));
+        $fileIndex = array_search('file', $segments, true);
+        if ($fileIndex === false || !isset($segments[$fileIndex + 1])) {
+            return null;
+        }
+
+        $shortId = trim((string)$segments[$fileIndex + 1]);
+        return $shortId !== '' ? $shortId : null;
+    }
+
+    private function isDmcaTargetLocal(array $parts): bool
+    {
+        $host = strtolower(trim((string)($parts['host'] ?? '')));
+        if ($host === '') {
+            return false;
+        }
+
+        $trustedHost = strtolower((string)(parse_url(\App\Service\SeoService::trustedBaseUrl(), PHP_URL_HOST) ?? ''));
+        if ($trustedHost !== '' && $host === $trustedHost) {
+            return true;
+        }
+
+        $requestHost = strtolower(trim((string)($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '')));
+        if ($requestHost !== '') {
+            $requestHost = strtolower((string)(parse_url('http://' . $requestHost, PHP_URL_HOST) ?? $requestHost));
+        }
+
+        return $requestHost !== '' && $host === $requestHost;
+    }
+
+    private function findFileByExactShortId(string $shortId): ?array
+    {
+        $shortId = trim($shortId);
+        if ($shortId === '') {
+            return null;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT id FROM files WHERE short_id = ? LIMIT 1");
+        $stmt->execute([$shortId]);
+        $fileId = (int)($stmt->fetchColumn() ?: 0);
+
+        return $fileId > 0 ? \App\Model\File::findAnyStatus($fileId) : null;
+    }
+
+    private function processDmcaFileRemovalBatch(array $fileIds, int $requestId): array
+    {
+        $processedCount = 0;
+        $alreadyRemovedCount = 0;
+        $processedLabels = [];
+        $db = Database::getInstance()->getConnection();
+
+        foreach ($fileIds as $fileId) {
+            $file = \App\Model\File::findAnyStatus($fileId);
+            if (!$file) {
+                continue;
+            }
+
+            $status = (string)($file['status'] ?? '');
+            if (in_array($status, ['deleted', 'pending_purge', 'failed', 'abandoned', 'quarantined'], true)) {
+                $alreadyRemovedCount++;
+                continue;
+            }
+
+            $deleteReason = 'Removed due to DMCA report.';
+            if (!empty($file['user_id']) && !\App\Model\FileDeletionLog::hasOriginalFileId($fileId)) {
+                \App\Model\FileDeletionLog::record(
+                    (int)$file['user_id'],
+                    $fileId,
+                    (string)($file['filename'] ?? 'Deleted file'),
+                    $deleteReason,
+                    Auth::id() ? (int)Auth::id() : null,
+                    'admin',
+                    'Administrator'
+                );
+            }
+
+            $stmt = $db->prepare("UPDATE files SET status = 'pending_purge' WHERE id = ?");
+            $stmt->execute([$fileId]);
+
+            $processedCount++;
+            $label = (string)($file['filename'] ?? ('File #' . $fileId));
+            $shortId = trim((string)($file['short_id'] ?? ''));
+            if ($shortId !== '') {
+                $label .= ' (' . $shortId . ')';
+            }
+            $processedLabels[] = $label;
+        }
+
+        return [$processedCount, $alreadyRemovedCount, $processedLabels];
+    }
+
     private function sanitizeInternalRedirect(?string $target, string $fallback = '/admin'): string
     {
         if (!is_string($target) || $target === '') {
@@ -496,15 +626,37 @@ class AdminController
         exit;
     }
 
+    private function requestExpectsJson(): bool
+    {
+        $requestedWith = strtolower(trim((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')));
+        if ($requestedWith === 'xmlhttprequest') {
+            return true;
+        }
+
+        $accept = strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? ''));
+        return str_contains($accept, 'application/json');
+    }
+
+    private function formatRequestActivityForJson(array $activity): array
+    {
+        return [
+            'activity_type' => (string)($activity['activity_type'] ?? ''),
+            'activity_label' => str_replace('_', ' ', (string)($activity['activity_type'] ?? '')),
+            'subject' => (string)($activity['subject'] ?? ''),
+            'body' => (string)($activity['body'] ?? ''),
+            'created_at' => (string)($activity['created_at'] ?? ''),
+            'created_at_display' => !empty($activity['created_at']) ? date('Y-m-d H:i', strtotime((string)$activity['created_at'])) : '',
+            'username' => (string)($activity['username'] ?? ''),
+        ];
+    }
+
     public function dashboard()
     {
         $this->checkAuth();
         $statsService = new \App\Service\DashboardService();
-        $hostService = new \App\Service\HostService();
         
         View::render('admin/dashboard.php', [
-            'bundle' => $statsService->getStatsBundle(),
-            'host' => $hostService->getMetrics()
+            'bundle' => $statsService->getStatsBundle()
         ]);
     }
 
@@ -1003,6 +1155,7 @@ class AdminController
 
         $dmcaReports = $db->query("SELECT * FROM dmca_reports ORDER BY created_at DESC")->fetchAll();
         foreach ($dmcaReports as $r) {
+            $target = EncryptionService::decrypt($r['infringing_url']);
             $items[] = [
                 'request_type' => 'DMCA Report',
                 'type_key' => 'dmca_report',
@@ -1010,11 +1163,12 @@ class AdminController
                 'created_at' => $r['created_at'],
                 'submitter_name' => EncryptionService::decrypt($r['reporter_name']),
                 'submitter_email' => EncryptionService::decrypt($r['reporter_email']),
-                'target' => EncryptionService::decrypt($r['infringing_url']),
+                'target' => $target,
                 'summary' => EncryptionService::decrypt($r['description']),
                 'details' => EncryptionService::decrypt($r['description']),
                 'status' => $r['status'],
                 'signature' => EncryptionService::decrypt($r['signature']),
+                'target_files' => $this->resolveDmcaTargetFiles($target),
             ];
         }
 
@@ -1058,6 +1212,18 @@ class AdminController
                     if (isset($item[$field])) {
                         $item[$field] = DemoModeService::hiddenLabel();
                     }
+                }
+                if (($item['type_key'] ?? '') === 'dmca_report') {
+                    $item['target'] = DemoModeService::hiddenLabel();
+                    $targetFiles = is_array($item['target_files'] ?? null) ? $item['target_files'] : [];
+                    foreach ($targetFiles as &$targetFile) {
+                        $targetFile['url'] = DemoModeService::hiddenLabel();
+                        if (!empty($targetFile['filename'])) {
+                            $targetFile['filename'] = DemoModeService::hiddenLabel();
+                        }
+                    }
+                    unset($targetFile);
+                    $item['target_files'] = $targetFiles;
                 }
             }
             unset($item);
@@ -1224,6 +1390,117 @@ class AdminController
                 'error' => $e->getMessage(),
             ]);
             $_SESSION['error'] = 'Status update failed. Please try again.';
+        }
+
+        header('Location: /admin/requests');
+        exit;
+    }
+
+    public function processDmcaFiles()
+    {
+        $this->checkAuth();
+        $expectsJson = $this->requestExpectsJson();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            if ($expectsJson) {
+                $this->jsonResponse(['success' => false, 'message' => 'Method not allowed.'], 405);
+            }
+            header('Location: /admin/requests');
+            exit;
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            if ($expectsJson) {
+                $this->jsonResponse(['success' => false, 'message' => 'CSRF mismatch.'], 403);
+            }
+            die('CSRF mismatch');
+        }
+
+        $requestId = (int)($_POST['request_id'] ?? 0);
+        $processMode = trim((string)($_POST['process_mode'] ?? 'selected'));
+        $selectedFileIds = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['file_ids'] ?? [])))));
+
+        try {
+            if ($requestId <= 0) {
+                throw new \RuntimeException('Invalid DMCA request.');
+            }
+
+            $this->assertRequestExists('dmca_report', $requestId);
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare("SELECT infringing_url FROM dmca_reports WHERE id = ? LIMIT 1");
+            $stmt->execute([$requestId]);
+            $row = $stmt->fetch();
+            if (!$row) {
+                throw new \RuntimeException('DMCA report not found.');
+            }
+
+            $targets = $this->resolveDmcaTargetFiles(EncryptionService::decrypt((string)$row['infringing_url']));
+            $matchedFileIds = [];
+            foreach ($targets as $target) {
+                if (!empty($target['file_id'])) {
+                    $matchedFileIds[] = (int)$target['file_id'];
+                }
+            }
+            $matchedFileIds = array_values(array_unique($matchedFileIds));
+
+            $fileIdsToProcess = $processMode === 'all'
+                ? $matchedFileIds
+                : array_values(array_intersect($selectedFileIds, $matchedFileIds));
+
+            if (empty($fileIdsToProcess)) {
+                throw new \RuntimeException('No DMCA target files were selected for removal.');
+            }
+
+            [$processedCount, $alreadyRemovedCount, $processedLabels] = $this->processDmcaFileRemovalBatch($fileIdsToProcess, $requestId);
+            $latestActivity = null;
+
+            if ($processedCount > 0) {
+                $this->addRequestActivity(
+                    'dmca_report',
+                    $requestId,
+                    'status',
+                    'DMCA file removal processed',
+                    "Marked the following file(s) for removal:\n" . implode("\n", $processedLabels),
+                    [
+                        'processed_count' => $processedCount,
+                        'already_removed_count' => $alreadyRemovedCount,
+                        'file_ids' => $fileIdsToProcess,
+                    ]
+                );
+
+                $activityMap = $this->fetchRequestActivityMap([
+                    ['type_key' => 'dmca_report', 'id' => $requestId],
+                ]);
+                $latestActivity = $activityMap['dmca_report:' . $requestId][0] ?? null;
+            }
+
+            $_SESSION['success'] = $processedCount > 0
+                ? "Processed {$processedCount} file(s) for DMCA removal." . ($alreadyRemovedCount > 0 ? " {$alreadyRemovedCount} were already removed or pending removal." : '')
+                : 'All selected files were already removed or pending removal.';
+
+            if ($expectsJson) {
+                $this->jsonResponse([
+                    'success' => true,
+                    'message' => $_SESSION['success'],
+                    'request_id' => $requestId,
+                    'processed_count' => $processedCount,
+                    'already_removed_count' => $alreadyRemovedCount,
+                    'handled_file_ids' => $fileIdsToProcess,
+                    'activity' => $latestActivity ? $this->formatRequestActivityForJson($latestActivity) : null,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Logger::error('DMCA file removal processing failed', [
+                'request_id' => $requestId,
+                'process_mode' => $processMode,
+                'selected_file_ids' => $selectedFileIds,
+                'error' => $e->getMessage(),
+            ]);
+            if ($expectsJson) {
+                $this->jsonResponse([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                ], 422);
+            }
+            $_SESSION['error'] = $e->getMessage();
         }
 
         header('Location: /admin/requests');
@@ -1824,6 +2101,7 @@ class AdminController
                 'wait_time_enabled' => isset($_POST['wait_time_enabled']) ? 1 : 0,
                 'concurrent_uploads' => max(1, $this->clampPackageInt($_POST['concurrent_uploads'] ?? 1, 0)),
                 'concurrent_downloads' => $this->clampPackageInt($_POST['concurrent_downloads'] ?? 1, 0),
+                'ppd_enabled' => isset($_POST['ppd_enabled']) ? 1 : 0,
             ];
 
             if (($data['concurrent_downloads'] ?? 0) > 0) {
@@ -2294,7 +2572,7 @@ class AdminController
         $preview = '{}';
         if (!$demoAdmin) {
             $service = new DiagnosticsService();
-            $bundle = $service->generateSupportBundle([
+            $bundle = $service->generateSupportPreview([
                 'issue_description' => $issueDescription,
             ]);
             $preview = json_encode($bundle, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);

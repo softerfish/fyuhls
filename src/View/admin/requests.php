@@ -36,17 +36,12 @@ $renderLinkList = static function (?string $raw): string {
     return $html ? implode('', $html) : '<span class="text-muted">No links submitted.</span>';
 };
 include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h1 class="h3 mb-1">Requests</h1>
-        <p class="text-muted mb-0">One inbox for site requests, abuse reports, and DMCA submissions.</p>
-    </div>
-</div>
+<?php renderAdminPageHeader('Requests', 'One inbox for site requests, abuse reports, and DMCA submissions.'); ?>
 
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+<?php renderAdminCardStart(null, ['cardClass' => 'card border-0 shadow-sm mb-4', 'bodyClass' => 'card-body d-flex flex-wrap gap-2 align-items-center']); ?>
         <?php
         $typeLinks = [
             'all' => 'All',
@@ -69,11 +64,9 @@ include 'header.php';
                 <a href="/admin/requests?type=<?= urlencode((string)$filterType) ?>" class="btn btn-sm btn-outline-secondary">Clear</a>
             <?php endif; ?>
         </form>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card border-0 shadow-sm">
-    <div class="card-body">
+<?php renderAdminCardStart(null, ['cardClass' => 'card border-0 shadow-sm']); ?>
         <?php if (empty($items)): ?>
             <p class="text-center text-muted py-5 mb-0"><?= !empty($showArchived) ? 'No archived requests yet.' : 'No submitted requests yet.' ?></p>
         <?php else: ?>
@@ -171,6 +164,68 @@ include 'header.php';
                                                         <div class="border rounded p-3 bg-light-subtle mt-2"><?= htmlspecialchars((string)$item['signature']) ?></div>
                                                     </div>
                                                 <?php endif; ?>
+                                                <?php if (($item['type_key'] ?? '') === 'dmca_report'): ?>
+                                                    <?php $targetFiles = is_array($item['target_files'] ?? null) ? $item['target_files'] : []; ?>
+                                                    <div class="mt-3 border rounded p-3">
+                                                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                                                            <div>
+                                                                <h6 class="fw-bold mb-1">Process Removal of Files</h6>
+                                                                <div class="small text-muted">Process selected files, or remove every matched file from this DMCA request in one step.</div>
+                                                            </div>
+                                                        </div>
+                                                        <?php if (empty($targetFiles)): ?>
+                                                            <div class="small text-muted">No DMCA target URLs were submitted.</div>
+                                                        <?php else: ?>
+                                                            <form method="POST" action="/admin/requests/dmca-process" class="dmca-process-form">
+                                                                <?= \App\Core\Csrf::field() ?>
+                                                                <input type="hidden" name="request_id" value="<?= (int)$item['id'] ?>">
+                                                                <div class="dmca-process-feedback mb-3" hidden></div>
+                                                                <div class="list-group list-group-flush border rounded mb-3">
+                                                                    <?php foreach ($targetFiles as $targetFile): ?>
+                                                                        <?php
+                                                                        $matched = !empty($targetFile['matched']);
+                                                                        $fileId = (int)($targetFile['file_id'] ?? 0);
+                                                                        $fileStatus = (string)($targetFile['status'] ?? '');
+                                                                        $alreadyRemoved = in_array($fileStatus, ['deleted', 'pending_purge', 'failed', 'abandoned', 'quarantined'], true);
+                                                                        $disabled = !$matched || $alreadyRemoved;
+                                                                        ?>
+                                                                        <label class="list-group-item d-flex align-items-start gap-3 <?= $disabled ? 'bg-light' : '' ?>"<?= $fileId > 0 ? ' data-dmca-file-id="' . $fileId . '"' : '' ?>>
+                                                                            <input
+                                                                                class="form-check-input mt-1"
+                                                                                type="checkbox"
+                                                                                name="file_ids[]"
+                                                                                value="<?= $fileId ?>"
+                                                                                <?= $disabled ? 'disabled' : '' ?>
+                                                                            >
+                                                                            <div class="flex-grow-1 min-w-0">
+                                                                                <div class="small">
+                                                                                    <a href="<?= htmlspecialchars((string)$targetFile['url']) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars((string)$targetFile['url']) ?></a>
+                                                                                </div>
+                                                                                <?php if ($matched): ?>
+                                                                                    <div class="small mt-1">
+                                                                                        <strong><?= htmlspecialchars((string)($targetFile['filename'] ?? ('File #' . $fileId))) ?></strong>
+                                                                                        <?php if (!empty($targetFile['short_id'])): ?>
+                                                                                            <span class="text-muted">(<?= htmlspecialchars((string)$targetFile['short_id']) ?>)</span>
+                                                                                        <?php endif; ?>
+                                                                                    </div>
+                                                                                    <div class="small text-muted dmca-file-status">
+                                                                                        <?= $alreadyRemoved ? 'Already removed or pending removal.' : 'Ready to mark for removal.' ?>
+                                                                                    </div>
+                                                                                <?php else: ?>
+                                                                                    <div class="small text-danger mt-1">No local file match was found for this URL.</div>
+                                                                                <?php endif; ?>
+                                                                            </div>
+                                                                        </label>
+                                                                    <?php endforeach; ?>
+                                                                </div>
+                                                                <div class="d-flex flex-wrap gap-2">
+                                                                    <button type="submit" name="process_mode" value="selected" class="btn btn-sm btn-outline-danger">Process Selected Files</button>
+                                                                    <button type="submit" name="process_mode" value="all" class="btn btn-sm btn-danger">Process All Files for Removal</button>
+                                                                </div>
+                                                            </form>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                <?php endif; ?>
                                             </div>
                                             <div class="col-lg-5">
                                                 <h6 class="fw-bold mb-2">Workflow</h6>
@@ -242,10 +297,9 @@ include 'header.php';
                                             </div>
                                         </div>
 
-                                        <?php if (!empty($item['activities'])): ?>
-                                            <div class="mt-4">
+                                        <div class="mt-4 requests-activity-section" data-request-activity-section="<?= htmlspecialchars((string)$item['type_key']) ?>-<?= (int)$item['id'] ?>"<?= empty($item['activities']) ? ' hidden' : '' ?>>
                                                 <h6 class="fw-bold mb-3">Activity</h6>
-                                                <div class="list-group list-group-flush border rounded">
+                                                <div class="list-group list-group-flush border rounded requests-activity-list">
                                                     <?php foreach ($item['activities'] as $activity): ?>
                                                         <div class="list-group-item">
                                                             <div class="d-flex justify-content-between align-items-start gap-3">
@@ -268,8 +322,7 @@ include 'header.php';
                                                         </div>
                                                     <?php endforeach; ?>
                                                 </div>
-                                            </div>
-                                        <?php endif; ?>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
@@ -278,8 +331,7 @@ include 'header.php';
                 </table>
             </div>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <style>
 .requests-filter-input{max-width:180px}
@@ -287,5 +339,158 @@ include 'header.php';
 .requests-summary-cell{max-width:320px;word-break:break-word}
 .requests-prewrap{white-space:pre-wrap}
 </style>
+
+<script>
+document.addEventListener('submit', async function(event) {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.classList.contains('dmca-process-form')) {
+        return;
+    }
+
+    event.preventDefault();
+
+    const submitter = event.submitter instanceof HTMLButtonElement ? event.submitter : null;
+    if (!submitter) {
+        form.submit();
+        return;
+    }
+
+    const feedback = form.querySelector('.dmca-process-feedback');
+    const buttons = Array.from(form.querySelectorAll('button[type="submit"]'));
+    const processMode = submitter.value || 'selected';
+    const formData = new FormData(form);
+    formData.set('process_mode', processMode);
+    const requestId = String(formData.get('request_id') || '');
+
+    if (feedback instanceof HTMLElement) {
+        feedback.hidden = true;
+        feedback.className = 'dmca-process-feedback mb-3';
+        feedback.textContent = '';
+    }
+
+    buttons.forEach((button) => {
+        button.disabled = true;
+    });
+
+    try {
+        const response = await fetch(form.action, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: formData,
+            credentials: 'same-origin',
+        });
+
+        let payload = null;
+        try {
+            payload = await response.json();
+        } catch (error) {
+            payload = null;
+        }
+
+        if (!response.ok || !payload || !payload.success) {
+            throw new Error(payload?.message || 'The DMCA removal request failed.');
+        }
+
+        const handledIds = Array.isArray(payload.handled_file_ids) ? payload.handled_file_ids.map((value) => String(value)) : [];
+        handledIds.forEach((fileId) => {
+            const row = Array.from(form.querySelectorAll('[data-dmca-file-id]')).find((candidate) => {
+                return candidate.getAttribute('data-dmca-file-id') === fileId;
+            });
+            if (!(row instanceof HTMLElement)) {
+                return;
+            }
+
+            row.classList.add('bg-light');
+            const checkbox = row.querySelector('input[type="checkbox"][name="file_ids[]"]');
+            if (checkbox instanceof HTMLInputElement) {
+                checkbox.checked = false;
+                checkbox.disabled = true;
+            }
+
+            const status = row.querySelector('.dmca-file-status');
+            if (status instanceof HTMLElement) {
+                status.textContent = 'Already removed or pending removal.';
+            }
+        });
+
+        if (payload.activity && requestId !== '') {
+            const activitySection = document.querySelector('[data-request-activity-section="dmca_report-' + requestId + '"]');
+            if (activitySection instanceof HTMLElement) {
+                activitySection.hidden = false;
+                let activityList = activitySection.querySelector('.requests-activity-list');
+                if (!(activityList instanceof HTMLElement)) {
+                    activityList = document.createElement('div');
+                    activityList.className = 'list-group list-group-flush border rounded requests-activity-list';
+                    activitySection.appendChild(activityList);
+                }
+
+                const item = document.createElement('div');
+                item.className = 'list-group-item';
+
+                const row = document.createElement('div');
+                row.className = 'd-flex justify-content-between align-items-start gap-3';
+
+                const left = document.createElement('div');
+                const type = document.createElement('div');
+                type.className = 'fw-semibold text-capitalize';
+                type.textContent = payload.activity.activity_label || payload.activity.activity_type || 'status';
+                left.appendChild(type);
+
+                if (payload.activity.subject) {
+                    const subject = document.createElement('div');
+                    subject.textContent = payload.activity.subject;
+                    left.appendChild(subject);
+                }
+
+                if (payload.activity.body) {
+                    const body = document.createElement('div');
+                    body.className = 'requests-prewrap small text-muted mt-1';
+                    body.textContent = payload.activity.body;
+                    left.appendChild(body);
+                }
+
+                const right = document.createElement('div');
+                right.className = 'small text-muted text-end';
+
+                if (payload.activity.created_at_display) {
+                    const created = document.createElement('div');
+                    created.textContent = payload.activity.created_at_display;
+                    right.appendChild(created);
+                }
+
+                if (payload.activity.username) {
+                    const username = document.createElement('div');
+                    username.textContent = payload.activity.username;
+                    right.appendChild(username);
+                }
+
+                row.appendChild(left);
+                row.appendChild(right);
+                item.appendChild(row);
+                activityList.prepend(item);
+            }
+        }
+
+        if (feedback instanceof HTMLElement) {
+            feedback.hidden = false;
+            feedback.classList.add('alert', 'alert-success');
+            feedback.textContent = payload.message || 'DMCA file removal processed.';
+        }
+    } catch (error) {
+        if (feedback instanceof HTMLElement) {
+            feedback.hidden = false;
+            feedback.classList.add('alert', 'alert-danger');
+            feedback.textContent = error instanceof Error ? error.message : 'The DMCA removal request failed.';
+        }
+    } finally {
+        buttons.forEach((button) => {
+            button.disabled = false;
+        });
+    }
+});
+</script>
 
 <?php include 'footer.php'; ?>

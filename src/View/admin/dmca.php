@@ -1,12 +1,10 @@
-<?php include 'header.php'; ?>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+renderAdminPageHeader('DMCA Reports');
+?>
 
-<div class="page-header">
-    <h1>DMCA Reports</h1>
-</div>
-
-<div class="card">
-    <div class="card-header">DMCA Takedown Reports</div>
-    <div class="card-body">
+<?php renderAdminCardStart('DMCA Takedown Reports'); ?>
         <?php if (empty($reports)): ?>
             <p class="dmca-empty-state">No DMCA reports yet.</p>
         <?php else: ?>
@@ -38,8 +36,7 @@
                 </tbody>
             </table>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <style>
 .dmca-empty-state{text-align:center;color:#64748b;padding:2rem}

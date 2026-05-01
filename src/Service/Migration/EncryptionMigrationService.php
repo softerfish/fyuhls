@@ -164,7 +164,6 @@ class EncryptionMigrationService {
                             'table' => $table,
                             'column' => $column,
                             'primary_keys' => $pkValues,
-                            'value_preview' => mb_substr((string)($row[$column] ?? ''), 0, 80),
                         ];
 
                         if (count($items) >= $limit) {

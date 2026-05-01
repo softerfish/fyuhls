@@ -1,23 +1,25 @@
-<?php include 'header.php'; ?>
-
-<div class="page-header mb-4">
-    <div>
-        <h1>Resources</h1>
-        <p class="text-muted mb-0">Partners, services, and supporters that can help new Fyuhls operators build a stronger hosting business.</p>
-    </div>
-</div>
+<?php
+include 'header.php';
+include __DIR__ . '/partials/shell_helpers.php';
+renderAdminPageHeader('Resources', 'Partners, services, and supporters that can help new Fyuhls operators build a stronger hosting business.');
+?>
 
 <div class="alert alert-info border-0 shadow-sm mb-4">
     <strong>Supported by real partners:</strong> These companies have helped build this script by supporting us. If you'd like to sponsor and have a spot here, email <a href="mailto:<?= htmlspecialchars($sponsorEmail) ?>"><?= htmlspecialchars($sponsorEmail) ?></a> for a listing.
 </div>
 
 <?php foreach (($resourceSections ?? []) as $section): ?>
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-header bg-white border-0 pt-4 px-4 pb-2">
+    <?php
+    ob_start();
+    ?>
+        <div>
             <h4 class="mb-1"><?= htmlspecialchars($section['title']) ?></h4>
             <p class="text-muted mb-0"><?= htmlspecialchars($section['description']) ?></p>
         </div>
-        <div class="card-body px-4 pb-4">
+    <?php
+    $resourceSectionHeader = ob_get_clean();
+    renderAdminCardStart(null, ['headerHtml' => $resourceSectionHeader]);
+    ?>
             <?php if (!empty($section['items'])): ?>
                 <div class="row g-4">
                     <?php foreach ($section['items'] as $item): ?>
@@ -41,8 +43,7 @@
                     <p class="text-muted mb-0">This section is ready for host and infrastructure partners. When you line up sponsorships or preferred providers, add them here so new operators can find trusted starting points quickly.</p>
                 </div>
             <?php endif; ?>
-        </div>
-    </div>
+    <?php renderAdminCardEnd(); ?>
 <?php endforeach; ?>
 
 <?php include 'footer.php'; ?>

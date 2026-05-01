@@ -9,7 +9,6 @@ use App\Core\Logger;
 use App\Core\View;
 use App\Core\Config;
 use App\Model\ApiToken;
-use App\Model\FileDeletionLog;
 use App\Model\Setting;
 use App\Service\FeatureService;
 use App\Service\PackageAllowanceService;
@@ -18,6 +17,18 @@ use App\Service\LoginDeviceService;
 class AuthController {
     private const MAX_PAYMENT_DETAILS_LENGTH = 500;
     private const MAX_API_TOKEN_NAME_LENGTH = 100;
+
+    private function storageQuotaInfo(int $userId): array
+    {
+        $stmt = Database::getInstance()->getConnection()->prepare('SELECT storage_used FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $used = (int)($stmt->fetchColumn() ?: 0);
+
+        $package = \App\Model\Package::getUserPackage($userId);
+        $limit = (int)($package['max_storage_bytes'] ?? 0);
+
+        return ['used' => $used, 'limit' => $limit];
+    }
 
     private function abortText(int $status, string $message): void
     {
@@ -416,6 +427,29 @@ class AuthController {
         if (($_GET['success'] ?? '') === '2fa_enabled') {
             $success = "Two-factor authentication enabled successfully.";
         }
+        $paymentNotice = trim((string)($_GET['payment'] ?? ''));
+        if ($paymentNotice !== '') {
+            $paymentMessages = [
+                'stripe_success' => ['success', 'Stripe payment completed and your account has been upgraded.'],
+                'stripe_pending' => ['error', 'Stripe payment is still pending confirmation. If you were charged, please refresh in a moment or contact support.'],
+                'stripe_missing_session' => ['error', 'Stripe return was missing the checkout session.'],
+                'paypal_success' => ['success', 'PayPal payment completed and your account has been upgraded.'],
+                'paypal_missing_order' => ['error', 'PayPal return was missing the order details needed to finalize the upgrade.'],
+                'paypal_failed' => ['error', $_SESSION['payment_error'] ?? 'We could not finalize your PayPal checkout. Please contact support if the payment completed on PayPal.'],
+                'paypal_cancelled' => ['error', 'The PayPal checkout was cancelled. You can try again whenever you are ready.'],
+                'stripe_cancelled' => ['error', 'The Stripe checkout was cancelled. You can try again whenever you are ready.'],
+            ];
+
+            if (isset($paymentMessages[$paymentNotice])) {
+                [$type, $message] = $paymentMessages[$paymentNotice];
+                if ($type === 'success') {
+                    $success = $message;
+                } else {
+                    $error = $message;
+                }
+            }
+            unset($_SESSION['payment_error']);
+        }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
@@ -452,7 +486,7 @@ class AuthController {
                     $tokenName = $this->normalizeApiTokenName($_POST['token_name'] ?? 'Desktop API Token');
                     $expiryDays = max(0, (int)($_POST['token_expiry_days'] ?? 0));
                     $requestedScopes = array_values(array_intersect(
-                        ['files.upload', 'files.read'],
+                        ['files.upload', 'files.read', 'files.write', 'stats.read', 'remote.upload'],
                         array_map('strval', $_POST['token_scopes'] ?? [])
                     ));
 
@@ -508,7 +542,7 @@ class AuthController {
             }
         }
 
-        $stmt = $db->prepare("SELECT u.*, p.name as package_name FROM users u JOIN packages p ON u.package_id = p.id WHERE u.id = ?");
+        $stmt = $db->prepare("SELECT u.*, p.name as package_name, p.level_type as package_level_type FROM users u JOIN packages p ON u.package_id = p.id WHERE u.id = ?");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -529,7 +563,7 @@ class AuthController {
             'apiTokens' => $apiTokens,
             'newApiToken' => $newApiToken,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary((int)$userId, \App\Model\Package::getUserPackage((int)$userId) ?: []),
-            'fileDeletionHistory' => FileDeletionLog::getByUploader((int)$userId, 20),
+            'storageQuota' => $this->storageQuotaInfo((int)$userId),
         ]);
     }
 

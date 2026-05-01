@@ -2,12 +2,13 @@
 $title = "Forgot Password - " . ($siteName ?? 'Fyuhls');
 $metaDescription = 'Request a password reset link to regain access to your file hosting account.';
 include __DIR__ . '/header.php';
+include __DIR__ . '/partials/public_form_shell_styles.php';
 ?>
 
-<div class="forgot-password-shell">
-    <div class="forgot-password-card auth-container">
+<div class="public-form-shell">
+    <div class="public-form-card auth-container">
         <h2>Forgot Password</h2>
-        <p class="forgot-password-copy">
+        <p class="public-form-intro">
             Enter your email address and we'll send you a link to reset your password.
         </p>
 
@@ -35,11 +36,5 @@ include __DIR__ . '/header.php';
         </div>
     </div>
 </div>
-
-<style>
-.forgot-password-shell{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
-.forgot-password-card{margin:0}
-.forgot-password-copy{color:var(--text-muted);font-size:.875rem;margin-bottom:1.5rem;text-align:center}
-</style>
 
 <?php include __DIR__ . '/footer.php'; ?>

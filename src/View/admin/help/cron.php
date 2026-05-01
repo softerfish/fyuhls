@@ -19,9 +19,14 @@
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Common Task Groups</h6>
     <ul class="extra-small text-muted mb-4">
         <li class="mb-2"><strong>cleanup / upload_sessions / upload_reconcile / checksum_jobs:</strong> Keep multipart uploads, temp state, and quota reservations healthy.</li>
-        <li class="mb-2"><strong>remote_uploads / mail_queue:</strong> Background imports and outbound email.</li>
+        <li class="mb-2"><strong>remote_uploads / mail_queue / payment_cleanup:</strong> Background imports, outbound email, and payment-history cleanup for abandoned pending checkout attempts.</li>
         <li class="mb-2"><strong>storage_audit / server_monitoring / refresh_stats:</strong> Capacity, node health, and dashboard/stat freshness.</li>
         <li><strong>reward_flush / reward_rollup / fraud_cleanup / fraud_scores / fraud_clearance:</strong> Rewards-only tasks. If they still show <code>Never</code> on a live rewards install, verify the cron path is pointing at the current install and runner.</li>
+    </ul>
+
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Recent Additions</h6>
+    <ul class="extra-small text-muted mb-4">
+        <li><strong>payment_cleanup:</strong> Marks package-payment attempts still stuck in <code>pending</code> after 24 hours as <code>failed</code> so account billing history does not collect abandoned checkout rows forever.</li>
     </ul>
 
     <div class="alert alert-warning border-0 shadow-sm small">

@@ -339,7 +339,7 @@ CREATE TABLE `remote_upload_queue` (
   `user_id` BIGINT UNSIGNED NOT NULL,
   `folder_id` BIGINT UNSIGNED NULL,
   `url` TEXT NOT NULL,
-  `status` ENUM('pending', 'processing', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+  `status` ENUM('pending', 'processing', 'completed', 'failed', 'canceled') NOT NULL DEFAULT 'pending',
   `error_message` TEXT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `processed_at` TIMESTAMP NULL,
@@ -677,6 +677,7 @@ CREATE TABLE `security_cache` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `ip_address` VARCHAR(255) NOT NULL /* Encrypted */,
   `is_vpn` TINYINT(1) NOT NULL DEFAULT 0,
+  `proxy_intel_json` TEXT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `ip_lookup` (`ip_address`)
@@ -717,10 +718,11 @@ CREATE TABLE `earnings` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` BIGINT UNSIGNED NOT NULL,
   `amount` DECIMAL(10,4) NOT NULL,
-  `type` ENUM('download_reward', 'referral', 'bonus', 'withdrawal', 'aggregate_summary') NOT NULL,
-  `status` ENUM('held', 'flagged_review', 'cleared', 'reversed', 'paid', 'cancelled') NOT NULL DEFAULT 'held',
+  `type` ENUM('download_reward', 'pps_reward', 'referral', 'bonus', 'withdrawal', 'aggregate_summary') NOT NULL,
+  `status` ENUM('held', 'flagged_review', 'cleared', 'reversed', 'paid', 'cancelled', 'pending') NOT NULL DEFAULT 'held',
   `file_id` BIGINT UNSIGNED NULL,
   `session_id` BIGINT UNSIGNED NULL,
+  `parent_earning_id` BIGINT UNSIGNED NULL,
   `ip_hash` VARCHAR(64) NULL,
   `risk_score` INT NOT NULL DEFAULT 0,
   `risk_reasons_json` JSON NULL,
@@ -732,10 +734,12 @@ CREATE TABLE `earnings` (
   `network_type` VARCHAR(32) NULL,
   `asn` VARCHAR(64) NULL,
   `description` TEXT NULL,
+  `metadata` JSON NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `earnings_user_date` (`user_id`, `created_at`),
   INDEX `earnings_guard_idx` (`user_id`, `file_id`, `ip_hash`, `created_at`),
+  INDEX `earnings_parent_type_idx` (`parent_earning_id`, `type`),
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

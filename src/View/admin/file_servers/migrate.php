@@ -1,14 +1,14 @@
-<?php include dirname(__DIR__) . '/header.php'; ?>
+<?php
+include dirname(__DIR__) . '/header.php';
+include dirname(__DIR__) . '/partials/shell_helpers.php';
+?>
 <?php
 $selectedFromServer = (int)($migrationForm['from_server'] ?? 0);
 $selectedToServer = (int)($migrationForm['to_server'] ?? 0);
 $selectedBatchLimit = max(1, (int)($migrationForm['batch_limit'] ?? 50));
 ?>
 
-<div class="page-header">
-    <h1>Migrate Files Between Servers</h1>
-    <a href="/admin/configuration?tab=storage" class="btn">&larr; Back to Servers</a>
-</div>
+<?php renderAdminPageHeader('Migrate Files Between Servers', '', '<a href="/admin/configuration?tab=storage" class="btn">&larr; Back to Servers</a>'); ?>
 
 <?php if (isset($results['error'])): ?>
     <div class="alert alert-error"><?= htmlspecialchars($results['error']) ?></div>
@@ -29,9 +29,7 @@ $selectedBatchLimit = max(1, (int)($migrationForm['batch_limit'] ?? 50));
     </div>
 <?php endif; ?>
 
-<div class="card">
-    <div class="card-header">Configure Migration Task</div>
-    <div class="card-body">
+<?php renderAdminCardStart('Configure Migration Task'); ?>
         <form method="POST" id="migrateForm">
             <?= \App\Core\Csrf::field() ?>
             <div class="migrate-server-grid">
@@ -66,8 +64,7 @@ $selectedBatchLimit = max(1, (int)($migrationForm['batch_limit'] ?? 50));
 
             <button type="submit" class="migrate-submit btn btn-primary btn-lg">Start Migration Batch</button>
         </form>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <style>
 .migrate-next-batch{margin-top:1rem}

@@ -79,6 +79,19 @@ class FileDeletionLog
         return $rows;
     }
 
+    public static function hasOriginalFileId(int $originalFileId): bool
+    {
+        if ($originalFileId <= 0) {
+            return false;
+        }
+
+        self::ensureTable();
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT 1 FROM file_deletion_log WHERE original_file_id = ? LIMIT 1");
+        $stmt->execute([$originalFileId]);
+        return (bool)$stmt->fetchColumn();
+    }
+
     private static function decryptValue($value): string
     {
         if (!is_string($value) || $value === '') {

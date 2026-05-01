@@ -1,4 +1,7 @@
-<?php include __DIR__ . '/../header.php'; ?>
+<?php
+include __DIR__ . '/../header.php';
+include __DIR__ . '/../partials/shell_helpers.php';
+?>
 
 <style>
     .users-alert { margin-bottom: 1.5rem; }
@@ -50,9 +53,7 @@
     }
 </style>
 
-<div class="page-header">
-    <h1>User Management</h1>
-</div>
+<?php renderAdminPageHeader('User Management'); ?>
 
 <?php if (!empty($error)): ?>
     <div class="alert alert-danger users-alert"><?= htmlspecialchars($error) ?></div>
@@ -61,12 +62,13 @@
     <div class="alert alert-success users-alert"><?= htmlspecialchars($success) ?></div>
 <?php endif; ?>
 
-<div class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span>Create Account</span>
+<?php ob_start(); ?>
+    <div class="d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">Create Account</div>
         <span class="users-card-header-note">Create a standard or admin account without leaving the Users page.</span>
     </div>
-    <div class="card-body">
+<?php $usersCreateHeader = ob_get_clean(); ?>
+<?php renderAdminCardStart(null, ['cardClass' => 'card mb-4', 'headerHtml' => $usersCreateHeader]); ?>
         <?php if (!empty($demoMode)): ?>
             <div class="alert alert-info users-demo-note">Demo mode is active. You can mark one active admin account as the demo admin. That account keeps sensitive items hidden, while other admins can still reveal protected fields when needed.</div>
         <?php endif; ?>
@@ -119,18 +121,18 @@
                 <button type="submit" class="btn btn-primary">Create User</button>
             </div>
         </form>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
-<div class="card">
-    <div class="card-header users-list-header">
+<?php ob_start(); ?>
+    <div class="users-list-header">
         <span>users</span>
         <form method="GET" class="users-search-form">
             <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="partial username, email, or ID..." class="users-search-input">
             <button type="submit" class="btn btn-primary">search</button>
         </form>
     </div>
-    <div class="card-body users-card-body-flat">
+<?php $usersListHeader = ob_get_clean(); ?>
+<?php renderAdminCardStart(null, ['headerHtml' => $usersListHeader, 'bodyClass' => 'card-body users-card-body-flat']); ?>
         <?php if (empty($users)): ?>
             <p class="users-empty">no users found.</p>
         <?php else: ?>
@@ -234,7 +236,6 @@
                 </div>
             <?php endif; ?>
         <?php endif; ?>
-    </div>
-</div>
+<?php renderAdminCardEnd(); ?>
 
 <?php include __DIR__ . '/../footer.php'; ?>

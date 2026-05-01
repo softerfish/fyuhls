@@ -11,23 +11,39 @@ $exampleTiers = $exampleTiers ?? [];
 $rewardsActive = true;
 ?>
 
-<ul class="nav nav-pills mb-4 bg-light p-2 rounded" id="monetizationTabs" role="tablist">
-    <li class="nav-item">
-        <button class="nav-link active fw-bold small" id="rewards-tab" data-bs-toggle="pill" data-bs-target="#rewards-content" type="button">
-            <i class="bi bi-cash-coin me-2"></i> Rewards
-        </button>
-    </li>
-    <li class="nav-item">
-        <button class="nav-link fw-bold small" id="ads-tab" data-bs-toggle="pill" data-bs-target="#ads-content" type="button">
-            <i class="bi bi-megaphone me-2"></i> Ad Placements
-        </button>
-    </li>
-    <li class="nav-item">
-        <button class="nav-link fw-bold small" id="tiers-tab" data-bs-toggle="pill" data-bs-target="#tiers-content" type="button">
-            <i class="bi bi-globe me-2"></i> PPD Geographic Tiers
-        </button>
-    </li>
-</ul>
+<div class="config-section-shell">
+    <div class="config-section-nav">
+        <div class="config-section-nav__eyebrow">Revenue Sections</div>
+        <div class="nav flex-column nav-pills" id="monetizationTabs" role="tablist" aria-orientation="vertical">
+            <button class="nav-link text-start active" id="rewards-tab" data-bs-toggle="pill" data-bs-target="#rewards-content" type="button">
+                <i class="bi bi-cash-coin me-2"></i> Rewards
+            </button>
+            <button class="nav-link text-start" id="ads-tab" data-bs-toggle="pill" data-bs-target="#ads-content" type="button">
+                <i class="bi bi-megaphone me-2"></i> Ad Placements
+            </button>
+            <button class="nav-link text-start" id="tiers-tab" data-bs-toggle="pill" data-bs-target="#tiers-content" type="button">
+                <i class="bi bi-globe me-2"></i> PPD Geographic Tiers
+            </button>
+        </div>
+    </div>
+    <div class="config-section-content">
+        <div class="config-section-intro">
+            <div>
+                <h5 class="config-section-intro__title">Monetization</h5>
+                <p class="config-section-intro__text">Configure uploader rewards, withdrawal rules, payment gateways, ad placements, and the geographic tier logic that drives PPD payout strategy.</p>
+            </div>
+            <ul class="config-summary-chips">
+                <li class="config-summary-chip <?= !empty($rewardsEnabled) ? 'config-summary-chip--success' : 'config-summary-chip--warning' ?>">Rewards: <?= !empty($rewardsEnabled) ? 'Enabled' : 'Off' ?></li>
+                <li class="config-summary-chip <?= !empty($affiliateEnabled) ? 'config-summary-chip--info' : 'config-summary-chip--warning' ?>">Affiliate: <?= !empty($affiliateEnabled) ? 'Enabled' : 'Off' ?></li>
+                <li class="config-summary-chip <?= (!empty($stripeEnabled) || !empty($paypalEnabled)) ? 'config-summary-chip--success' : 'config-summary-chip--warning' ?>">Checkout: <?= (!empty($stripeEnabled) || !empty($paypalEnabled)) ? 'Configured' : 'No gateway' ?></li>
+            </ul>
+        </div>
+        <details class="config-help-panel">
+            <summary>How this works</summary>
+            <div class="config-help-panel__body">
+                <p>Rewards and affiliate settings shape what users can earn, while the gateway settings shape how packages are sold. Ad placements and PPD tiers are separate surfaces because they influence monetization in very different ways.</p>
+            </div>
+        </details>
 
 <div class="tab-content" id="monetizationContent">
     <div class="tab-pane fade show active" id="rewards-content">
@@ -36,22 +52,22 @@ $rewardsActive = true;
             <input type="hidden" name="section" value="monetization">
             <input type="hidden" name="monetization_action" value="rewards_settings">
 
-            <div class="card border-0 shadow-sm mb-4">
+            <div class="card border-0 shadow-sm mb-4 config-section-card">
                 <div class="card-body">
                     <div class="form-check form-switch mb-3">
                         <input class="form-check-input" type="checkbox" name="rewards_enabled" id="rewardsEnabled" value="1" <?= !empty($rewardsEnabled) ? 'checked' : '' ?>>
                         <label class="form-check-label fw-bold" for="rewardsEnabled">Enable Rewards</label>
-                        <div class="small text-muted mt-1">Turns on the built-in monetization system for pay-per-download, payouts, withdrawal requests, uploader earnings tracking, and the rewards fraud tools.</div>
+                        <div class="config-form-note mt-1">Turns on the built-in monetization system for pay-per-download, payouts, withdrawal requests, uploader earnings tracking, and the rewards fraud tools.</div>
                     </div>
                     <div class="form-check form-switch mb-0">
                         <input class="form-check-input" type="checkbox" name="affiliate_enabled" id="affiliateEnabled" value="1" <?= !empty($affiliateEnabled) ? 'checked' : '' ?>>
                         <label class="form-check-label fw-bold" for="affiliateEnabled">Enable Affiliate Program</label>
-                        <div class="small text-muted mt-1">Enables referral tracking so users can earn commission when visitors they refer buy packages or generate qualifying sales activity. Affiliate requires Rewards and will automatically turn off if Rewards is disabled.</div>
+                        <div class="config-form-note mt-1">Enables referral tracking so users can earn commission when visitors they refer buy packages or generate qualifying sales activity. Affiliate requires Rewards and will automatically turn off if Rewards is disabled.</div>
                     </div>
                 </div>
             </div>
 
-            <div class="card border-0 shadow-sm mb-4">
+            <div class="card border-0 shadow-sm mb-4 config-section-card">
                 <div class="card-body">
                     <h6 class="fw-bold mb-3">Available Monetization Models</h6>
                     <?php foreach (['ppd' => 'Pay-Per-Download', 'pps' => 'Pay-Per-Sale', 'mixed' => 'Mixed Model'] as $modelKey => $modelLabel): ?>
@@ -67,27 +83,27 @@ $rewardsActive = true;
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">PPS Commission (%)</label>
                     <input type="number" class="form-control" name="pps_commission_percent" value="<?= htmlspecialchars($ppsCommission ?? '50') ?>" min="0" max="100">
-                    <div class="small text-muted mt-1">Direct pay-per-sale commission paid to the uploader when a premium purchase is attributed through their download flow.</div>
+                    <div class="config-form-note mt-1">Direct pay-per-sale commission paid to the uploader when a premium purchase is attributed through their download flow.</div>
                 </div>
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">Referral % Rate</label>
                     <input type="number" class="form-control" name="referral_commission_percent" value="<?= htmlspecialchars($referralCommissionPercent ?? '50') ?>" min="0" max="100">
-                    <div class="small text-muted mt-1">Affiliate referral commission paid to the referring user when someone signs up under their referral link and generates eligible earnings.</div>
+                    <div class="config-form-note mt-1">Affiliate referral commission paid to the referring user when someone signs up under their referral link and generates eligible earnings.</div>
                 </div>
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">Affiliate Hold Days</label>
                     <input type="number" class="form-control" name="affiliate_hold_days" value="<?= htmlspecialchars(\App\Model\Setting::get('affiliate_hold_days', '5', 'rewards')) ?>" min="0" max="90">
-                    <div class="small text-muted mt-1">How long affiliate commission stays held before it clears automatically. Use this to buffer refunds and chargebacks. Default: 5 days.</div>
+                    <div class="config-form-note mt-1">How long affiliate commission stays held before it clears automatically. Use this to buffer refunds and chargebacks. Default: 5 days.</div>
                 </div>
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">Mixed PPD Percentage (%)</label>
                     <input type="number" class="form-control" name="mixed_ppd_percent" value="<?= htmlspecialchars($mixedPpdPercent ?? '30') ?>">
-                    <div class="small text-muted mt-1">How much of the standard PPD rate a Hybrid user receives for download earnings.</div>
+                    <div class="config-form-note mt-1">How much of the standard PPD rate a Hybrid user receives for download earnings.</div>
                 </div>
                 <div class="col-md-6 mb-4">
                     <label class="form-label fw-bold">Mixed PPS Percentage (%)</label>
                     <input type="number" class="form-control" name="mixed_pps_percent" value="<?= htmlspecialchars($mixedPpsPercent ?? '30') ?>" min="0" max="100">
-                    <div class="small text-muted mt-1">How much of the standard PPS commission a Hybrid user receives for premium sales attributed through their files.</div>
+                    <div class="config-form-note mt-1">How much of the standard PPS commission a Hybrid user receives for premium sales attributed through their files.</div>
                 </div>
             </div>
 
@@ -161,24 +177,24 @@ $rewardsActive = true;
                 <input type="number" class="monetization-retention-input form-control" name="rewards_retention_days" value="<?= htmlspecialchars($retentionDays ?? '7') ?>" min="1" max="365">
             </div>
 
-            <div class="alert alert-info">
+            <div class="config-soft-callout config-section-card">
                 PPD rates are controlled from the <strong>PPD Geographic Tiers</strong> tab. Add country-based tiers there instead of using one flat global rate. If you want a rest-of-world fallback, create a tier with no countries assigned.
             </div>
 
-            <div class="alert alert-warning">
+            <div class="config-soft-callout config-section-card">
                         PPD can count on accelerated delivery methods, but for ordinary file downloads the strongest threshold-based proof is App-Controlled PHP. Nginx can also honor <code>ppd_min_download_percent</code> through its completion log pipeline. Direct URLs, Apache X-SendFile, and LiteSpeed standard-file handoff remain start-based unless Fyuhls falls back to PHP.
             </div>
 
-            <div class="alert alert-info">
+            <div class="config-soft-callout config-section-card">
                 If you enable streaming support in the Downloads tab, video rewards can use watch-based validation. That streaming proof is separate from ordinary file-download payout verification. Use the video watch percent and seconds settings here to define the minimum playback needed before credit is considered.
             </div>
 
-            <div class="card border-0 shadow-sm mb-4">
+            <div class="card border-0 shadow-sm mb-4 config-section-card">
                 <div class="card-body">
                     <h6 class="fw-bold mb-3">Payment Gateways</h6>
                     <div class="row g-4">
                         <div class="col-lg-6">
-                            <div class="border rounded p-3 h-100">
+                            <div class="config-soft-callout h-100">
                                 <div class="form-check form-switch mb-3">
                                     <input class="form-check-input" type="checkbox" name="payment_stripe_enabled" id="paymentStripeEnabled" value="1" <?= !empty($stripeEnabled) ? 'checked' : '' ?>>
                                     <label class="form-check-label fw-bold" for="paymentStripeEnabled">Enable Stripe Checkout</label>
@@ -190,12 +206,12 @@ $rewardsActive = true;
                                 <div class="mb-0">
                                     <label class="form-label fw-bold">Webhook Secret</label>
                                     <input type="password" class="form-control" name="payment_stripe_webhook_secret" placeholder="<?= !empty($stripeWebhookSecret) ? 'Saved. Leave blank to keep current.' : 'whsec_...' ?>">
-                                    <div class="small text-muted mt-1">Used for Stripe webhook verification on <code>/payment/callback/stripe</code>. Stripe success redirects also work through the direct session confirmation route.</div>
+                                    <div class="config-form-note mt-1">Used for Stripe webhook verification on <code>/payment/callback/stripe</code>. Stripe success redirects also work through the direct session confirmation route.</div>
                                 </div>
                             </div>
                         </div>
                         <div class="col-lg-6">
-                            <div class="border rounded p-3 h-100">
+                            <div class="config-soft-callout h-100">
                                 <div class="form-check form-switch mb-3">
                                     <input class="form-check-input" type="checkbox" name="payment_paypal_enabled" id="paymentPaypalEnabled" value="1" <?= !empty($paypalEnabled) ? 'checked' : '' ?>>
                                     <label class="form-check-label fw-bold" for="paymentPaypalEnabled">Enable PayPal Checkout</label>
@@ -216,14 +232,17 @@ $rewardsActive = true;
                                     <input class="form-check-input" type="checkbox" name="payment_paypal_sandbox" id="paymentPaypalSandbox" value="1" <?= !empty($paypalSandbox) ? 'checked' : '' ?>>
                                     <label class="form-check-label" for="paymentPaypalSandbox">Use PayPal Sandbox</label>
                                 </div>
-                                <div class="small text-muted mt-2">PayPal uses server-side order creation and capture with a return URL back into the app. Switch Sandbox off only after your live credentials are ready.</div>
+                                <div class="config-form-note mt-2">PayPal uses server-side order creation and capture with a return URL back into the app. Switch Sandbox off only after your live credentials are ready.</div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <button type="submit" class="btn btn-primary px-5">Save Rewards Settings</button>
+            <div class="config-sticky-save">
+                <p class="config-sticky-save__text">Rewards settings shape uploader earnings, payout rules, and package checkout readiness all at once, so changes here are worth reviewing carefully before saving.</p>
+                <button type="submit" class="btn btn-primary px-5">Save Rewards Settings</button>
+            </div>
         </form>
     </div>
 
@@ -234,7 +253,7 @@ $rewardsActive = true;
             <input type="hidden" name="section" value="monetization">
             <input type="hidden" name="monetization_action" value="ads">
 
-            <div class="alert alert-warning">
+            <div class="config-soft-callout config-section-card">
                 These ad fields intentionally accept raw HTML and JavaScript ad tags. Only paste code you trust. The script now redacts these blocks from the admin activity log, and oversized ad blocks are rejected.
             </div>
 
@@ -261,11 +280,14 @@ $rewardsActive = true;
 
             <div class="mb-4">
                 <label class="form-label fw-bold">Interstitial / Overlay Ad</label>
-                <div class="text-muted extra-small mb-2">Typically used for full-page pop-unders or modal dialogs that appear before the download begins.</div>
+                <div class="config-form-note extra-small mb-2">Typically used for full-page pop-unders or modal dialogs that appear before the download begins.</div>
                 <textarea class="form-control font-monospace" name="ads[download_overlay]" rows="4"><?= htmlspecialchars($adOverlay ?? '') ?></textarea>
             </div>
 
-            <button type="submit" class="btn btn-primary px-5">Save Ad Placements</button>
+            <div class="config-sticky-save">
+                <p class="config-sticky-save__text">Ad placement code runs on the public download surface, so keep it trusted, intentional, and as small as possible.</p>
+                <button type="submit" class="btn btn-primary px-5">Save Ad Placements</button>
+            </div>
         </form>
     </div>
 
@@ -290,12 +312,12 @@ $rewardsActive = true;
             </div>
         </div>
 
-        <div class="alert alert-light border mb-4">
+        <div class="config-soft-callout mb-4 config-section-card">
             Set your PPD payout rates here by country group. Higher-value countries can sit in a higher tier, lower-value countries in a lower tier, and an empty-country tier can be used as your catch-all fallback.
         </div>
 
         <?php if (!empty($exampleTiers)): ?>
-            <div class="card border-0 shadow-sm mb-4">
+            <div class="card border-0 shadow-sm mb-4 config-section-card">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
                         <div>
@@ -358,9 +380,14 @@ $rewardsActive = true;
                     </tbody>
                 </table>
             </div>
-            <button type="submit" class="btn btn-primary mt-4 px-5">Save Tier Changes</button>
+                    <div class="config-sticky-save">
+                        <p class="config-sticky-save__text">Tier changes immediately affect the live PPD rate table used by uploader-facing rewards surfaces.</p>
+                        <button type="submit" class="btn btn-primary px-5">Save Tier Changes</button>
+                    </div>
         </form>
     </div>
+</div>
+</div>
 </div>
 
 <!-- Add Tier Modal -->
@@ -457,4 +484,7 @@ document.addEventListener('click', function(event) {
 .monetization-retention-input { max-width: 220px; }
 .monetization-tier-rate { width: 120px; }
 .monetization-delete-tier-form { display: none; }
+.nav#monetizationTabs .nav-link {
+    width: 100%;
+}
 </style>

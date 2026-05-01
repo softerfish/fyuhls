@@ -337,14 +337,22 @@ If you are updating Fyuhls manually instead of using the in-app updater, use thi
 
 ### Replace the application files
 1. Upload the new Fyuhls release into a temporary folder on the server.
-2. Replace the application code and shipped assets from the new release.
-3. Preserve your existing runtime and environment-specific files:
-   - `config/database.php`
-   - your hidden config file outside the webroot
+2. Overwrite the shipped application code and assets:
+   - `src/`
+   - `public/`
+   - `config/` except your live `app.php` and `database.php`
+   - `themes/default/`
+   - shipped root files such as `README.md`, `CHANGELOG.md`, and `nginx.conf.example` if you wanted a copy of them
+3. Do **not** overwrite:
    - `storage/`
    - `themes/custom/`
-4. If you are updating from source rather than a packaged release, run:
-   - `composer install --no-dev --optimize-autoloader`
+   - `vendor/`
+   - `database/`
+   - `config/app.php`
+   - `config/database.php`
+   - your hidden config file outside the webroot
+4. If you are updating from a normal packaged release, you should not need to run Composer manually.
+5. If you are updating from source rather than a packaged release, follow the separate **Installing From Source** section and run Composer there.
 
 ### Re-apply anything environment-specific
 After the file replacement, review anything that may have local server-specific values or customizations:

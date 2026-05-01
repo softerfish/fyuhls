@@ -11,6 +11,7 @@ Note: This project may use affiliate links occasionally. Any revenue earned help
 
 Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a modern PHP 8.2+ MVC architecture, fyuhls is aimed at operators who want a self-hosted file hosting platform with real control over storage, packages, uploads, downloads, monetization, diagnostics, and admin operations.
 
+Main Page: [https://privacyglance.com](https://privacyglance.com) (demo here with user/pass: `tester` / `tester`)
 
 ## Table of Contents
 - [Advanced Features](#advanced-features)

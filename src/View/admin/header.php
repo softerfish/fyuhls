@@ -290,19 +290,26 @@ $helpTitleMap = [
                     renderAdminSidebarLink('/admin/downloads/current', 'Live Downloads', 'bi bi-cloud-download', $currentNavKey === 'live_downloads');
                     renderAdminSidebarSectionEnd();
 
-                    $infraBadge = '';
+                    $configHubBadge = '';
                     if ($configHubNoticeCount > 0) {
-                        $infraBadge = '<span class="badge bg-warning text-dark rounded-pill">' . $configHubNoticeCount . '</span>';
+                        $configHubBadge = '<span class="badge bg-warning text-dark rounded-pill">' . $configHubNoticeCount . '</span>';
                     } elseif ($cronOffline) {
-                        $infraBadge = '<span class="badge bg-danger rounded-pill" title="Cron Jobs Offline"><i class="bi bi-exclamation-triangle-fill"></i></span>';
+                        $configHubBadge = '<span class="badge bg-danger rounded-pill" title="Cron Jobs Offline"><i class="bi bi-exclamation-triangle-fill"></i></span>';
                     } elseif (\App\Model\Setting::get('db_drift_detected', '0') === '1') {
-                        $infraBadge = '<span class="badge bg-danger p-1 border border-light rounded-circle" title="Drift Detected"></span>';
+                        $configHubBadge = '<span class="badge bg-danger p-1 border border-light rounded-circle" title="Drift Detected"></span>';
                     }
-                    renderAdminSidebarSectionStart('adminSidebarInfrastructure', 'Infrastructure', $sectionStates['infrastructure'], $infraBadge);
-                    renderAdminSidebarLink('/admin/configuration', 'Config Hub', 'bi bi-cpu', $currentNavKey === 'configuration', $infraBadge);
+
+                    $updateBadge = $updateAvailable ? '<span class="badge bg-warning text-dark rounded-pill">Update</span>' : '';
+                    $infraSectionBadge = $configHubBadge;
+                    if ($updateAvailable && !$sectionStates['infrastructure']) {
+                        $infraSectionBadge .= ($infraSectionBadge !== '' ? ' ' : '') . $updateBadge;
+                    }
+
+                    renderAdminSidebarSectionStart('adminSidebarInfrastructure', 'Infrastructure', $sectionStates['infrastructure'], $infraSectionBadge);
+                    renderAdminSidebarLink('/admin/configuration', 'Config Hub', 'bi bi-cpu', $currentNavKey === 'configuration', $configHubBadge);
                     renderAdminSidebarLink('/admin/site-content', 'Site Content', 'bi bi-pencil-square', $currentNavKey === 'site_content');
                     renderAdminSidebarLink('/admin/plugins', 'Plugins', 'bi bi-puzzle', $currentNavKey === 'plugins');
-                    $statusBadge = $updateAvailable ? '<span class="badge bg-warning text-dark rounded-pill">Update</span>' : '';
+                    $statusBadge = ($updateAvailable && $sectionStates['infrastructure']) ? $updateBadge : '';
                     renderAdminSidebarLink('/admin/status', 'System Status', 'admin-status-icon bi bi-activity p-1 bg-danger text-white rounded', $currentNavKey === 'status', $statusBadge);
                     renderAdminSidebarSectionEnd();
                 ?>

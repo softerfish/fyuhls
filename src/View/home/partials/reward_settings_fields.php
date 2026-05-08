@@ -1,38 +1,53 @@
 <style>
     .reward-settings-card {
-        margin-top: 2rem;
-        padding: 1.5rem;
+        padding: 1rem 1.05rem;
         background: #f8fafc;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
     }
     .reward-settings-label {
-        font-weight: 600;
+        font-weight: 700;
         display: block;
         margin-bottom: 0.5rem;
-        font-size: 1rem;
+        font-size: 0.94rem;
+        color: #0f172a;
     }
     .reward-settings-copy {
-        font-size: 0.8125rem;
+        font-size: 0.83rem;
         color: var(--text-muted);
-        margin-bottom: 1.25rem;
-        line-height: 1.5;
+        margin-bottom: 1rem;
+        line-height: 1.55;
     }
     .reward-settings-group { margin-bottom: 0; }
     .reward-settings-select,
     .reward-settings-input {
         width: 100%;
         border: 1px solid var(--border-color);
-        border-radius: 6px;
+        border-radius: 10px;
     }
     .reward-settings-select {
         padding: 0.75rem;
-        border-color: var(--primary-color);
     }
     .reward-settings-grid {
         display: grid;
-        grid-template-columns: 1fr 1.5fr;
-        gap: 1.5rem;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+        gap: 1rem 1.25rem;
+        margin-top: 1rem;
+    }
+    .reward-settings-heading {
+        margin: 1.4rem 0 0.35rem;
+        font-size: 0.94rem;
+        font-weight: 800;
+        color: #0f172a;
+    }
+    .reward-settings-heading-copy {
+        margin: 0 0 1rem;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        line-height: 1.55;
+    }
+    @media (max-width: 900px) {
+        .reward-settings-grid { grid-template-columns: 1fr; }
     }
 </style>
 
@@ -57,7 +72,8 @@
     </div>
 </div>
 
-<h3 class="settings-section-title" style="margin-top: 2.5rem;">Withdrawal & Payment Settings</h3>
+<h4 class="reward-settings-heading">Withdrawal & Payment Settings</h4>
+<p class="reward-settings-heading-copy">Set the payout method and account details staff should use when your earnings are ready to withdraw. Leave this current so payments are not delayed.</p>
 <?php
 $supportedMethods = array_filter(array_map('trim', explode(',', \App\Model\Setting::get('supported_withdrawal_methods', 'paypal,bitcoin', 'rewards'))));
 $methodLabels = [

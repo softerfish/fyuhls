@@ -69,14 +69,65 @@ class FileDeletionLog
         $stmt->bindValue(2, max(1, $limit), \PDO::PARAM_INT);
         $stmt->execute();
 
-        $rows = $stmt->fetchAll() ?: [];
-        foreach ($rows as &$row) {
-            $row['original_filename'] = self::decryptValue($row['original_filename'] ?? null);
-            $row['delete_reason'] = self::decryptValue($row['delete_reason'] ?? null);
-            $row['deleted_by_label'] = self::decryptValue($row['deleted_by_label'] ?? null);
+        return self::decryptRows($stmt->fetchAll() ?: []);
+    }
+
+    public static function getByUploaderPage(int $userId, int $page = 1, int $perPage = 20, string $scope = 'all'): array
+    {
+        if ($userId <= 0) {
+            return [];
         }
 
-        return $rows;
+        self::ensureTable();
+        $db = Database::getInstance()->getConnection();
+        $page = max(1, $page);
+        $perPage = max(1, min(100, $perPage));
+        $offset = ($page - 1) * $perPage;
+        [$whereSql, $params] = self::scopeClause($scope);
+
+        $stmt = $db->prepare("
+            SELECT *
+            FROM file_deletion_log
+            WHERE uploader_user_id = ?
+              {$whereSql}
+            ORDER BY deleted_at DESC, id DESC
+            LIMIT ? OFFSET ?
+        ");
+        $index = 1;
+        $stmt->bindValue($index++, $userId, \PDO::PARAM_INT);
+        foreach ($params as $param) {
+            $stmt->bindValue($index++, $param, \PDO::PARAM_STR);
+        }
+        $stmt->bindValue($index++, $perPage, \PDO::PARAM_INT);
+        $stmt->bindValue($index++, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return self::decryptRows($stmt->fetchAll() ?: []);
+    }
+
+    public static function countByUploader(int $userId, string $scope = 'all'): int
+    {
+        if ($userId <= 0) {
+            return 0;
+        }
+
+        self::ensureTable();
+        $db = Database::getInstance()->getConnection();
+        [$whereSql, $params] = self::scopeClause($scope);
+        $stmt = $db->prepare("
+            SELECT COUNT(*)
+            FROM file_deletion_log
+            WHERE uploader_user_id = ?
+              {$whereSql}
+        ");
+        $index = 1;
+        $stmt->bindValue($index++, $userId, \PDO::PARAM_INT);
+        foreach ($params as $param) {
+            $stmt->bindValue($index++, $param, \PDO::PARAM_STR);
+        }
+        $stmt->execute();
+
+        return (int)$stmt->fetchColumn();
     }
 
     public static function hasOriginalFileId(int $originalFileId): bool
@@ -103,6 +154,27 @@ class FileDeletionLog
         }
 
         return $value;
+    }
+
+    private static function decryptRows(array $rows): array
+    {
+        foreach ($rows as &$row) {
+            $row['original_filename'] = self::decryptValue($row['original_filename'] ?? null);
+            $row['delete_reason'] = self::decryptValue($row['delete_reason'] ?? null);
+            $row['deleted_by_label'] = self::decryptValue($row['deleted_by_label'] ?? null);
+        }
+
+        return $rows;
+    }
+
+    private static function scopeClause(string $scope): array
+    {
+        $scope = strtolower(trim($scope));
+        return match ($scope) {
+            'user' => ["AND deleted_by_role = ?", ['user']],
+            'admin' => ["AND deleted_by_role <> ?", ['user']],
+            default => ['', []],
+        };
     }
 
     private static function ensureTable(): void

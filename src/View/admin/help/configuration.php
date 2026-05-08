@@ -1,54 +1,29 @@
 <div class="help-section">
     <h6 class="fw-bold text-dark mb-3">Configuration Hub</h6>
-    <p class="small text-muted">Config Hub is the main control panel for site-wide behavior. Each tab saves only its own section, so changing one tab does not overwrite the others. Use the save button at the bottom of the tab you are editing.</p>
+    <p class="small text-muted">Config Hub is the site-wide control surface. Each tab saves its own section only, so changing one tab does not overwrite the rest.</p>
 
     <div class="mb-4">
-        <div class="fw-bold small text-primary mb-1">1. General</div>
+        <div class="fw-bold small text-primary mb-1">When To Use Config Hub</div>
         <ul class="extra-small text-muted ps-3">
-            <li><strong>Site Name:</strong> Changes the brand label used across the frontend, emails, and admin area. Edit the field, then click <strong>Save General Configuration</strong>.</li>
-            <li><strong>Admin Notification Email:</strong> Sets the address that receives DMCA, abuse, and admin-facing alerts. Change the address, then save the General tab.</li>
-            <li><strong>Reserved Usernames:</strong> Blocks specific names from being registered. Enter a comma-separated list, then save the General tab.</li>
-            <li><strong>Allow New Registrations:</strong> Opens or closes public signup. Toggle the switch, then save the General tab.</li>
-            <li><strong>Require Email Verification:</strong> Forces new users to verify email before login access. Toggle the switch, then save the General tab.</li>
-            <li><strong>Maintenance Mode:</strong> Restricts the frontend to admins only. Turn it on only when you are ready for a maintenance window, then save the General tab.</li>
-            <li><strong>Demo Mode:</strong> Enables the demo-mode feature set used with the designated demo admin account. Toggle it here, then save the General tab.</li>
-            <li><strong>Show Powered By:</strong> Controls the branded footer credit on the public site. Toggle the switch, then save the General tab.</li>
-            <li><strong>FFmpeg Settings:</strong> Enables video thumbnail generation and stores the FFmpeg binary path. Turn the switch on, enter the server path, then save the General tab.</li>
+            <li><strong>Use Config Hub when:</strong> You are changing a site-wide default, security rule, delivery behavior, queue setting, monetization master switch, or SEO policy.</li>
+            <li><strong>Use another page instead when:</strong> You are editing one package, working a ticket, moderating a file, or changing public-site copy. Those belong to their dedicated admin pages.</li>
         </ul>
     </div>
 
     <div class="mb-4">
-        <div class="fw-bold small text-primary mb-1">2. Security</div>
+        <div class="fw-bold small text-primary mb-1">Main Tabs</div>
         <ul class="extra-small text-muted ps-3">
-            <li><strong>Identity &amp; VPN:</strong> Controls Protection Mode (<strong>None</strong>, <strong>Enforcement</strong>, or <strong>Intelligence</strong>), the ProxyCheck key, whitelist entries, and login or registration rate limits. Registration limiting is tracked per IP address. Change the fields on that sub-tab, then click <strong>Save Security Rules</strong>.</li>
-            <li><strong>2FA:</strong> Uses the separate 2FA card inside Security. Turn it on, optionally choose an enforcement date, then click <strong>Save 2FA Settings</strong>.</li>
-            <li><strong>Captcha:</strong> Stores Turnstile keys and placement switches for login, registration, guest download, free-user download, file reports, contact, and DMCA forms. Change the keys or switches, then click <strong>Save Captcha Rules</strong>.</li>
-            <li><strong>Cloudflare:</strong> Controls trusted Cloudflare header handling and the IP-range sync action. Save the toggle on that sub-tab, then use the sync button whenever proxy ranges need refreshing.</li>
-            <li><strong>Migration / Health:</strong> Runs pending encryption work and schema repair tools. These are action buttons, not ordinary save forms.</li>
-        </ul>
-    </div>
-
-    <div class="mb-4">
-        <div class="fw-bold small text-primary mb-1">3. Email And Storage</div>
-        <ul class="extra-small text-muted ps-3">
-            <li><strong>Email:</strong> Stores SMTP host, auth, sender details, rate limits, and system templates. Change the SMTP form, then click <strong>Save SMTP Config</strong>. Template edits are saved from the template modal itself.</li>
-            <li><strong>Storage:</strong> Controls file-server inventory, statuses, capacity planning, delivery methods, connection tests, migrations, and provider-specific tools like the B2 bucket picker and B2 CORS automation. Storage nodes are changed from their own add, edit, and migrate screens.</li>
-        </ul>
-    </div>
-
-    <div class="mb-4">
-        <div class="fw-bold small text-primary mb-1">4. Monetization, SEO, Cron Jobs, Downloads, Uploads</div>
-        <ul class="extra-small text-muted ps-3">
-            <li><strong>Monetization:</strong> Covers rewards, affiliate, payout rules, ad placements, PPD tiers, and payment-gateway settings. Change the fields in that tab and use its save button.</li>
-            <li><strong>SEO:</strong> Controls title templates, homepage metadata, sitemap behavior, robots rules, file-page templates, structured data, and search-engine verification. Edit the fields on the SEO tab, then save that tab.</li>
-            <li><strong>Downloads:</strong> Controls account requirement, country blocks, active connection tracking, remote URL background processing, streaming support, Nginx completion log settings, and optional CDN redirects. Edit those fields and click <strong>Save Download Settings</strong>.</li>
-            <li><strong>Uploads:</strong> Controls browser upload behavior, guest-versus-login policy, deduplication, multipart support, upload tray behavior, filename-in-URL behavior, and the download-page save action. Edit those fields and click <strong>Save Upload Configuration</strong>.</li>
-            <li><strong>Link Checker:</strong> Controls whether the public footer-linked checker is enabled, how many links it can process per batch, how many total links one IP can process per second, and whether signed-in users can use its copy-to-account action. The public checker now reports only <strong>Available</strong>, <strong>Not Available</strong>, or <strong>Invalid</strong> so private file metadata is not exposed. Edit those fields and click <strong>Save Link Checker Settings</strong>.</li>
-            <li><strong>Cron Jobs:</strong> Changes the managed task intervals stored in the database. Edit the frequency fields and click <strong>Save Frequencies</strong>. The manual trigger button is separate.</li>
+            <li><strong>General:</strong> Site name, notifications, registration policy, maintenance, demo mode, footer branding, and FFmpeg support.</li>
+            <li><strong>Security:</strong> ProxyCheck mode and scope, whitelist entries, 2FA, captcha, Cloudflare trust, encryption migration, and schema health.</li>
+            <li><strong>Email:</strong> SMTP, queue rate, test tools, and templates.</li>
+            <li><strong>Tickets:</strong> Support inbox address, email triggers, rate limits, and waiting-on-user reminder controls.</li>
+            <li><strong>Monetization:</strong> Rewards, affiliate, payout, ads, payment gateways, and related behavior.</li>
+            <li><strong>Downloads / Uploads:</strong> Site-wide transfer, upload, link-checker, and save-to-account defaults.</li>
+            <li><strong>SEO / Cron:</strong> Search-engine behavior and job-frequency controls.</li>
         </ul>
     </div>
 
     <div class="alert alert-light border-0 small py-2">
-        <strong>Tip:</strong> When you are unsure where a setting lives, use the tab name first. Settings that affect quotas or user entitlements usually belong to <strong>Packages</strong>, while site-wide defaults belong to <strong>Config Hub</strong>. Workflow pages like <strong>Requests</strong> and <strong>Rewards Fraud</strong> use these settings but are operated from their own admin pages.
+        <strong>Tip:</strong> If a setting affects every user or every request path, it probably belongs in <strong>Config Hub</strong>. If it affects just one plan, one queue item, or one content page, it probably belongs somewhere else.
     </div>
 </div>

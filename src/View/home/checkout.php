@@ -164,7 +164,7 @@
 
                     <?php if (empty($stripeEnabled) && empty($paypalEnabled)): ?>
                         <div class="gateway-note">
-                            No payment gateways are currently ready for this install. Turn on Stripe or PayPal and save the required credentials in Config Hub before users can complete upgrades.
+                            Checkout is temporarily unavailable right now. Please try again later.
                         </div>
                     <?php endif; ?>
                 </div>

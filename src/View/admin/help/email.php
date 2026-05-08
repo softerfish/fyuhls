@@ -1,47 +1,43 @@
 <div class="p-1">
-    <p class="guide-purpose mb-4">Email settings cover SMTP delivery, outbound rate limiting, test tools, and editable system templates. The SMTP form, test tools, and template editor are separate actions on the same page.</p>
+    <p class="guide-purpose mb-4">Use the Email tab for SMTP delivery, mail-queue health, test tools, and editable templates. This page is where you tune how the app sends mail, not where you decide whether features like tickets or rewards exist.</p>
+
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">When To Use This Page</h6>
+    <ul class="extra-small text-muted mb-4">
+        <li class="mb-2"><strong>Use it when:</strong> You need to change SMTP settings, test connection or sending, adjust queue rate, or edit email templates.</li>
+        <li class="mb-2"><strong>Use another page when:</strong> You want to change which ticket events send email. That lives in <strong>Config Hub &gt; Tickets</strong>.</li>
+        <li><strong>What it does not do:</strong> It does not replace the queue cron, Support Center diagnostics, or page-specific settings that trigger the emails.</li>
+    </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">What Is On The Page</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Queue stats:</strong> The top cards show Pending in Queue, Sent in the last 24 hours, and Failed Attempts.</li>
-        <li class="mb-2"><strong>SMTP Server Configuration:</strong> This is the main save form for delivery host, port, sender identity, authentication, and send rate.</li>
-        <li class="mb-2"><strong>System Email Templates:</strong> The table below the SMTP form stores the subject and body for every built-in system message.</li>
-        <li><strong>Send Test Email:</strong> The right-side tool sends a real message using the SMTP values currently on the page.</li>
-    </ul>
-
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">SMTP Configuration</h6>
-    <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>SMTP Host / Port:</strong> The mail server endpoint and port provided by your email service. Enter the values, then click <strong>Save SMTP Config</strong>.</li>
-        <li class="mb-2"><strong>From Address:</strong> The sender address users will see on system emails. Change it, then save the SMTP form.</li>
-        <li class="mb-2"><strong>Encryption:</strong> Choose none, SSL, or TLS/STARTTLS to match your provider. Select the correct option, then save the SMTP form.</li>
-        <li class="mb-2"><strong>Server Requires Authentication:</strong> Enable this for normal hosted SMTP accounts so the username and password fields appear. Toggle it, fill in the auth fields, then save the SMTP form.</li>
-        <li><strong>Sending Rate Limit:</strong> Caps how many queued emails the cron worker should send per minute. Change the number, then save the SMTP form.</li>
-    </ul>
-
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Built-In Tools</h6>
-    <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Save SMTP Config:</strong> Stores the host, auth, sender, and rate-limit settings currently shown on the page.</li>
-        <li class="mb-2"><strong>Test Connection:</strong> Verifies that the app can connect and authenticate to the SMTP server using the current form values, even before you save them.</li>
-        <li><strong>Send Test Email:</strong> Sends a real email to the address you enter in the test box using the current SMTP form values.</li>
+        <li class="mb-2"><strong>Queue stats:</strong> Pending, recently sent, and failed-attempt cards help you see whether SMTP problems are current or historical.</li>
+        <li class="mb-2"><strong>SMTP Server Configuration:</strong> Host, port, encryption, auth, sender identity, and per-minute send rate.</li>
+        <li class="mb-2"><strong>Test Tools:</strong> Connection tests and real send tests that use the SMTP values shown on the page.</li>
+        <li><strong>Templates:</strong> Edit system message subjects and bodies without changing code.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Template Groups</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Account:</strong> Confirmation, welcome, password reset, package-change, downgrade, expiry warning, and storage warning templates.</li>
-        <li class="mb-2"><strong>Security:</strong> New-device login and 2FA enabled or disabled notifications.</li>
-        <li class="mb-2"><strong>Rewards:</strong> Withdrawal submitted, approved, paid, rejected, and abuse-report confirmation templates.</li>
-        <li class="mb-2"><strong>Support:</strong> Contact responder, DMCA responder, and admin notification templates.</li>
-        <li><strong>Payments:</strong> Pending, on hold, completed, failed, denied, and refunded payment templates.</li>
+        <li class="mb-2"><strong>Account:</strong> Welcome, confirmation, password reset, package-change, and account-warning templates.</li>
+        <li class="mb-2"><strong>Security:</strong> New-device, login, and two-factor notifications.</li>
+        <li class="mb-2"><strong>Rewards:</strong> Withdrawal and reward-related templates.</li>
+        <li class="mb-2"><strong>Tickets:</strong> Support inbox notifications, user reply notices, close notices, and public-intake admin templates such as contact, abuse, and DMCA.</li>
+        <li><strong>Payments and support:</strong> Payment lifecycle messages plus any remaining operator-facing support templates.</li>
     </ul>
 
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Editing Templates</h6>
-    <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Edit button:</strong> Opens the template modal for that row.</li>
-        <li class="mb-2"><strong>Subject Line:</strong> Changes the email subject users will see. Edit it in the modal, then save the template.</li>
-        <li><strong>Email Body:</strong> Changes the message body and supports placeholder variables such as <code>{username}</code>, <code>{site_name}</code>, and template-specific values shown below the editor. Update the text, then submit the modal.</li>
-    </ul>
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Recommended Workflow</h6>
+    <ol class="guide-steps mb-4">
+        <li><strong>Save SMTP first:</strong> Host, auth, and sender values should be stored before you assume templates are the problem.</li>
+        <li><strong>Run a connection test:</strong> This catches auth and port problems quickly.</li>
+        <li><strong>Send a real test email:</strong> Use it to confirm delivery and inbox placement before blaming queue logic.</li>
+        <li><strong>Edit templates last:</strong> Once the transport works, tune subjects, bodies, and placeholders.</li>
+    </ol>
 
-    <div class="alert alert-info border-0 shadow-sm small">
-        <strong>Tip:</strong> If connection tests pass but real messages still do not arrive, check provider reputation, SPF or DKIM records, and whether the <code>mail_queue</code> cron job is running every minute.
+    <div class="alert alert-info border-0 shadow-sm small mb-3">
+        <strong>Tip:</strong> If connection tests pass but users still do not receive mail, check DNS records, sender reputation, provider throttling, and whether the mail-queue cron is running on schedule.
+    </div>
+
+    <div class="alert alert-light border-0 shadow-sm small mb-0">
+        <strong>Related pages:</strong> <a href="/admin/configuration?tab=tickets" class="guide-action-link">Config Hub &gt; Tickets</a> for ticket-event toggles and support inbox settings, <a href="/admin/status" class="guide-action-link">System Status</a> for queue or cron health, and <a href="/admin/support" class="guide-action-link">Support Center</a> for sanitized escalation bundles.
     </div>
 </div>

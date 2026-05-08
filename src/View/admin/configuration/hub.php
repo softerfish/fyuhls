@@ -148,6 +148,11 @@ ob_start();
             <div class="config-tab-group__label">System</div>
             <ul class="nav nav-tabs card-header-tabs m-0 border-0 config-tab-group__nav">
                 <li class="nav-item">
+                    <a class="nav-link border-0 py-3 px-4 <?= $activeTab === 'tickets' ? 'active fw-bold border-bottom border-primary border-3' : 'text-muted' ?>" href="?tab=tickets">
+                        <i class="bi bi-life-preserver me-2"></i> Tickets
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link border-0 py-3 px-4 <?= $activeTab === 'cron' ? 'active fw-bold border-bottom border-primary border-3' : 'text-muted' ?>" href="?tab=cron">
                         <i class="bi bi-clock-history me-2"></i> Cron Jobs
                         <?php if ($cronOffline): ?>

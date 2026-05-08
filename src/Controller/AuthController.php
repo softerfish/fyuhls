@@ -57,6 +57,12 @@ class AuthController {
         return in_array($privacy, ['public', 'private'], true) ? $privacy : 'public';
     }
 
+    private function normalizeEmailAddress(?string $email): string
+    {
+        $email = mb_strtolower(trim((string)$email));
+        return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+    }
+
     private function normalizePaymentMethod(?string $method): ?string
     {
         $method = trim((string)$method);
@@ -157,9 +163,21 @@ class AuthController {
         $captchaAdminLogin = false;
         $captchaSiteKey    = Setting::get('captcha_site_key', '');
         $needCaptcha       = $captchaUserLogin && $captchaSiteKey;
+        $allowRegistrations = Setting::get('allow_registrations', '1') === '1';
+        $requireVerification = Setting::get('require_email_verification', '0') === '1';
 
         $error = '';
-        $success = ($_GET['registered'] ?? false) ? 'Account created! You can now login.' : '';
+        $registeredState = trim((string)($_GET['registered'] ?? ''));
+        $success = '';
+        if ($registeredState === 'pending') {
+            $success = 'Account created. Check your email to confirm the address before logging in.';
+        } elseif ($registeredState !== '') {
+            $success = 'Account created! You can now login.';
+        } elseif (($_GET['verified'] ?? '') === '1') {
+            $success = 'Email verified successfully. You can now log in.';
+        } elseif (($_GET['email_changed'] ?? '') === '1') {
+            $success = 'Email address confirmed successfully. You can now sign in with the new address.';
+        }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
@@ -191,7 +209,6 @@ class AuthController {
 
                         if ($user && password_verify($password, $user['password'])) {
                             // Check for email verification if enabled
-                            $requireVerification = Setting::get('require_email_verification', '0') === '1';
                             if ($requireVerification && $user['role'] !== 'admin' && (int)$user['email_verified'] === 0) {
                                 $error = "Please verify your email address before logging in.";
                                 Logger::warning('login blocked: email not verified', ['user_id' => $user['id'], 'ip' => $ip]);
@@ -222,6 +239,8 @@ class AuthController {
             'captchaUserLogin'  => $captchaUserLogin,
             'captchaAdminLogin' => $captchaAdminLogin,
             'captchaSiteKey'    => $captchaSiteKey,
+            'allowRegistrations' => $allowRegistrations,
+            'requireVerification' => $requireVerification,
         ]);
     }
 
@@ -232,10 +251,16 @@ class AuthController {
         }
 
         $db = Database::getInstance()->getConnection();
+        $allowRegistrations = Setting::get('allow_registrations', '1') === '1';
+        $requireVerification = Setting::get('require_email_verification', '0') === '1';
 
         // check if registrations are open
-        if (Setting::get('allow_registrations', '1') !== '1') {
-            View::render('home/register.php', ['error' => 'Registrations are currently closed.']);
+        if (!$allowRegistrations) {
+            View::render('home/register.php', [
+                'error' => 'Registrations are currently closed.',
+                'allowRegistrations' => $allowRegistrations,
+                'requireVerification' => $requireVerification,
+            ]);
             return;
         }
 
@@ -308,7 +333,6 @@ class AuthController {
                                     'samesite' => 'Lax',
                                 ]);
                                 
-                                $requireVerification = Setting::get('require_email_verification', '0') === '1';
                                 if ($requireVerification) {
                                     // Generate token
                                     $token = bin2hex(random_bytes(32));
@@ -349,6 +373,8 @@ class AuthController {
             'error'           => $error,
             'captchaRegister' => $captchaRegister,
             'captchaSiteKey'  => $captchaSiteKey,
+            'allowRegistrations' => $allowRegistrations,
+            'requireVerification' => $requireVerification,
         ]);
     }
 
@@ -393,7 +419,7 @@ class AuthController {
             Auth::logActivity('monetization_update', "User switched to $model model");
         }
 
-        header('Location: ' . (FeatureService::affiliateEnabled() ? '/affiliate' : '/settings'));
+        header('Location: ' . (FeatureService::rewardsEnabled() ? '/affiliate' : '/settings'));
         exit;
     }
 
@@ -416,13 +442,24 @@ class AuthController {
         
         $userId = Auth::id();
         $db = Database::getInstance()->getConnection();
+        \App\Model\User::ensureRuntimeColumns($db);
         $error = '';
         $success = '';
+        $currentUser = \App\Model\User::find((int)$userId);
+        if (!$currentUser) {
+            header('Location: /login');
+            exit;
+        }
         $newApiToken = null;
 
         if (isset($_GET['updated'])) {
             if ($_GET['updated'] == '1') $success = "Preferences updated successfully.";
             if ($_GET['updated'] == '2') $success = "Password changed successfully.";
+        }
+        if (($_GET['email_change'] ?? '') === 'pending') {
+            $success = 'We sent a confirmation link to your new email address. The change will finish after you open that link.';
+        } elseif (($_GET['email_change'] ?? '') === 'confirmed') {
+            $success = 'Your email address has been updated successfully.';
         }
         if (($_GET['success'] ?? '') === '2fa_enabled') {
             $success = "Two-factor authentication enabled successfully.";
@@ -458,30 +495,76 @@ class AuthController {
                 $action = $_POST['action'] ?? 'general';
 
                 if ($action === 'profile') {
+                    $requestedEmail = $this->normalizeEmailAddress($_POST['email'] ?? '');
+                    if ($requestedEmail === '') {
+                        $error = "Please enter a valid email address.";
+                    }
+
                     $updateData = [
                         'timezone' => $this->normalizeUserTimezone($_POST['timezone'] ?? 'UTC'),
                         'default_privacy' => $this->normalizeDefaultPrivacy($_POST['default_privacy'] ?? 'public'),
                     ];
 
-                    if (FeatureService::rewardsEnabled()) {
-                        $updateData['payment_method'] = $this->normalizePaymentMethod($_POST['payment_method'] ?? null);
-                        $updateData['payment_details'] = \App\Service\EncryptionService::encrypt($this->normalizePaymentDetails($_POST['payment_details'] ?? ''));
-                        $updateData['monetization_model'] = $this->normalizeMonetizationModel($_POST['monetization_model'] ?? 'ppd');
+                    if ($error === '') {
+                        if (FeatureService::rewardsEnabled()) {
+                            $updateData['payment_method'] = $this->normalizePaymentMethod($_POST['payment_method'] ?? null);
+                            $updateData['payment_details'] = \App\Service\EncryptionService::encrypt($this->normalizePaymentDetails($_POST['payment_details'] ?? ''));
+                            $updateData['monetization_model'] = $this->normalizeMonetizationModel($_POST['monetization_model'] ?? 'ppd');
+                        }
+
+                        $currentEmail = $this->normalizeEmailAddress($currentUser['email'] ?? '');
+                        $emailChangeRequested = false;
+
+                        if ($requestedEmail !== '' && $requestedEmail !== $currentEmail) {
+                            $emailOwner = \App\Model\User::findByEmailOrPendingEmail($requestedEmail, (int)$userId);
+
+                            if ($emailOwner) {
+                                $error = "That email address is already in use or waiting to be confirmed.";
+                            } else {
+                                $token = bin2hex(random_bytes(32));
+                                $expiresAt = date('Y-m-d H:i:s', time() + 86400);
+                                $confirmLink = \App\Service\SeoService::trustedBaseUrl() . "/confirm-email-change/{$token}";
+                                $mailQueued = \App\Service\MailService::sendTemplate($requestedEmail, 'confirm_email_change', [
+                                    '{username}' => (string)($currentUser['username'] ?? ''),
+                                    '{confirm_link}' => $confirmLink,
+                                    '{new_email}' => $requestedEmail,
+                                ], 'high');
+
+                                if (!$mailQueued) {
+                                    $error = "We could not queue the confirmation email right now. Please try again in a moment.";
+                                } else {
+                                    $updateData['pending_email'] = \App\Service\EncryptionService::encrypt($requestedEmail);
+                                    $updateData['pending_email_lookup'] = \App\Model\User::credentialLookupHash($requestedEmail);
+                                    $updateData['email_change_token'] = $token;
+                                    $updateData['email_change_expires'] = $expiresAt;
+                                    $emailChangeRequested = true;
+                                }
+                            }
+                        }
                     }
 
-                    $fields = [];
-                    $values = [];
-                    foreach ($updateData as $k => $v) {
-                        $fields[] = "$k = ?";
-                        $values[] = $v;
-                    }
-                    $values[] = $userId;
+                    if ($error === '') {
+                        $fields = [];
+                        $values = [];
+                        foreach ($updateData as $k => $v) {
+                            $fields[] = "$k = ?";
+                            $values[] = $v;
+                        }
+                        $values[] = $userId;
 
-                    $stmt = $db->prepare("UPDATE users SET " . implode(', ', $fields) . " WHERE id = ?");
-                    $stmt->execute($values);
-                    
-                    header('Location: /settings?updated=1');
-                    exit;
+                        $stmt = $db->prepare("UPDATE users SET " . implode(', ', $fields) . " WHERE id = ?");
+                        $stmt->execute($values);
+
+                        Auth::logActivity(
+                            $emailChangeRequested ? 'email_change_requested' : 'settings_update',
+                            $emailChangeRequested
+                                ? 'User requested an email address change confirmation.'
+                                : 'User updated account profile settings.'
+                        );
+
+                        header('Location: /settings?updated=1' . ($emailChangeRequested ? '&email_change=pending' : '') . '#profileSection');
+                        exit;
+                    }
                 } elseif ($action === 'api_token_create') {
                     $tokenName = $this->normalizeApiTokenName($_POST['token_name'] ?? 'Desktop API Token');
                     $expiryDays = max(0, (int)($_POST['token_expiry_days'] ?? 0));
@@ -592,6 +675,64 @@ class AuthController {
             header('Location: /login?verified=1');
         } else {
             header('Location: /login?error=invalid_token');
+        }
+        exit;
+    }
+
+    public function confirmEmailChange($token) {
+        if (empty($token)) { header('Location: /login?error=invalid_token'); exit; }
+
+        $db = Database::getInstance()->getConnection();
+        \App\Model\User::ensureRuntimeColumns($db);
+        $stmt = $db->prepare("SELECT * FROM users WHERE email_change_token = ? AND (email_change_expires IS NULL OR email_change_expires > NOW()) LIMIT 1");
+        $stmt->execute([$token]);
+        $user = $stmt->fetch();
+
+        if (!$user) {
+            header('Location: /login?error=invalid_token');
+            exit;
+        }
+
+        $user = \App\Model\User::decryptRow($user);
+        $pendingEmail = $this->normalizeEmailAddress($user['pending_email'] ?? '');
+        if ($pendingEmail === '') {
+            header('Location: /login?error=invalid_token');
+            exit;
+        }
+
+        $existingOwner = \App\Model\User::findByEmailOrPendingEmail($pendingEmail, (int)$user['id']);
+        if ($existingOwner) {
+            Logger::warning('email change confirmation blocked: target email already claimed', ['user_id' => (int)$user['id']]);
+            header('Location: /login?error=invalid_token');
+            exit;
+        }
+
+        $lookupHash = \App\Model\User::credentialLookupHash($pendingEmail);
+
+        $stmt = $db->prepare("
+            UPDATE users
+            SET email = ?,
+                email_lookup = ?,
+                email_verified = 1,
+                pending_email = NULL,
+                pending_email_lookup = NULL,
+                email_change_token = NULL,
+                email_change_expires = NULL
+            WHERE id = ?
+        ");
+        $stmt->execute([
+            \App\Service\EncryptionService::encrypt($pendingEmail),
+            $lookupHash,
+            (int)$user['id'],
+        ]);
+
+        Auth::logActivity('email_change_confirmed', 'User confirmed a new email address.');
+        Logger::info('email change confirmed', ['user_id' => (int)$user['id']]);
+
+        if (Auth::check() && Auth::id() === (int)$user['id']) {
+            header('Location: /settings?email_change=confirmed#profileSection');
+        } else {
+            header('Location: /login?email_changed=1');
         }
         exit;
     }

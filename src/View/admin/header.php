@@ -89,6 +89,7 @@ elseif (str_contains($uriPath, '/admin/rewards-fraud') && \App\Service\FeatureSe
 elseif (str_contains($uriPath, '/admin/plugins')) $helpFile = 'plugins';
 elseif (str_contains($uriPath, '/admin/resources')) $helpFile = 'resources';
 elseif (str_contains($uriPath, '/admin/search')) $helpFile = 'search';
+elseif (str_contains($uriPath, '/admin/site-content')) $helpFile = 'site_content';
 elseif (str_contains($uriPath, '/admin/file-server/migrate')) $helpFile = 'file_server_migrate';
 elseif (str_contains($uriPath, '/admin/file-server/add')) $helpFile = 'file_server_add';
 elseif (str_contains($uriPath, '/admin/file-server/edit')) $helpFile = 'file_server_edit';
@@ -118,6 +119,93 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
     ];
     $helpFile = $tabMap[$tab] ?? 'configuration';
 }
+
+$activeSectionMap = [
+    'overview' => ['dashboard', 'support', 'docs', 'search', 'resources'],
+    'moderation' => ['requests', 'contacts', 'abuse', 'dmca'],
+    'revenue' => ['users', 'packages', 'withdrawals', 'subscriptions', 'rewards_fraud'],
+    'content' => ['files', 'live_downloads'],
+    'infrastructure' => ['configuration', 'site_content', 'plugins', 'status', 'monitoring', 'file-servers'],
+];
+
+$currentNavKey = match (true) {
+    str_contains($currentUri, '/admin/downloads/current') => 'live_downloads',
+    str_contains($currentUri, '/admin/configuration') => 'configuration',
+    str_contains($currentUri, '/admin/site-content') => 'site_content',
+    str_contains($currentUri, '/admin/resources') => 'resources',
+    str_contains($currentUri, '/admin/status'),
+    str_contains($currentUri, '/admin/logs') => 'status',
+    str_contains($currentUri, '/admin/plugins') => 'plugins',
+    str_contains($currentUri, '/admin/requests') => 'requests',
+    str_contains($currentUri, '/admin/support') => 'support',
+    str_contains($currentUri, '/admin/docs') => 'docs',
+    str_contains($currentUri, '/admin/subscriptions') => 'subscriptions',
+    str_contains($currentUri, '/admin/files') => 'files',
+    str_contains($currentUri, '/admin/users') => 'users',
+    str_contains($currentUri, '/admin/packages') || str_contains($currentUri, '/admin/package/edit') => 'packages',
+    str_contains($currentUri, '/admin/withdrawals') => 'withdrawals',
+    str_contains($currentUri, '/admin/rewards-fraud') => 'rewards_fraud',
+    str_contains($currentUri, '/admin/search') => 'search',
+    str_contains($currentUri, '/admin/file-server') => 'file-servers',
+    $uriPath === '/admin' => 'dashboard',
+    default => $helpFile,
+};
+
+$sectionStates = [];
+foreach ($activeSectionMap as $sectionKey => $navKeys) {
+    $sectionStates[$sectionKey] = in_array($currentNavKey, $navKeys, true);
+}
+
+if (!function_exists('renderAdminSidebarLink')) {
+    function renderAdminSidebarLink(string $href, string $label, string $icon, bool $isActive = false, string $badgeHtml = '', bool $external = false): void
+    {
+        $attrs = $external ? ' target="_blank" rel="noopener noreferrer"' : '';
+        ?>
+        <li class="nav-item">
+            <a class="nav-link admin-sidebar-link <?= $isActive ? 'active' : '' ?>" href="<?= htmlspecialchars($href) ?>"<?= $attrs ?>>
+                <span class="admin-sidebar-link-main">
+                    <i class="<?= htmlspecialchars($icon) ?> me-2"></i>
+                    <span><?= htmlspecialchars($label) ?></span>
+                </span>
+                <?= $badgeHtml ?>
+            </a>
+        </li>
+        <?php
+    }
+}
+
+if (!function_exists('renderAdminSidebarSectionStart')) {
+    function renderAdminSidebarSectionStart(string $id, string $label, bool $isOpen = false, string $badgeHtml = ''): void
+    {
+        ?>
+        <div class="admin-sidebar-group mb-2">
+            <button class="admin-sidebar-group-toggle <?= $isOpen ? '' : 'collapsed' ?>" type="button" data-bs-toggle="collapse" data-bs-target="#<?= htmlspecialchars($id) ?>" aria-expanded="<?= $isOpen ? 'true' : 'false' ?>" aria-controls="<?= htmlspecialchars($id) ?>">
+                <span class="admin-sidebar-group-label"><?= htmlspecialchars($label) ?></span>
+                <span class="d-flex align-items-center gap-2">
+                    <?= $badgeHtml ?>
+                    <i class="bi bi-chevron-down admin-sidebar-group-chevron"></i>
+                </span>
+            </button>
+            <div class="collapse <?= $isOpen ? 'show' : '' ?>" id="<?= htmlspecialchars($id) ?>">
+                <ul class="nav flex-column text-start admin-sidebar-group-list">
+        <?php
+    }
+}
+
+if (!function_exists('renderAdminSidebarSectionEnd')) {
+    function renderAdminSidebarSectionEnd(): void
+    {
+        ?>
+                </ul>
+            </div>
+        </div>
+        <?php
+    }
+}
+
+$helpTitleMap = [
+    'requests' => 'Tickets',
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -134,6 +222,20 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
     .admin-search-input{font-size:.75rem;height:32px}
     .admin-coffee-button{height:45px !important;width:170px !important}
     .admin-status-icon{font-size:.75rem}
+    .admin-sidebar-group{padding:0 .75rem}
+    .admin-sidebar-group-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:.55rem .75rem;border:0;background:transparent;color:#6c757d;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:.7rem}
+    .admin-sidebar-group-toggle:hover{background:rgba(13,110,253,.06);color:#0d6efd}
+    .admin-sidebar-group-toggle .admin-sidebar-group-chevron{transition:transform .18s ease}
+    .admin-sidebar-group-toggle.collapsed .admin-sidebar-group-chevron{transform:rotate(-90deg)}
+    .admin-sidebar-group-list{padding:.2rem 0 .55rem}
+    .admin-sidebar-link{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.62rem .85rem;margin:.08rem 0;border-radius:.8rem;color:#334155}
+    .admin-sidebar-link:hover{background:#eef4ff;color:#0d6efd}
+    .admin-sidebar-link.active{background:#e7f0ff;color:#0d6efd;font-weight:600;box-shadow:inset 0 0 0 1px #bfd5ff}
+    .admin-sidebar-link-main{display:flex;align-items:center;min-width:0}
+    .admin-sidebar-link .badge{flex-shrink:0}
+    .admin-sidebar-meta{padding:0 1.5rem}
+    .admin-sidebar-footer-links .nav-link{padding:.5rem .85rem;border-radius:.75rem}
+    .admin-sidebar-footer-links .nav-link:hover{background:rgba(13,110,253,.06)}
     </style>
 </head>
 <body>
@@ -158,122 +260,63 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                 <div class="px-3 mb-4 text-center">
                     <a href="https://www.buymeacoffee.com/softerfish" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" class="admin-coffee-button"></a>
                 </div>
-                <ul class="nav flex-column mb-auto text-start">
-                    <li class="nav-item">
-                        <a class="nav-link <?= $helpFile === 'support' ? 'active' : '' ?>" href="/admin/support">
-                            <i class="bi bi-bug me-2"></i> Bug Report
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $helpFile === 'dashboard' ? 'active' : '' ?>" href="/admin">
-                            <i class="bi bi-speedometer2 me-2"></i> Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $helpFile === 'packages' ? 'active' : '' ?>" href="/admin/packages">
-                            <i class="bi bi-box me-2"></i> Packages
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $helpFile === 'users' ? 'active' : '' ?>" href="/admin/users">
-                            <i class="bi bi-people me-2"></i> Users
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $helpFile === 'files' ? 'active' : '' ?>" href="/admin/files">
-                            <i class="bi bi-file-earmark me-2"></i> Files
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= str_contains($currentUri, '/admin/downloads/current') ? 'active' : '' ?>" href="/admin/downloads/current">
-                            <i class="bi bi-cloud-download me-2"></i> Live Downloads
-                        </a>
-                    </li>
-                    <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
-                        <li class="nav-item">
-                            <a class="nav-link <?= $helpFile === 'withdrawals' ? 'active' : '' ?>" href="/admin/withdrawals">
-                                <i class="bi bi-cash me-2"></i> Withdrawals
-                                <?php if ($badgeCounts['withdrawals'] > 0): ?>
-                                    <span class="badge bg-danger rounded-pill float-end"><?= $badgeCounts['withdrawals'] ?></span>
-                                <?php endif; ?>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link <?= $helpFile === 'rewards_fraud' ? 'active' : '' ?>" href="/admin/rewards-fraud">
-                                <i class="bi bi-shield-exclamation me-2"></i> Rewards Fraud
-                            </a>
-                        </li>
-                    <?php endif; ?>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $helpFile === 'plugins' ? 'active' : '' ?>" href="/admin/plugins">
-                            <i class="bi bi-puzzle me-2"></i> Plugins
-                        </a>
-                    </li>
-                    <li class="nav-item mt-3">
-                        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted text-uppercase small">
-                            <span>Reports & Requests</span>
-                        </h6>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= ($helpFile === 'contacts') ? 'active' : '' ?>" href="/admin/requests">
-                            <i class="bi bi-inboxes me-2"></i> Requests
-                            <?php if ($badgeCounts['requests'] > 0): ?>
-                                <span class="badge bg-danger rounded-pill float-end"><?= $badgeCounts['requests'] ?></span>
-                            <?php endif; ?>
-                        </a>
-                    </li>
+                <div class="text-start">
+                    <?php
+                    renderAdminSidebarSectionStart('adminSidebarOverview', 'Overview', $sectionStates['overview']);
+                    renderAdminSidebarLink('/admin', 'Dashboard', 'bi bi-speedometer2', $currentNavKey === 'dashboard');
+                    renderAdminSidebarLink('/admin/support', 'Support Center', 'bi bi-bug', $currentNavKey === 'support');
+                    renderAdminSidebarLink('/admin/docs', 'In-App Docs', 'bi bi-book', $currentNavKey === 'docs');
+                    renderAdminSidebarLink('/admin/resources', 'Resources', 'bi bi-stars', $currentNavKey === 'resources');
+                    renderAdminSidebarSectionEnd();
 
-                    <li class="nav-item mt-3">
-                        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted text-uppercase small">
-                            <span>System Infrastructure</span>
-                        </h6>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= str_contains($currentUri, '/admin/configuration') ? 'active' : '' ?>" href="/admin/configuration">
-                            <i class="bi bi-cpu me-2"></i> Config Hub
-                            <?php if ($configHubNoticeCount > 0): ?>
-                                <span class="badge bg-warning text-dark rounded-pill float-end"><?= $configHubNoticeCount ?></span>
-                            <?php elseif ($cronOffline): ?>
-                                <span class="badge bg-danger rounded-pill float-end" title="Cron Jobs Offline">
-                                    <i class="bi bi-exclamation-triangle-fill"></i>
-                                </span>
-                            <?php elseif (\App\Model\Setting::get('db_drift_detected', '0') === '1'): ?>
-                                <span class="badge bg-danger p-1 border border-light rounded-circle float-end mt-1" title="Drift Detected"></span>
-                            <?php endif; ?>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $helpFile === 'resources' ? 'active' : '' ?>" href="/admin/resources">
-                            <i class="bi bi-stars me-2"></i> Resources
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $helpFile === 'status' ? 'active' : '' ?>" href="/admin/status">
-                            <i class="admin-status-icon bi bi-activity p-1 bg-danger text-white rounded me-2"></i> System Status
-                            <?php if ($updateAvailable): ?>
-                                <span class="badge bg-warning text-dark rounded-pill float-end">Update</span>
-                            <?php endif; ?>
-                        </a>
-                    </li>
-                    <li class="nav-item mt-3">
-                        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted text-uppercase small">
-                            <span>Help</span>
-                        </h6>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= str_contains($currentUri, '/admin/docs') ? 'active' : '' ?>" href="/admin/docs">
-                            <i class="bi bi-book me-2"></i> In-App Docs
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="https://github.com/softerfish/fyuhls/wiki/" target="_blank" rel="noopener noreferrer">
-                            <i class="bi bi-journal-text me-2"></i> GitHub Wiki
-                        </a>
-                    </li>
-                </ul>
+                    $moderationBadge = $badgeCounts['requests'] > 0 ? '<span class="badge bg-danger rounded-pill">' . $badgeCounts['requests'] . '</span>' : '';
+                    renderAdminSidebarSectionStart('adminSidebarModeration', 'Moderation', $sectionStates['moderation'], $moderationBadge);
+                    renderAdminSidebarLink('/admin/requests', 'Tickets', 'bi bi-inboxes', $currentNavKey === 'requests' || $currentNavKey === 'contacts' || $currentNavKey === 'abuse' || $currentNavKey === 'dmca', $moderationBadge);
+                    renderAdminSidebarSectionEnd();
 
-                <hr>
-                <ul class="nav flex-column mb-2">
+                    renderAdminSidebarSectionStart('adminSidebarRevenue', 'Users & Revenue', $sectionStates['revenue']);
+                    renderAdminSidebarLink('/admin/users', 'Users', 'bi bi-people', $currentNavKey === 'users');
+                    renderAdminSidebarLink('/admin/packages', 'Packages', 'bi bi-box', $currentNavKey === 'packages');
+                    renderAdminSidebarLink('/admin/subscriptions', 'Subscriptions', 'bi bi-repeat', $currentNavKey === 'subscriptions');
+                    if (\App\Service\FeatureService::rewardsEnabled()) {
+                        $withdrawalBadge = $badgeCounts['withdrawals'] > 0 ? '<span class="badge bg-danger rounded-pill">' . $badgeCounts['withdrawals'] . '</span>' : '';
+                        renderAdminSidebarLink('/admin/withdrawals', 'Withdrawals', 'bi bi-cash', $currentNavKey === 'withdrawals', $withdrawalBadge);
+                        renderAdminSidebarLink('/admin/rewards-fraud', 'Rewards Fraud', 'bi bi-shield-exclamation', $currentNavKey === 'rewards_fraud');
+                    }
+                    renderAdminSidebarSectionEnd();
+
+                    renderAdminSidebarSectionStart('adminSidebarContent', 'Content & Files', $sectionStates['content']);
+                    renderAdminSidebarLink('/admin/files', 'Files', 'bi bi-file-earmark', $currentNavKey === 'files');
+                    renderAdminSidebarLink('/admin/downloads/current', 'Live Downloads', 'bi bi-cloud-download', $currentNavKey === 'live_downloads');
+                    renderAdminSidebarSectionEnd();
+
+                    $infraBadge = '';
+                    if ($configHubNoticeCount > 0) {
+                        $infraBadge = '<span class="badge bg-warning text-dark rounded-pill">' . $configHubNoticeCount . '</span>';
+                    } elseif ($cronOffline) {
+                        $infraBadge = '<span class="badge bg-danger rounded-pill" title="Cron Jobs Offline"><i class="bi bi-exclamation-triangle-fill"></i></span>';
+                    } elseif (\App\Model\Setting::get('db_drift_detected', '0') === '1') {
+                        $infraBadge = '<span class="badge bg-danger p-1 border border-light rounded-circle" title="Drift Detected"></span>';
+                    }
+                    renderAdminSidebarSectionStart('adminSidebarInfrastructure', 'Infrastructure', $sectionStates['infrastructure'], $infraBadge);
+                    renderAdminSidebarLink('/admin/configuration', 'Config Hub', 'bi bi-cpu', $currentNavKey === 'configuration', $infraBadge);
+                    renderAdminSidebarLink('/admin/site-content', 'Site Content', 'bi bi-pencil-square', $currentNavKey === 'site_content');
+                    renderAdminSidebarLink('/admin/plugins', 'Plugins', 'bi bi-puzzle', $currentNavKey === 'plugins');
+                    $statusBadge = $updateAvailable ? '<span class="badge bg-warning text-dark rounded-pill">Update</span>' : '';
+                    renderAdminSidebarLink('/admin/status', 'System Status', 'admin-status-icon bi bi-activity p-1 bg-danger text-white rounded', $currentNavKey === 'status', $statusBadge);
+                    renderAdminSidebarSectionEnd();
+                ?>
+                </div>
+
+                <div class="admin-sidebar-meta mt-4">
+                    <div class="small text-uppercase text-muted fw-semibold mb-2">References</div>
+                    <ul class="nav flex-column admin-sidebar-footer-links mb-3 text-start">
+                        <?php renderAdminSidebarLink('https://github.com/softerfish/fyuhls/wiki/', 'GitHub Wiki', 'bi bi-journal-text', false, '', true); ?>
+                    </ul>
+                </div>
+
+                <hr class="mx-3">
+                <ul class="nav flex-column mb-2 admin-sidebar-footer-links text-start px-3">
                     <li class="nav-item">
                         <a class="nav-link" href="/">
                             <i class="bi bi-box-arrow-left me-2"></i> Back to Site
@@ -449,7 +492,7 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
                     <div class="card-body p-3">
                         <div class="d-flex justify-content-between align-items-center">
                             <div class="d-flex align-items-center">
-                                <span class="fw-bold small text-uppercase">Page Guide: <?= ucwords(str_replace(['-', '_'], ' ', $helpFile)) ?></span>
+                                <span class="fw-bold small text-uppercase">Page Guide: <?= htmlspecialchars($helpTitleMap[$helpFile] ?? ucwords(str_replace(['-', '_'], ' ', $helpFile))) ?></span>
                             </div>
                             <button class="btn btn-sm btn-outline-primary py-0" type="button" data-bs-toggle="collapse" data-bs-target="#pageGuideContent">
                                 View Guide

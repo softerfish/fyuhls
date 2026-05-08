@@ -311,6 +311,7 @@ class AdminController
     private function requestArchiveStatusMap(): array
     {
         return [
+            'support_ticket' => ['closed'],
             'site_request' => ['archived'],
             'dmca_report' => ['accepted', 'rejected'],
             'abuse_report' => ['action_taken', 'ignored'],
@@ -375,7 +376,7 @@ class AdminController
 
         foreach ($items as $item) {
             $clauses[] = '(request_type = ? AND request_id = ?)';
-            $params[] = (string)$item['type_key'];
+            $params[] = (string)($item['activity_type'] ?? $item['type_key']);
             $params[] = (int)$item['id'];
         }
 
@@ -395,6 +396,21 @@ class AdminController
             if (!isset($map[$key])) {
                 $map[$key] = [];
             }
+            $metadata = [];
+            if (!empty($row['metadata_json'])) {
+                $decoded = json_decode((string)$row['metadata_json'], true);
+                if (is_array($decoded)) {
+                    $metadata = $decoded;
+                }
+            }
+            if (!empty($metadata['encrypted'])) {
+                if (!empty($row['subject'])) {
+                    $row['subject'] = EncryptionService::decrypt((string)$row['subject']);
+                }
+                if (!empty($row['body'])) {
+                    $row['body'] = EncryptionService::decrypt((string)$row['body']);
+                }
+            }
             $row['username'] = EncryptionService::decrypt((string)($row['username'] ?? ''));
             $map[$key][] = $row;
         }
@@ -405,6 +421,11 @@ class AdminController
     private function updateInboxStatus(string $type, int $id, string $status): void
     {
         $db = Database::getInstance()->getConnection();
+
+        if ($type === 'support_ticket') {
+            \App\Service\TicketService::updateStatusByAdmin($id, (int)(Auth::id() ?? 0), $status);
+            return;
+        }
 
         if ($type === 'site_request') {
             $allowed = ['new', 'read', 'replied', 'archived', 'closed'];
@@ -440,6 +461,16 @@ class AdminController
     {
         $db = Database::getInstance()->getConnection();
 
+        if ($type === 'support_ticket') {
+            \App\Service\TicketService::ensureSchema();
+            $stmt = $db->prepare("SELECT 1 FROM support_tickets WHERE id = ? LIMIT 1");
+            $stmt->execute([$id]);
+            if (!$stmt->fetchColumn()) {
+                throw new \RuntimeException('Support ticket not found.');
+            }
+            return;
+        }
+
         if ($type === 'site_request') {
             $stmt = $db->prepare("SELECT 1 FROM contact_messages WHERE id = ? LIMIT 1");
             $stmt->execute([$id]);
@@ -468,6 +499,37 @@ class AdminController
         }
 
         throw new \RuntimeException('Unknown request type.');
+    }
+
+    private function resolveTicketBackedRequest(?string $publicId, int $expectedId, string $expectedType): ?array
+    {
+        $publicId = trim((string)$publicId);
+        if ($publicId === '') {
+            $ticketById = \App\Service\TicketService::getAdminTicketById($expectedId);
+            if ($ticketById) {
+                $resolvedType = \App\Service\TicketService::queueTypeKeyForTicketType((string)($ticketById['ticket_type'] ?? 'support'));
+                if ($resolvedType === $expectedType) {
+                    throw new \RuntimeException('Ticket public ID is required for this queue action.');
+                }
+            }
+            return null;
+        }
+
+        $ticket = \App\Service\TicketService::getAdminTicketByPublicId($publicId);
+        if (!$ticket) {
+            throw new \RuntimeException('Ticket not found.');
+        }
+
+        if ((int)($ticket['id'] ?? 0) !== $expectedId) {
+            throw new \RuntimeException('Ticket target mismatch.');
+        }
+
+        $resolvedType = \App\Service\TicketService::queueTypeKeyForTicketType((string)($ticket['ticket_type'] ?? 'support'));
+        if ($resolvedType !== $expectedType) {
+            throw new \RuntimeException('Ticket type mismatch.');
+        }
+
+        return $ticket;
     }
 
     private function resolveDmcaTargetFiles(?string $raw): array
@@ -798,6 +860,7 @@ class AdminController
 
         $resourceSections = [
             [
+                'group' => 'tools',
                 'title' => 'Affiliates',
                 'description' => 'Affiliate programs that can help Fyuhls operators monetize traffic, test offer quality, or compare ad networks while building out their download pages and landing flows.',
                 'items' => [
@@ -805,15 +868,18 @@ class AdminController
                         'name' => 'HilltopAds',
                         'url' => 'https://hilltopads.com/?ref=327244',
                         'description' => 'A mainstream ad network worth reviewing if you want additional monetization options around download pages, redirects, and broader traffic monetization tests.',
+                        'best_for' => 'Comparing ad-network payout and fill quality',
                     ],
                     [
                         'name' => 'Monetag',
                         'url' => 'https://monetag.com/?ref_id=zlFr',
                         'description' => 'A traffic monetization platform that can be useful when you want to compare ad formats, payout approaches, and fill quality against your existing setup.',
+                        'best_for' => 'Testing traffic monetization beyond a single ad stack',
                     ],
                 ],
             ],
             [
+                'group' => 'tools',
                 'title' => 'Technology Partners',
                 'description' => 'Services and software resources that can strengthen fraud controls, operational insight, and the business side of a new file hosting site.',
                 'items' => [
@@ -821,15 +887,18 @@ class AdminController
                         'name' => 'proxycheck.io',
                         'url' => 'https://proxycheck.io/',
                         'description' => 'A powerful API service for detecting VPNs, proxies, Tor exit nodes, and bad actors. It\'s an excellent tool to integrate if you want to block bots from inflating download counts or protect your platform from serial abusers and fraudulent reward claims. They offer a generous free tier, making it very easy to test out their intelligence feed alongside your own security rules.',
+                        'best_for' => 'VPN, proxy, Tor, and fraud filtering',
                     ],
                     [
                         'name' => 'themasoftware.com',
                         'url' => 'https://themasoftware.com/',
                         'description' => 'A suite of mass-posting and content automation software widely used by top-tier uploaders and affiliates. Their tools (like themaPoster and themaManager) help users blast file links across hundreds of forums and blogs automatically. Understanding how these tools work is incredibly useful if you want to attract high-volume uploaders to your platform and monetize their traffic.',
+                        'best_for' => 'Understanding uploader workflows and traffic sources',
                     ],
                 ],
             ],
             [
+                'group' => 'partners',
                 'title' => 'Hosting Partners',
                 'description' => 'Hosting and operator services that can help new Fyuhls admins launch faster, keep overhead lower, and get the basics in place without piecing everything together from scratch.',
                 'items' => [
@@ -837,11 +906,13 @@ class AdminController
                         'name' => 'Hostinger Shared and VPS Web Hosting',
                         'url' => 'https://www.hostinger.com/?REFERRALCODE=PHXCORRECHKN',
                         'description' => 'Shared hosting and VPS options worth considering if you want a simple starting point for launching Fyuhls on a normal commercial host. Using the supplied link can get you an additional 20% off any prepaid period.',
+                        'best_for' => 'Getting a new install online quickly',
                     ],
                     [
                         'name' => 'Hostinger Business Email',
                         'url' => 'https://www.hostinger.com/?REFERRALCODE=PHXCORRECHKN',
                         'description' => 'Business email packages for operators who want branded mailbox coverage for support, alerts, and transactional admin communication. Packages start at $0.39/month before coupon, and using the supplied link can get you an additional 20% off.',
+                        'best_for' => 'Support inboxes, alerts, and branded email',
                     ],
                 ],
             ],
@@ -1070,36 +1141,67 @@ class AdminController
     public function handleAbuseReport()
     {
         $this->checkAuth();
+        $redirectTo = $this->sanitizeInternalRedirect($_POST['return_to'] ?? null, '/admin/requests');
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) die("CSRF mismatch");
 
             $id = (int)($_POST['report_id'] ?? $_POST['id'] ?? 0);
             $action = $_POST['action'] ?? ''; // delete_file, dismiss, ignore
+            $requestPublicId = (string)($_POST['request_public_id'] ?? '');
 
-            $db = Database::getInstance()->getConnection();
-            $stmt = $db->prepare("SELECT r.*, f.user_id, f.filename FROM abuse_reports r JOIN files f ON r.file_id = f.id WHERE r.id = ?");
-            $stmt->execute([$id]);
-            $report = $stmt->fetch();
+            try {
+                $ticketTarget = $this->resolveTicketBackedRequest($requestPublicId, $id, 'abuse_report');
 
-            if (!$report) die("Report not found");
+                if ($ticketTarget !== null) {
+                    if ($action === 'delete_file') {
+                        $fileId = (int)($ticketTarget['related_file_id'] ?? 0);
+                        if ($fileId <= 0) {
+                            throw new \RuntimeException('No file is linked to this abuse report.');
+                        }
+                        $fileService = new \App\Service\FileService();
+                        $fileService->deleteFile($fileId);
+                        \App\Service\TicketService::addAdminNote($id, (int)(Auth::id() ?? 0), 'File deleted by staff as part of abuse review.');
+                        \App\Service\TicketService::updateStatusByAdmin($id, (int)(Auth::id() ?? 0), 'closed');
+                        $_SESSION['success'] = "File deleted and report marked as closed.";
+                    } elseif (in_array($action, ['dismiss', 'ignore'], true)) {
+                        \App\Service\TicketService::addAdminNote($id, (int)(Auth::id() ?? 0), 'Abuse report dismissed by staff.');
+                        \App\Service\TicketService::updateStatusByAdmin($id, (int)(Auth::id() ?? 0), 'closed');
+                        $_SESSION['success'] = "Report dismissed.";
+                    }
+                } else {
+                    $db = Database::getInstance()->getConnection();
+                    $stmt = $db->prepare("SELECT r.*, f.user_id, f.filename FROM abuse_reports r JOIN files f ON r.file_id = f.id WHERE r.id = ?");
+                    $stmt->execute([$id]);
+                    $report = $stmt->fetch();
 
-            if ($action === 'delete_file') {
-                $fileService = new \App\Service\FileService();
-                $fileService->deleteFile((int)$report['file_id']);
-                $this->updateInboxStatus('abuse_report', $id, 'action_taken');
-                $this->addRequestActivity('abuse_report', $id, 'status', 'Status changed', 'Marked as action taken after file deletion.', [
-                    'status' => 'action_taken',
+                    if (!$report) die("Report not found");
+
+                    if ($action === 'delete_file') {
+                        $fileService = new \App\Service\FileService();
+                        $fileService->deleteFile((int)$report['file_id']);
+                        $this->updateInboxStatus('abuse_report', $id, 'action_taken');
+                        $this->addRequestActivity('abuse_report', $id, 'status', 'Status changed', 'Marked as action taken after file deletion.', [
+                            'status' => 'action_taken',
+                        ]);
+                        $_SESSION['success'] = "File deleted and report marked as action taken.";
+                    } elseif (in_array($action, ['dismiss', 'ignore'], true)) {
+                        $this->updateInboxStatus('abuse_report', $id, 'dismissed');
+                        $this->addRequestActivity('abuse_report', $id, 'status', 'Status changed', 'Abuse report dismissed.', [
+                            'status' => 'dismissed',
+                        ]);
+                        $_SESSION['success'] = "Report dismissed.";
+                    }
+                }
+            } catch (\Throwable $e) {
+                Logger::error('Admin abuse report action failed', [
+                    'request_id' => $id,
+                    'action' => $action,
+                    'error' => $e->getMessage(),
                 ]);
-                $_SESSION['success'] = "File deleted and report marked as action taken.";
-            } elseif (in_array($action, ['dismiss', 'ignore'], true)) {
-                $this->updateInboxStatus('abuse_report', $id, 'dismissed');
-                $this->addRequestActivity('abuse_report', $id, 'status', 'Status changed', 'Abuse report dismissed.', [
-                    'status' => 'dismissed',
-                ]);
-                $_SESSION['success'] = "Report dismissed.";
+                $_SESSION['error'] = 'Could not process that abuse report action. Please try again.';
             }
         }
-        header("Location: /admin/requests"); exit;
+        header("Location: " . $redirectTo); exit;
     }
 
     public function contacts()
@@ -1113,18 +1215,30 @@ class AdminController
     {
         $this->checkAuth();
         $this->ensureRequestInboxSchema();
+        \App\Service\TicketService::ensureSchema();
         $demoAdmin = DemoModeService::currentViewerIsDemoAdmin();
         $db = Database::getInstance()->getConnection();
         $items = [];
         $filterType = (string)($_GET['type'] ?? 'all');
         $filterStatus = trim((string)($_GET['status'] ?? ''));
+        $filterPriority = trim((string)($_GET['priority'] ?? ''));
+        $filterStale = trim((string)($_GET['stale'] ?? ''));
+        $searchQuery = trim((string)($_GET['q'] ?? ''));
         $showArchived = $filterType === 'archived';
+
+        foreach (\App\Service\TicketService::getAdminSupportItems() as $ticketItem) {
+            if (($ticketItem['type_key'] ?? '') === 'dmca_report' && empty($ticketItem['target_files'])) {
+                $ticketItem['target_files'] = $this->resolveDmcaTargetFiles((string)($ticketItem['target'] ?? ''));
+            }
+            $items[] = $ticketItem;
+        }
 
         $messages = $db->query("SELECT * FROM contact_messages ORDER BY created_at DESC")->fetchAll();
         foreach ($messages as $m) {
             $items[] = [
                 'request_type' => 'Site Request',
                 'type_key' => 'site_request',
+                'backend' => 'legacy',
                 'id' => (int)$m['id'],
                 'created_at' => $m['created_at'],
                 'submitter_name' => EncryptionService::decrypt($m['name']),
@@ -1141,6 +1255,7 @@ class AdminController
             $items[] = [
                 'request_type' => 'Abuse Report',
                 'type_key' => 'abuse_report',
+                'backend' => 'legacy',
                 'id' => (int)$r['id'],
                 'created_at' => $r['created_at'],
                 'submitter_name' => 'Reporter IP',
@@ -1159,6 +1274,7 @@ class AdminController
             $items[] = [
                 'request_type' => 'DMCA Report',
                 'type_key' => 'dmca_report',
+                'backend' => 'legacy',
                 'id' => (int)$r['id'],
                 'created_at' => $r['created_at'],
                 'submitter_name' => EncryptionService::decrypt($r['reporter_name']),
@@ -1189,7 +1305,7 @@ class AdminController
 
         $activityMap = $this->fetchRequestActivityMap($items);
         foreach ($items as &$item) {
-            $key = $item['type_key'] . ':' . $item['id'];
+            $key = (string)($item['activity_type'] ?? $item['type_key']) . ':' . $item['id'];
             $activities = $activityMap[$key] ?? [];
             $item['activities'] = $activities;
             $item['latest_reply'] = null;
@@ -1198,8 +1314,23 @@ class AdminController
                     $item['latest_reply'] = $activity;
                 }
             }
+            $item['priority'] = $item['priority'] ?? (in_array((string)($item['type_key'] ?? ''), ['abuse_report', 'dmca_report'], true) ? 'high' : 'normal');
+            $lastTouchAt = (string)($item['sort_at'] ?? $item['created_at'] ?? '');
+            $item['last_touch_at'] = $lastTouchAt;
+            $item['stale_days'] = $lastTouchAt !== '' ? (int)floor(max(0, time() - strtotime($lastTouchAt)) / 86400) : 0;
+            $item['needs_staff_action'] = in_array((string)($item['status'] ?? ''), ['open', 'new', 'pending', 'waiting_staff', 'investigating', 'reviewed'], true);
         }
         unset($item);
+
+        $allStatusOptions = [];
+        foreach ($items as $item) {
+            $status = (string)($item['status'] ?? '');
+            if ($status !== '') {
+                $allStatusOptions[$status] = true;
+            }
+        }
+        $allStatusOptions = array_keys($allStatusOptions);
+        sort($allStatusOptions);
 
         if ($demoAdmin) {
             foreach ($items as &$item) {
@@ -1212,6 +1343,29 @@ class AdminController
                     if (isset($item[$field])) {
                         $item[$field] = DemoModeService::hiddenLabel();
                     }
+                }
+                if (!empty($item['latest_reply']['username'])) {
+                    $item['latest_reply']['username'] = DemoModeService::maskPerson((string)$item['latest_reply']['username']);
+                }
+                if (!empty($item['thread']) && is_array($item['thread'])) {
+                    foreach ($item['thread'] as &$threadMessage) {
+                        $threadMessage['body'] = DemoModeService::hiddenLabel();
+                        if (!empty($threadMessage['author_name'])) {
+                            $threadMessage['author_name'] = DemoModeService::maskPerson((string)$threadMessage['author_name']);
+                        }
+                    }
+                    unset($threadMessage);
+                }
+                if (!empty($item['activities']) && is_array($item['activities'])) {
+                    foreach ($item['activities'] as &$activity) {
+                        if (!empty($activity['subject'])) {
+                            $activity['subject'] = DemoModeService::hiddenLabel();
+                        }
+                        if (!empty($activity['body'])) {
+                            $activity['body'] = DemoModeService::hiddenLabel();
+                        }
+                    }
+                    unset($activity);
                 }
                 if (($item['type_key'] ?? '') === 'dmca_report') {
                     $item['target'] = DemoModeService::hiddenLabel();
@@ -1229,25 +1383,115 @@ class AdminController
             unset($item);
         }
 
+        if ($searchQuery !== '') {
+            $searchNeedle = mb_strtolower($searchQuery);
+            $items = array_values(array_filter($items, static function (array $item) use ($searchNeedle): bool {
+                $haystacks = [
+                    (string)($item['request_type'] ?? ''),
+                    (string)($item['submitter_name'] ?? ''),
+                    (string)($item['submitter_email'] ?? ''),
+                    (string)($item['target'] ?? ''),
+                    (string)($item['summary'] ?? ''),
+                    (string)($item['details'] ?? ''),
+                    (string)($item['public_id'] ?? ''),
+                ];
+
+                foreach ($haystacks as $haystack) {
+                    if ($haystack !== '' && mb_stripos($haystack, $searchNeedle) !== false) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }));
+        }
+
+        if ($filterPriority !== '' && in_array($filterPriority, ['normal', 'high'], true)) {
+            $items = array_values(array_filter($items, static fn (array $item): bool => (string)($item['priority'] ?? 'normal') === $filterPriority));
+        }
+
+        if ($filterStale !== '') {
+            $items = array_values(array_filter($items, static function (array $item) use ($filterStale): bool {
+                $days = (int)($item['stale_days'] ?? 0);
+                return match ($filterStale) {
+                    '3d' => $days >= 3,
+                    '7d' => $days >= 7,
+                    '14d' => $days >= 14,
+                    default => true,
+                };
+            }));
+        }
+
         usort($items, static function (array $a, array $b): int {
-            return strcmp((string)$b['created_at'], (string)$a['created_at']);
+            $aSort = (string)($a['sort_at'] ?? $a['created_at'] ?? '');
+            $bSort = (string)($b['sort_at'] ?? $b['created_at'] ?? '');
+            return strcmp($bSort, $aSort);
         });
+
+        $summaryItems = array_values(array_filter($items, function (array $item): bool {
+            return !$this->isArchivedRequestStatus((string)($item['type_key'] ?? ''), (string)($item['status'] ?? ''));
+        }));
+
+        $summary = [
+            'open_total' => count($summaryItems),
+            'needs_staff_action' => 0,
+            'waiting_on_user' => 0,
+            'high_priority' => 0,
+            'stale_over_3d' => 0,
+            'stale_over_7d' => 0,
+        ];
+        $typeCounts = [
+            'support_ticket' => 0,
+            'site_request' => 0,
+            'abuse_report' => 0,
+            'dmca_report' => 0,
+        ];
+
+        foreach ($summaryItems as $item) {
+            $typeKey = (string)($item['type_key'] ?? '');
+            if (isset($typeCounts[$typeKey])) {
+                $typeCounts[$typeKey]++;
+            }
+            if (!empty($item['needs_staff_action'])) {
+                $summary['needs_staff_action']++;
+            }
+            if ((string)($item['status'] ?? '') === 'waiting_user') {
+                $summary['waiting_on_user']++;
+            }
+            if ((string)($item['priority'] ?? 'normal') === 'high') {
+                $summary['high_priority']++;
+            }
+            $staleDays = (int)($item['stale_days'] ?? 0);
+            if ($staleDays >= 3) {
+                $summary['stale_over_3d']++;
+            }
+            if ($staleDays >= 7) {
+                $summary['stale_over_7d']++;
+            }
+        }
 
         View::render('admin/requests.php', [
             'items' => $items,
             'filterType' => $filterType,
             'filterStatus' => $filterStatus,
+            'filterPriority' => $filterPriority,
+            'filterStale' => $filterStale,
+            'searchQuery' => $searchQuery,
             'showArchived' => $showArchived,
             'demoAdmin' => $demoAdmin,
+            'summary' => $summary,
+            'typeCounts' => $typeCounts,
+            'allStatusOptions' => $allStatusOptions,
         ]);
     }
 
     public function replyToRequest()
     {
         $this->checkAuth();
+        $redirectTo = $this->sanitizeInternalRedirect($_POST['return_to'] ?? null, '/admin/requests');
 
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            header('Location: /admin/requests');
+            header('Location: ' . $redirectTo);
             exit;
         }
 
@@ -1260,17 +1504,27 @@ class AdminController
         $subject = trim((string)($_POST['reply_subject'] ?? ''));
         $message = trim((string)($_POST['reply_message'] ?? ''));
         $statusAfterReply = trim((string)($_POST['status_after_reply'] ?? ''));
+        $requestPublicId = (string)($_POST['request_public_id'] ?? '');
 
-        if ($id <= 0 || $subject === '' || $message === '') {
-            $_SESSION['error'] = 'Reply subject and message are required.';
-            header('Location: /admin/requests');
+        if ($id <= 0 || $message === '' || (($requestPublicId === '' || $type !== 'support_ticket') && $subject === '')) {
+            $_SESSION['error'] = ($requestPublicId !== '' && $type === 'support_ticket') ? 'A reply message is required.' : 'Reply subject and message are required.';
+            header('Location: ' . $redirectTo);
             exit;
         }
 
         $db = Database::getInstance()->getConnection();
 
         try {
-            if ($type === 'site_request') {
+            $ticketTarget = $this->resolveTicketBackedRequest($requestPublicId, $id, $type);
+            if ($type === 'support_ticket' && $ticketTarget === null) {
+                throw new \RuntimeException('Support ticket target mismatch.');
+            }
+            if ($ticketTarget !== null) {
+                \App\Service\TicketService::addAdminReply($id, (int)(Auth::id() ?? 0), $message, $statusAfterReply, $type === 'support_ticket' ? null : $subject);
+                $_SESSION['success'] = $type === 'support_ticket'
+                    ? 'Reply sent to the support ticket successfully.'
+                    : 'Reply sent to the ticket successfully.';
+            } elseif ($type === 'site_request') {
                 $this->assertRequestExists($type, $id);
                 $stmt = $db->prepare("SELECT email FROM contact_messages WHERE id = ? LIMIT 1");
                 $stmt->execute([$id]);
@@ -1285,7 +1539,7 @@ class AdminController
                     'recipient' => $email,
                     'status' => $statusAfterReply !== '' ? $statusAfterReply : 'replied',
                 ]);
-                $_SESSION['success'] = 'Reply sent to the contact request successfully.';
+                $_SESSION['success'] = 'Reply sent to the contact ticket successfully.';
             } elseif ($type === 'dmca_report') {
                 $this->assertRequestExists($type, $id);
                 $stmt = $db->prepare("SELECT reporter_email FROM dmca_reports WHERE id = ? LIMIT 1");
@@ -1303,7 +1557,7 @@ class AdminController
                 ]);
                 $_SESSION['success'] = 'Reply sent to the DMCA reporter successfully.';
             } else {
-                throw new \RuntimeException('This request type does not support replies.');
+                throw new \RuntimeException('This ticket type does not support replies.');
             }
         } catch (\Throwable $e) {
             Logger::error('Admin request reply failed', [
@@ -1311,18 +1565,19 @@ class AdminController
                 'request_id' => $id,
                 'error' => $e->getMessage(),
             ]);
-            $_SESSION['error'] = 'Reply failed. Check the request details and mail settings, then try again.';
+            $_SESSION['error'] = 'Reply failed. Check the ticket details and mail settings, then try again.';
         }
 
-        header('Location: /admin/requests');
+        header('Location: ' . $redirectTo);
         exit;
     }
 
     public function addRequestNote()
     {
         $this->checkAuth();
+        $redirectTo = $this->sanitizeInternalRedirect($_POST['return_to'] ?? null, '/admin/requests');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            header('Location: /admin/requests');
+            header('Location: ' . $redirectTo);
             exit;
         }
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
@@ -1332,16 +1587,25 @@ class AdminController
         $type = (string)($_POST['request_type'] ?? '');
         $id = (int)($_POST['request_id'] ?? 0);
         $note = trim((string)($_POST['note'] ?? ''));
+        $requestPublicId = (string)($_POST['request_public_id'] ?? '');
 
         if ($id <= 0 || $note === '') {
             $_SESSION['error'] = 'A note is required.';
-            header('Location: /admin/requests');
+            header('Location: ' . $redirectTo);
             exit;
         }
 
         try {
-            $this->assertRequestExists($type, $id);
-            $this->addRequestActivity($type, $id, 'note', 'Internal note', $note);
+            $ticketTarget = $this->resolveTicketBackedRequest($requestPublicId, $id, $type);
+            if ($type === 'support_ticket' && $ticketTarget === null) {
+                throw new \RuntimeException('Support ticket target mismatch.');
+            }
+            if ($ticketTarget !== null) {
+                \App\Service\TicketService::addAdminNote($id, (int)(Auth::id() ?? 0), $note);
+            } else {
+                $this->assertRequestExists($type, $id);
+                $this->addRequestActivity($type, $id, 'note', 'Internal note', $note);
+            }
             $_SESSION['success'] = 'Internal note added.';
         } catch (\Throwable $e) {
             Logger::error('Admin request note save failed', [
@@ -1352,15 +1616,16 @@ class AdminController
             $_SESSION['error'] = 'Could not save that note. Please try again.';
         }
 
-        header('Location: /admin/requests');
+        header('Location: ' . $redirectTo);
         exit;
     }
 
     public function updateRequestStatus()
     {
         $this->checkAuth();
+        $redirectTo = $this->sanitizeInternalRedirect($_POST['return_to'] ?? null, '/admin/requests');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            header('Location: /admin/requests');
+            header('Location: ' . $redirectTo);
             exit;
         }
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
@@ -1370,18 +1635,28 @@ class AdminController
         $type = (string)($_POST['request_type'] ?? '');
         $id = (int)($_POST['request_id'] ?? 0);
         $status = trim((string)($_POST['status'] ?? ''));
+        $requestPublicId = (string)($_POST['request_public_id'] ?? '');
 
         try {
             if ($id <= 0 || $status === '') {
-                throw new \RuntimeException('A request and status are required.');
+                throw new \RuntimeException('A ticket and status are required.');
             }
 
-            $this->assertRequestExists($type, $id);
-            $this->updateInboxStatus($type, $id, $status);
-            $this->addRequestActivity($type, $id, 'status', 'Status changed', 'Request status updated.', [
-                'status' => $status,
-            ]);
-            $_SESSION['success'] = 'Request status updated.';
+            $ticketTarget = $this->resolveTicketBackedRequest($requestPublicId, $id, $type);
+            if ($type === 'support_ticket' && $ticketTarget === null) {
+                throw new \RuntimeException('Support ticket target mismatch.');
+            }
+
+            if ($ticketTarget !== null) {
+                \App\Service\TicketService::updateStatusByAdmin($id, (int)(Auth::id() ?? 0), $status);
+            } else {
+                $this->assertRequestExists($type, $id);
+                $this->updateInboxStatus($type, $id, $status);
+                $this->addRequestActivity($type, $id, 'status', 'Status changed', 'Ticket status updated.', [
+                    'status' => $status,
+                ]);
+            }
+            $_SESSION['success'] = 'Ticket status updated.';
         } catch (\Throwable $e) {
             Logger::error('Admin request status update failed', [
                 'request_type' => $type,
@@ -1392,19 +1667,20 @@ class AdminController
             $_SESSION['error'] = 'Status update failed. Please try again.';
         }
 
-        header('Location: /admin/requests');
+        header('Location: ' . $redirectTo);
         exit;
     }
 
     public function processDmcaFiles()
     {
         $this->checkAuth();
+        $redirectTo = $this->sanitizeInternalRedirect($_POST['return_to'] ?? null, '/admin/requests');
         $expectsJson = $this->requestExpectsJson();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             if ($expectsJson) {
                 $this->jsonResponse(['success' => false, 'message' => 'Method not allowed.'], 405);
             }
-            header('Location: /admin/requests');
+            header('Location: ' . $redirectTo);
             exit;
         }
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
@@ -1417,22 +1693,29 @@ class AdminController
         $requestId = (int)($_POST['request_id'] ?? 0);
         $processMode = trim((string)($_POST['process_mode'] ?? 'selected'));
         $selectedFileIds = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['file_ids'] ?? [])))));
+        $requestPublicId = (string)($_POST['request_public_id'] ?? '');
 
         try {
             if ($requestId <= 0) {
-                throw new \RuntimeException('Invalid DMCA request.');
+                throw new \RuntimeException('Invalid DMCA ticket.');
             }
 
-            $this->assertRequestExists('dmca_report', $requestId);
-            $db = Database::getInstance()->getConnection();
-            $stmt = $db->prepare("SELECT infringing_url FROM dmca_reports WHERE id = ? LIMIT 1");
-            $stmt->execute([$requestId]);
-            $row = $stmt->fetch();
-            if (!$row) {
-                throw new \RuntimeException('DMCA report not found.');
+            $ticketTarget = $this->resolveTicketBackedRequest($requestPublicId, $requestId, 'dmca_report');
+            if ($ticketTarget !== null) {
+                $targetValue = (string)($ticketTarget['metadata']['infringing_url'] ?? $ticketTarget['subject'] ?? '');
+            } else {
+                $this->assertRequestExists('dmca_report', $requestId);
+                $db = Database::getInstance()->getConnection();
+                $stmt = $db->prepare("SELECT infringing_url FROM dmca_reports WHERE id = ? LIMIT 1");
+                $stmt->execute([$requestId]);
+                $row = $stmt->fetch();
+                if (!$row) {
+                    throw new \RuntimeException('DMCA report not found.');
+                }
+                $targetValue = EncryptionService::decrypt((string)$row['infringing_url']);
             }
 
-            $targets = $this->resolveDmcaTargetFiles(EncryptionService::decrypt((string)$row['infringing_url']));
+            $targets = $this->resolveDmcaTargetFiles($targetValue);
             $matchedFileIds = [];
             foreach ($targets as $target) {
                 if (!empty($target['file_id'])) {
@@ -1453,23 +1736,37 @@ class AdminController
             $latestActivity = null;
 
             if ($processedCount > 0) {
-                $this->addRequestActivity(
-                    'dmca_report',
-                    $requestId,
-                    'status',
-                    'DMCA file removal processed',
-                    "Marked the following file(s) for removal:\n" . implode("\n", $processedLabels),
-                    [
-                        'processed_count' => $processedCount,
-                        'already_removed_count' => $alreadyRemovedCount,
-                        'file_ids' => $fileIdsToProcess,
-                    ]
-                );
+                if ($ticketTarget !== null) {
+                    \App\Service\TicketService::addAdminNote($requestId, (int)(Auth::id() ?? 0), "DMCA file removal processed:\n" . implode("\n", $processedLabels));
+                    \App\Service\TicketService::addAdminQueueActivity($requestId, 'status', 'DMCA file removal processed', "Marked the following file(s) for removal:\n" . implode("\n", $processedLabels));
+                    $thread = \App\Service\TicketService::getThread($requestId, true);
+                    $lastMessage = !empty($thread) ? end($thread) : null;
+                    $latestActivity = $lastMessage ? [
+                        'activity_type' => 'status',
+                        'subject' => 'DMCA file removal processed',
+                        'body' => "Marked the following file(s) for removal:\n" . implode("\n", $processedLabels),
+                        'created_at' => (string)($lastMessage['created_at'] ?? ''),
+                        'username' => Auth::username() ?? '',
+                    ] : null;
+                } else {
+                    $this->addRequestActivity(
+                        'dmca_report',
+                        $requestId,
+                        'status',
+                        'DMCA file removal processed',
+                        "Marked the following file(s) for removal:\n" . implode("\n", $processedLabels),
+                        [
+                            'processed_count' => $processedCount,
+                            'already_removed_count' => $alreadyRemovedCount,
+                            'file_ids' => $fileIdsToProcess,
+                        ]
+                    );
 
-                $activityMap = $this->fetchRequestActivityMap([
-                    ['type_key' => 'dmca_report', 'id' => $requestId],
-                ]);
-                $latestActivity = $activityMap['dmca_report:' . $requestId][0] ?? null;
+                    $activityMap = $this->fetchRequestActivityMap([
+                        ['type_key' => 'dmca_report', 'id' => $requestId],
+                    ]);
+                    $latestActivity = $activityMap['dmca_report:' . $requestId][0] ?? null;
+                }
             }
 
             $_SESSION['success'] = $processedCount > 0
@@ -1503,7 +1800,7 @@ class AdminController
             $_SESSION['error'] = $e->getMessage();
         }
 
-        header('Location: /admin/requests');
+        header('Location: ' . $redirectTo);
         exit;
     }
 
@@ -2039,7 +2336,19 @@ class AdminController
     public function packages()
     {
         $this->checkAuth();
-        View::render('admin/packages/index.php', ['packages' => Package::getAll()]);
+        $packages = Package::getAll();
+        $db = Database::getInstance()->getConnection();
+
+        $usageRows = $db->query("SELECT package_id, COUNT(*) AS total FROM users GROUP BY package_id")->fetchAll();
+        $userCounts = [];
+        foreach ($usageRows as $row) {
+            $userCounts[(int)$row['package_id']] = (int)$row['total'];
+        }
+
+        View::render('admin/packages/index.php', [
+            'packages' => $packages,
+            'userCounts' => $userCounts,
+        ]);
     }
 
     private function clampPackageInt($value, int $min = 0, ?int $max = null): int
@@ -2066,6 +2375,56 @@ class AdminController
         return $value;
     }
 
+    private function packageUsageCounts(): array
+    {
+        $db = Database::getInstance()->getConnection();
+        $rows = $db->query("SELECT package_id, COUNT(*) AS total FROM users GROUP BY package_id")->fetchAll();
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[(int)$row['package_id']] = (int)$row['total'];
+        }
+        return $counts;
+    }
+
+    private function buildPackagePayload(array $package, array $source, bool $fromPost = false, array $postToggleKeys = []): array
+    {
+        $postToggleKeys = $fromPost ? array_fill_keys($postToggleKeys, true) : [];
+        $toggleValue = static function (string $key) use ($package, $source, $fromPost, $postToggleKeys): int {
+            if ($fromPost) {
+                if (!isset($postToggleKeys[$key])) {
+                    return (int)($package[$key] ?? 0);
+                }
+                return isset($source[$key]) ? 1 : 0;
+            }
+            return (int)($package[$key] ?? 0);
+        };
+
+        return [
+            'name' => trim((string)($source['name'] ?? $package['name'] ?? '')),
+            'price' => number_format($this->clampPackageFloat($source['price'] ?? ($package['price'] ?? 0), 0.0), 2, '.', ''),
+            'level_type' => (string)($package['level_type'] ?? 'free'),
+            'max_storage_bytes' => $this->clampPackageInt($source['max_storage_bytes'] ?? ($package['max_storage_bytes'] ?? 0), 0),
+            'max_upload_size' => $this->clampPackageInt($source['max_upload_size'] ?? ($package['max_upload_size'] ?? 0), 0),
+            'max_daily_downloads' => $this->clampPackageInt($source['max_daily_downloads'] ?? ($package['max_daily_downloads'] ?? 0), 0),
+            'download_speed' => $this->clampPackageInt($source['download_speed'] ?? ($package['download_speed'] ?? 0), 0),
+            'wait_time' => $this->clampPackageInt($source['wait_time'] ?? ($package['wait_time'] ?? 0), 0),
+            'wait_time_enabled' => $toggleValue('wait_time_enabled'),
+            'concurrent_uploads' => max(1, $this->clampPackageInt($source['concurrent_uploads'] ?? ($package['concurrent_uploads'] ?? 1), 0)),
+            'concurrent_downloads' => $this->clampPackageInt($source['concurrent_downloads'] ?? ($package['concurrent_downloads'] ?? 1), 0),
+            'accepted_file_types' => trim((string)($source['accepted_file_types'] ?? ($package['accepted_file_types'] ?? ''))),
+            'show_ads' => $toggleValue('show_ads'),
+            'file_expiry_days' => $this->clampPackageInt($source['file_expiry_days'] ?? ($package['file_expiry_days'] ?? 0), 0),
+            'allow_direct_links' => $toggleValue('allow_direct_links'),
+            'allow_remote_upload' => $toggleValue('allow_remote_upload'),
+            'ppd_enabled' => $toggleValue('ppd_enabled'),
+            'ppd_rate_per_1000' => number_format($this->clampPackageFloat($source['ppd_rate_per_1000'] ?? ($package['ppd_rate_per_1000'] ?? 0), 0.0), 2, '.', ''),
+            'pps_enabled' => $toggleValue('pps_enabled'),
+            'pps_commission_percent' => $this->clampPackageInt($source['pps_commission_percent'] ?? ($package['pps_commission_percent'] ?? 0), 0, 100),
+            'block_adblock' => $toggleValue('block_adblock'),
+            'block_vpn' => $toggleValue('block_vpn'),
+        ];
+    }
+
     public function editPackage(string $id)
     {
         $this->checkAuth();
@@ -2086,33 +2445,63 @@ class AdminController
                 exit;
             }
 
-            $data = [
-                'name' => $name,
-                'price' => number_format($this->clampPackageFloat($_POST['price'] ?? 0, 0.0), 2, '.', ''),
-                'max_storage_bytes' => $this->clampPackageInt($_POST['max_storage_bytes'] ?? 0, 0),
-                'max_upload_size' => $this->clampPackageInt($_POST['max_upload_size'] ?? 0, 0),
-                'max_daily_downloads' => $this->clampPackageInt($_POST['max_daily_downloads'] ?? 0, 0),
-                'download_speed' => $this->clampPackageInt($_POST['download_speed'] ?? 0, 0),
-                'wait_time' => $this->clampPackageInt($_POST['wait_time'] ?? 0, 0),
-                'file_expiry_days' => $this->clampPackageInt($_POST['file_expiry_days'] ?? 0, 0),
-                'show_ads' => isset($_POST['show_ads']) ? 1 : 0,
-                'allow_direct_links' => isset($_POST['allow_direct_links']) ? 1 : 0,
-                'allow_remote_upload' => isset($_POST['allow_remote_upload']) ? 1 : 0,
-                'wait_time_enabled' => isset($_POST['wait_time_enabled']) ? 1 : 0,
-                'concurrent_uploads' => max(1, $this->clampPackageInt($_POST['concurrent_uploads'] ?? 1, 0)),
-                'concurrent_downloads' => $this->clampPackageInt($_POST['concurrent_downloads'] ?? 1, 0),
-                'ppd_enabled' => isset($_POST['ppd_enabled']) ? 1 : 0,
-            ];
+            $data = $this->buildPackagePayload($package, $_POST, true, [
+                'wait_time_enabled',
+                'show_ads',
+                'allow_direct_links',
+                'allow_remote_upload',
+                'ppd_enabled',
+                'pps_enabled',
+            ]);
+            $data['name'] = $name;
 
             if (($data['concurrent_downloads'] ?? 0) > 0) {
                 Setting::set('track_current_downloads', '1', 'downloads');
             }
             Package::update($package['id'], $data);
+            $_SESSION['success'] = 'Package settings saved.';
             header("Location: /admin/packages");
             exit;
         }
 
-        View::render('admin/packages/edit.php', ['package' => $package]);
+        View::render('admin/packages/edit.php', [
+            'package' => $package,
+            'userCounts' => $this->packageUsageCounts(),
+            'allPackages' => Package::getAll(),
+        ]);
+    }
+
+    public function clonePackage(string $id)
+    {
+        $this->checkAuth();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !Csrf::verify($_POST['csrf_token'] ?? '')) {
+            header('Location: /admin/packages');
+            exit;
+        }
+
+        $package = Package::find((int)$id);
+        if (!$package) {
+            $_SESSION['error'] = 'Package not found.';
+            header('Location: /admin/packages');
+            exit;
+        }
+
+        $levelType = (string)($package['level_type'] ?? '');
+        if (in_array($levelType, ['guest', 'admin'], true)) {
+            $_SESSION['error'] = 'Guest and Admin packages are singleton system plans and cannot be cloned.';
+            header('Location: /admin/packages');
+            exit;
+        }
+
+        $data = $this->buildPackagePayload($package, []);
+        $baseName = trim((string)($package['name'] ?? 'Package'));
+        $cloneName = mb_substr($baseName . ' Copy', 0, 50);
+        $data['name'] = $cloneName;
+
+        $newId = Package::create($data);
+        $_SESSION['success'] = 'Package cloned successfully. Review the copied plan before using it live.';
+        header('Location: /admin/package/edit/' . rawurlencode((string)$newId));
+        exit;
     }
 
     private function decryptFileServerRow(array $server): array

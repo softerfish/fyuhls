@@ -121,6 +121,12 @@ class MailService
                 'description' => 'Sent after registration when email verification is required.',
             ],
             [
+                'template_key' => 'confirm_email_change',
+                'subject' => 'Confirm your new email address for {site_name}',
+                'body' => "Hi {username},\n\nWe received a request to change the email address on your {site_name} account to:\n{new_email}\n\nTo confirm this change, open the link below:\n\n{confirm_link}\n\nIf you did not request this change, you can ignore this email and keep using your current address.\n\nRegards,\n{site_name}\n{site_url}",
+                'description' => 'Sent to a signed-in user when they request an email address change from account settings.',
+            ],
+            [
                 'template_key' => 'welcome_email',
                 'subject' => 'Welcome to {site_name}',
                 'body' => "Hi {username},\n\nYour account is ready and you can now start using {site_name}.\n\nYou can log in here:\n{site_url}/login\n\nThanks for joining us.\n\nRegards,\n{site_name}",
@@ -149,6 +155,60 @@ class MailService
                 'subject' => 'We received your message: {subject}',
                 'body' => "Hi {username},\n\nThanks for contacting {site_name}. We received your message about:\n{subject}\n\nOur team will get back to you as soon as possible.\n\nRegards,\n{site_name}\n{support_email}",
                 'description' => 'Sent after a public contact form submission.',
+            ],
+            [
+                'template_key' => 'ticket_opened_admin',
+                'subject' => '[{site_name}] New support ticket #{ticket_id}',
+                'body' => "A new support ticket was opened on {site_name}.\n\nTicket ID: {ticket_id}\nSubject: {ticket_subject}\nStatus: {ticket_status}\nUser: {user_name} ({user_email})\n\nMessage:\n{reply_message}\n\nOpen the queue:\n{ticket_url}",
+                'description' => 'Sent to the support inbox when a logged-in user opens a new support ticket.',
+            ],
+            [
+                'template_key' => 'ticket_opened_user',
+                'subject' => 'We opened your support ticket #{ticket_id}',
+                'body' => "Hi {user_name},\n\nYour support ticket has been opened successfully.\n\nTicket ID: {ticket_id}\nSubject: {ticket_subject}\nStatus: {ticket_status}\n\nYou can review the conversation here:\n{ticket_url}\n\nRegards,\n{site_name}\n{support_inbox_email}",
+                'description' => 'Sent to a user after they open a support ticket.',
+            ],
+            [
+                'template_key' => 'ticket_staff_replied',
+                'subject' => 'Staff replied to your ticket #{ticket_id}',
+                'body' => "Hi {user_name},\n\nA staff member replied to your ticket.\n\nTicket ID: {ticket_id}\nSubject: {ticket_subject}\nStatus: {ticket_status}\n\nReply:\n{reply_message}\n\nContinue the conversation here:\n{ticket_url}\n\nRegards,\n{site_name}\n{support_inbox_email}",
+                'description' => 'Sent to a user when staff replies to a support ticket.',
+            ],
+            [
+                'template_key' => 'ticket_user_replied',
+                'subject' => '[{site_name}] User replied to ticket #{ticket_id}',
+                'body' => "A user replied to a support ticket on {site_name}.\n\nTicket ID: {ticket_id}\nSubject: {ticket_subject}\nStatus: {ticket_status}\nUser: {user_name} ({user_email})\n\nReply:\n{reply_message}\n\nOpen the queue:\n{ticket_url}",
+                'description' => 'Sent to the support inbox when a user replies to a support ticket.',
+            ],
+            [
+                'template_key' => 'ticket_waiting_user_reminder',
+                'subject' => 'Reminder: your ticket #{ticket_id} is waiting on you',
+                'body' => "Hi {user_name},\n\nYour support ticket is waiting on your reply.\n\nTicket ID: {ticket_id}\nSubject: {ticket_subject}\nStatus: {ticket_status}\n\nContinue here:\n{ticket_url}\n\nRegards,\n{site_name}\n{support_inbox_email}",
+                'description' => 'Sent to a user when their ticket has been waiting on them long enough to trigger a reminder.',
+            ],
+            [
+                'template_key' => 'ticket_closed',
+                'subject' => 'Your ticket #{ticket_id} has been closed',
+                'body' => "Hi {user_name},\n\nYour support ticket has been closed.\n\nTicket ID: {ticket_id}\nSubject: {ticket_subject}\nStatus: {ticket_status}\n\nYou can still review the conversation here:\n{ticket_url}\n\nReplying will reopen the ticket if more help is needed.\n\nRegards,\n{site_name}\n{support_inbox_email}",
+                'description' => 'Sent to a user when a support ticket is closed.',
+            ],
+            [
+                'template_key' => 'contact_submitted_admin',
+                'subject' => '[{site_name}] New contact request',
+                'body' => "A new contact request was submitted on {site_name}.\n\nFrom: {user_name} ({user_email})\nSubject: {ticket_subject}\n\nMessage:\n{reply_message}\n\nAdmin area:\n{ticket_url}",
+                'description' => 'Sent to the support inbox when a public contact form is submitted.',
+            ],
+            [
+                'template_key' => 'abuse_report_submitted_admin',
+                'subject' => '[{site_name}] New abuse report',
+                'body' => "A new abuse report was submitted on {site_name}.\n\nReporter: {user_name} ({user_email})\nType: {ticket_type}\n\nDetails:\n{reply_message}\n\nAdmin area:\n{ticket_url}",
+                'description' => 'Sent to the support inbox when an abuse report is submitted.',
+            ],
+            [
+                'template_key' => 'dmca_report_submitted_admin',
+                'subject' => '[{site_name}] New DMCA report',
+                'body' => "A new DMCA report was submitted on {site_name}.\n\nReporter: {user_name} ({user_email})\nSubject: {ticket_subject}\n\nDetails:\n{reply_message}\n\nAdmin area:\n{ticket_url}",
+                'description' => 'Sent to the support inbox when a DMCA report is submitted.',
             ],
             [
                 'template_key' => 'dmca_form_responder',

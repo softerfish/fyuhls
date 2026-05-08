@@ -28,7 +28,7 @@ class RewardsController
 
     public function affiliate()
     {
-        if (!FeatureService::affiliateEnabled()) {
+        if (!FeatureService::rewardsEnabled()) {
             http_response_code(404);
             exit('Not found');
         }
@@ -43,6 +43,7 @@ class RewardsController
 
         $enabledModels = array_filter(array_map('trim', explode(',', Setting::get('enabled_models', 'ppd,pps,mixed', 'rewards'))));
         $user = Auth::user();
+        $affiliateEnabled = FeatureService::affiliateEnabled();
 
         View::render('home/affiliate.php', [
             'tiers' => $tiers,
@@ -52,6 +53,7 @@ class RewardsController
             'mixedPpdPercent' => Setting::get('mixed_ppd_percent', '30', 'rewards'),
             'mixedPpsPercent' => Setting::get('mixed_pps_percent', '30', 'rewards'),
             'referralCommission' => Setting::get('referral_commission_percent', '50', 'rewards'),
+            'affiliateEnabled' => $affiliateEnabled,
             'user' => $user,
             'dailyDownloadLimitSummary' => PackageAllowanceService::dailyDownloadLimitSummary(Auth::id() ? (int)Auth::id() : null, Auth::id() ? (\App\Model\Package::getUserPackage((int)Auth::id()) ?: []) : []),
             'storageQuota' => Auth::id() ? $this->storageQuotaInfo((int)Auth::id()) : ['used' => 0, 'limit' => 0],
@@ -213,6 +215,10 @@ class RewardsController
             $referralCount = (int)$stmt->fetchColumn();
         }
 
+        $stmt = $db->prepare("SELECT * FROM withdrawals WHERE user_id = ? ORDER BY created_at DESC");
+        $stmt->execute([$userId]);
+        $withdrawals = $stmt->fetchAll();
+
         View::render('home/rewards.php', [
             'totalEarned' => $totalEarned,
             'totalPaid' => $totalPaid,
@@ -232,6 +238,7 @@ class RewardsController
             'storageQuota' => $this->storageQuotaInfo((int)$userId),
             'defaultWithdrawalMethod' => $defaultWithdrawalMethod,
             'defaultWithdrawalDetails' => $defaultWithdrawalDetails,
+            'withdrawals' => $withdrawals,
         ]);
     }
 

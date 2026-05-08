@@ -1,6 +1,36 @@
 <?php
+use App\Service\SiteContentService;
+
 $showRewards = $showRewards ?? \App\Service\FeatureService::rewardsEnabled();
-$showAffiliate = \App\Service\FeatureService::affiliateEnabled();
+$showAffiliate = $showRewards;
+$pageLocale = $pageLocale ?? SiteContentService::requestLocale();
+$footerContent = SiteContentService::page('footer', $pageLocale);
+$footerTokens = SiteContentService::tokenContext();
+$footerBrand = $footerContent['brand'] ?? [];
+$footerCustomLinks = $footerContent['custom_links'] ?? [];
+
+$footerDefaultLinks = [
+    ['label' => 'Contact Us', 'url' => SiteContentService::localizeUrl('/contact', $pageLocale), 'target' => '_self'],
+    ['label' => 'API', 'url' => SiteContentService::localizeUrl('/api', $pageLocale), 'target' => '_self'],
+];
+
+if ($showAffiliate) {
+    $footerDefaultLinks[] = ['label' => 'Affiliate', 'url' => SiteContentService::localizeUrl('/affiliate', $pageLocale), 'target' => '_self'];
+}
+
+$footerDefaultLinks[] = ['label' => 'FAQ', 'url' => SiteContentService::localizeUrl('/faq', $pageLocale), 'target' => '_self'];
+$footerDefaultLinks[] = ['label' => 'DMCA', 'url' => SiteContentService::localizeUrl('/dmca', $pageLocale), 'target' => '_self'];
+
+if (\App\Model\Setting::get('link_checker_enabled', '1') === '1') {
+    $footerDefaultLinks[] = ['label' => 'Link Checker', 'url' => SiteContentService::localizeUrl('/link-checker', $pageLocale), 'target' => '_self'];
+}
+
+$footerLinks = array_merge($footerDefaultLinks, array_values(array_map(static function (array $link) use ($pageLocale): array {
+    $link['url'] = SiteContentService::localizeUrl((string)($link['url'] ?? ''), $pageLocale);
+    return $link;
+}, array_filter((array)$footerCustomLinks, static function (array $link): bool {
+    return trim((string)($link['label'] ?? '')) !== '' && trim((string)($link['url'] ?? '')) !== '';
+}))));
 ?>
     </main>
 
@@ -71,19 +101,16 @@ $showAffiliate = \App\Service\FeatureService::affiliateEnabled();
         <div class="home-footer-inner">
             <div class="home-footer-brand">
                 <span class="home-footer-name"><?= htmlspecialchars($siteName ?? \App\Model\Setting::getOrConfig('app.name', 'Fyuhls')) ?></span>
-                <span class="home-footer-tagline">Secure Cloud Storage</span>
+                <span class="home-footer-tagline"><?= SiteContentService::renderInlineMarkdown((string)($footerBrand['tagline'] ?? 'Secure Cloud Storage'), $footerTokens) ?></span>
             </div>
             <div class="home-footer-links">
-                <a href="/contact" class="home-footer-link">Contact Us</a>
-                <a href="/api" class="home-footer-link">API</a>
-                <?php if ($showAffiliate): ?>
-                    <a href="/affiliate" class="home-footer-link">Affiliate</a>
-                <?php endif; ?>
-                <a href="/faq" class="home-footer-link">FAQ</a>
-                <a href="/dmca" class="home-footer-link">DMCA</a>
-                <?php if (\App\Model\Setting::get('link_checker_enabled', '1') === '1'): ?>
-                    <a href="/link-checker" class="home-footer-link">Link Checker</a>
-                <?php endif; ?>
+                <?php foreach ($footerLinks as $link): ?>
+                    <?php
+                    $target = (string)($link['target'] ?? '_self');
+                    $newTab = $target === '_blank';
+                    ?>
+                    <a href="<?= htmlspecialchars((string)$link['url']) ?>" class="home-footer-link"<?= $newTab ? ' target="_blank" rel="noopener"' : '' ?>><?= htmlspecialchars((string)$link['label']) ?></a>
+                <?php endforeach; ?>
                 <?php if (\App\Model\Setting::get('show_powered_by_footer', '1') === '1'): ?>
                     <span class="home-footer-powered">Powered by: <a href="https://fyuhls.com" target="_blank" class="home-footer-link">fyuhls.com</a></span>
                 <?php endif; ?>

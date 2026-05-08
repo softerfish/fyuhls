@@ -55,10 +55,13 @@ if (!function_exists('renderAdminStatCard')) {
     {
         $cardClass = trim('card border-0 shadow-sm h-100 ' . $cardClass);
         $valueClass = trim('fs-4 fw-bold ' . $valueClass);
+        $labelClass = preg_match('/\btext-(?!muted\b)[\w-]+/', $cardClass) === 1
+            ? 'small opacity-75'
+            : 'text-muted small';
         ?>
         <div class="<?= htmlspecialchars($cardClass) ?>">
             <div class="card-body">
-                <div class="text-muted small"><?= htmlspecialchars($label) ?></div>
+                <div class="<?= htmlspecialchars($labelClass) ?>"><?= htmlspecialchars($label) ?></div>
                 <div class="<?= htmlspecialchars($valueClass) ?>"><?= $value ?></div>
             </div>
         </div>

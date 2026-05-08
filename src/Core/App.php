@@ -383,7 +383,8 @@ class App {
 
                 // 2. Global VPN/Proxy Block
                 $vpnMode = \App\Service\SecurityService::getVpnProtectionMode();
-                if ($vpnMode === 'enforcement') {
+                $vpnScope = \App\Service\SecurityService::getVpnProtectionScope();
+                if ($vpnMode === 'enforcement' && $vpnScope === 'all_pages') {
                     if ($isAdminPath || $viewerIsAdmin) {
                         // error_log("VPN_BLOCK: Skipping check because user is Admin.");
                     } else {

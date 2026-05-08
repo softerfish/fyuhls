@@ -144,7 +144,11 @@ class HomeController {
             }
         }
 
-        if (!Auth::check()) {
+        $requestLocale = \App\Service\SiteContentService::requestLocale();
+        $homepagePreviewActive = \App\Service\SiteContentService::previewIsActiveForPage('homepage', $requestLocale);
+        $footerPreviewActive = \App\Service\SiteContentService::previewIsActiveForPage('footer', $requestLocale);
+
+        if (!Auth::check() || $homepagePreviewActive || $footerPreviewActive) {
             $packages = array_filter(Package::getAll(), function($pkg) {
                 return $pkg['level_type'] !== 'admin';
             });
@@ -236,6 +240,15 @@ class HomeController {
         $userId = Auth::id() ?? 0;
         $files = File::getDeletedByUser($userId);
         $folders = \App\Model\Folder::getDeletedByUser($userId);
+        $deletionScope = 'admin';
+        $deletionPage = max(1, (int)($_GET['deletion_page'] ?? 1));
+        $deletionPerPage = 20;
+        $deletionHistoryTotal = FileDeletionLog::countByUploader((int)$userId, $deletionScope);
+        $deletionHistoryPages = max(1, (int)ceil($deletionHistoryTotal / $deletionPerPage));
+        if ($deletionPage > $deletionHistoryPages) {
+            $deletionPage = $deletionHistoryPages;
+        }
+        $fileDeletionHistory = FileDeletionLog::getByUploaderPage((int)$userId, $deletionPage, $deletionPerPage, $deletionScope);
 
         View::render('home/index.php', [
             'files'   => $files,
@@ -244,7 +257,12 @@ class HomeController {
             'isTrash' => true,
             'pageHeading' => 'Trash',
             'pageTitle'   => "Trash - " . $this->siteName(),
-            'fileDeletionHistory' => FileDeletionLog::getByUploader((int)$userId, 24),
+            'fileDeletionHistory' => $fileDeletionHistory,
+            'deletionHistoryScope' => $deletionScope,
+            'deletionHistoryPage' => $deletionPage,
+            'deletionHistoryPerPage' => $deletionPerPage,
+            'deletionHistoryTotal' => $deletionHistoryTotal,
+            'deletionHistoryPages' => $deletionHistoryPages,
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
             'storageQuota' => $this->storageQuotaInfo(),
         ]);
@@ -436,9 +454,13 @@ class HomeController {
                 $error = "Security Token Expired. Please refresh.";
             } elseif ($captchaActive && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                 $error = "Captcha verification failed. Please try again.";
-            } elseif (!RateLimiterService::check('contact_form', SecurityService::getClientIp(), 5, 900)) {
-                $error = "Too many messages have been sent from your connection. Please wait a few minutes and try again.";
             } else {
+                $contactRateLimit = \App\Service\TicketService::getRateLimitConfig('contact_ip');
+                if (!RateLimiterService::check('contact_form', SecurityService::getClientIp(), (int)$contactRateLimit['max'], (int)$contactRateLimit['window'])) {
+                    $error = "Too many messages have been sent from your connection. Please wait a few minutes and try again.";
+                }
+            }
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && $error === '') {
                 $name = trim($_POST['name'] ?? '');
                 $email = trim($_POST['email'] ?? '');
                 $subject = trim($_POST['subject'] ?? '');
@@ -449,33 +471,23 @@ class HomeController {
                 } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     $error = "Invalid email address.";
                 } else {
-                    $db = Database::getInstance()->getConnection();
-                    
-                    $encName = \App\Service\EncryptionService::encrypt($name);
-                    $encEmail = \App\Service\EncryptionService::encrypt($email);
-                    $encSubject = \App\Service\EncryptionService::encrypt($subject);
-                    $encMessage = \App\Service\EncryptionService::encrypt($message);
-                    $encIp = \App\Service\EncryptionService::encrypt(\App\Service\SecurityService::getClientIp());
-                    
-                    $stmt = $db->prepare("INSERT INTO contact_messages (name, email, subject, message, ip_address) VALUES (?, ?, ?, ?, ?)");
-                    if ($stmt->execute([$encName, $encEmail, $encSubject, $encMessage, $encIp])) {
+                    try {
+                        \App\Service\TicketService::createExternalTicket('contact', [
+                            'subject' => $subject,
+                            'body' => $message,
+                            'name' => $name,
+                            'email' => $email,
+                            'ip_address' => \App\Service\SecurityService::getClientIp(),
+                            'source' => 'contact_form',
+                            'metadata' => [],
+                        ]);
                         $success = "Your message has been sent successfully. We will get back to you soon.";
-                        
-                        // Send Responder to User
+
                         \App\Service\MailService::sendTemplate($email, 'contact_form_responder', [
                             '{username}' => $name,
                             '{subject}' => $subject
                         ]);
-
-                        // Send Alert to Admin
-                        $adminEmail = Setting::get('admin_notification_email', '');
-                        if ($adminEmail) {
-                            \App\Service\MailService::sendTemplate($adminEmail, 'admin_notification', [
-                                '{event_type}' => 'New Contact Message',
-                                '{details}' => "From: $name ($email)\nSubject: $subject\n\n$message"
-                            ]);
-                        }
-                    } else {
+                    } catch (\Throwable $e) {
                         $error = "Failed to send message. Please try again later.";
                     }
                 }
@@ -502,9 +514,13 @@ class HomeController {
                 $error = "Security Token Expired. Please refresh.";
             } elseif ($captchaActive && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                 $error = "Captcha verification failed. Please try again.";
-            } elseif (!RateLimiterService::check('dmca_form', SecurityService::getClientIp(), 5, 900)) {
-                $error = "Too many notices have been submitted from your connection. Please wait a few minutes and try again.";
             } else {
+                $dmcaRateLimit = \App\Service\TicketService::getRateLimitConfig('dmca_ip');
+                if (!RateLimiterService::check('dmca_form', SecurityService::getClientIp(), (int)$dmcaRateLimit['max'], (int)$dmcaRateLimit['window'])) {
+                    $error = "Too many notices have been submitted from your connection. Please wait a few minutes and try again.";
+                }
+            }
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && $error === '') {
                 $name = trim($_POST['name'] ?? '');
                 $email = trim($_POST['email'] ?? '');
                 $url = trim($_POST['url'] ?? '');
@@ -518,32 +534,26 @@ class HomeController {
                 } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     $error = "Invalid email address.";
                 } else {
-                    $encName = \App\Service\EncryptionService::encrypt($name);
-                    $encEmail = \App\Service\EncryptionService::encrypt($email);
-                    $encUrl = \App\Service\EncryptionService::encrypt($normalizedUrlValue);
-                    $encDescription = \App\Service\EncryptionService::encrypt($description);
-                    $encSignature = \App\Service\EncryptionService::encrypt($signature);
-                    $encIp = \App\Service\EncryptionService::encrypt(\App\Service\SecurityService::getClientIp());
-                    
-                    $db = Database::getInstance()->getConnection();
-                    $stmt = $db->prepare("INSERT INTO dmca_reports (reporter_name, reporter_email, infringing_url, description, signature, ip_address) VALUES (?, ?, ?, ?, ?, ?)");
-                    if ($stmt->execute([$encName, $encEmail, $encUrl, $encDescription, $encSignature, $encIp])) {
+                    try {
+                        \App\Service\TicketService::createExternalTicket('dmca', [
+                            'subject' => 'DMCA Notice from ' . $name,
+                            'body' => $description,
+                            'name' => $name,
+                            'email' => $email,
+                            'ip_address' => \App\Service\SecurityService::getClientIp(),
+                            'source' => 'dmca_form',
+                            'metadata' => [
+                                'infringing_url' => $normalizedUrlValue,
+                                'signature' => $signature,
+                            ],
+                        ]);
                         $success = "Your message has been submitted. Our legal team will review it within 48 hours.";
 
                         \App\Service\MailService::sendTemplate($email, 'dmca_form_responder', [
                             '{username}' => $name,
                             '{subject}' => 'DMCA Notice',
                         ]);
-
-                        // Send Alert to Admin
-                        $adminEmail = Setting::get('admin_notification_email', '');
-                        if ($adminEmail) {
-                            \App\Service\MailService::sendTemplate($adminEmail, 'admin_notification', [
-                                '{event_type}' => 'New DMCA Report',
-                                '{details}' => "From: $name ($email)\nURL(s):\n$normalizedUrlValue\n\n$description"
-                            ]);
-                        }
-                    } else {
+                    } catch (\Throwable $e) {
                         $error = "Failed to submit report. Please try again later.";
                     }
                 }

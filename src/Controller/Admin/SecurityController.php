@@ -154,8 +154,14 @@ class SecurityController {
                     $mode = 'none';
                 }
 
+                $scope = strtolower(trim((string)($_POST['vpn_proxy_scope'] ?? 'all_pages')));
+                if (!in_array($scope, ['all_pages', 'download_pages'], true)) {
+                    $scope = 'all_pages';
+                }
+
                 Setting::set('vpn_proxy_mode', $mode, 'security');
                 Setting::set('block_vpn_traffic', $mode === 'enforcement' ? '1' : '0', 'security');
+                Setting::set('vpn_proxy_scope', $scope, 'security');
                 Setting::setEncrypted('proxycheck_api_key', $apiKey, 'security');
                 Setting::set('vpn_whitelist', trim($_POST['vpn_whitelist'] ?? ''), 'security');
 

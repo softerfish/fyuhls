@@ -7,10 +7,26 @@
     .dashboard-plan-expiry--tight { margin-bottom: 0.5rem; }
     .dashboard-plan-expiry--wide { margin-bottom: 1.25rem; }
     .dashboard-plan-button { width: auto; padding: 0.5rem 1.5rem; }
-    .dashboard-account-title { margin-top: 0; }
-    .dashboard-nav { list-style: none; padding: 0.5rem 0; margin: 0; }
+    .dashboard-account-title { margin-top: 1rem; }
+    .dashboard-account-title:first-of-type { margin-top: 0; }
+    .dashboard-nav { list-style: none; padding: 0.35rem 0 0.6rem; margin: 0; }
+    .dashboard-nav li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .dashboard-nav-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.5rem;
+        height: 1.5rem;
+        padding: 0 0.4rem;
+        border-radius: 999px;
+        background: #eef4ff;
+        color: var(--primary-color);
+        font-size: 0.72rem;
+        font-weight: 700;
+        margin-left: auto;
+    }
     .dashboard-trash-item { padding: 0; display: flex; justify-content: space-between; align-items: center; min-height: 40px; }
-    .dashboard-trash-link { flex: 1; padding: 0.6rem 0.75rem; display: block; }
+    .dashboard-trash-link { flex: 1; padding: 0.6rem 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
     .dashboard-toolbar-controls { display: flex !important; align-items: center !important; gap: 12px !important; flex-wrap: wrap !important; width: auto !important; min-width: 0 !important; justify-content: flex-end !important; position: relative !important; z-index: 10 !important; }
     .dashboard-search-box { width: min(220px, 100%) !important; flex: 1 1 180px !important; position: relative !important; }
     .dashboard-search-input { width: 100% !important; box-sizing: border-box !important; }

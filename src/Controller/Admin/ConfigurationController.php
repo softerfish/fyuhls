@@ -22,7 +22,7 @@ use App\Service\SecurityService;
  */
 class ConfigurationController
 {
-    private array $allowedTabs = ['general', 'security', 'email', 'storage', 'monetization', 'seo', 'cron', 'downloads', 'uploads', 'link_checker'];
+    private array $allowedTabs = ['general', 'security', 'email', 'storage', 'monetization', 'seo', 'cron', 'downloads', 'uploads', 'link_checker', 'tickets'];
     private const MAX_CUSTOM_HEAD_CODE_LENGTH = 20000;
     private const MAX_AD_CODE_LENGTH = 20000;
     private const ALLOWED_AD_SLOT_KEYS = [
@@ -285,6 +285,9 @@ class ConfigurationController
             case 'link_checker':
                 $data = array_merge($data, $this->getLinkCheckerData());
                 break;
+            case 'tickets':
+                $data = array_merge($data, $this->getTicketsData());
+                break;
         }
 
         View::render('admin/configuration/hub.php', $data);
@@ -361,6 +364,7 @@ class ConfigurationController
             'pendingEncryptionItems' => $pendingEncryptionItems,
             'blockVpnTraffic' => \App\Service\SecurityService::getVpnProtectionMode() === 'enforcement',
             'vpnProtectionMode' => \App\Service\SecurityService::getVpnProtectionMode(),
+            'vpnProtectionScope' => \App\Service\SecurityService::getVpnProtectionScope(),
             'proxycheckApiKey' => $demoAdmin ? '' : Setting::getEncrypted('proxycheck_api_key', ''),
             'vpnWhitelist' => Setting::get('vpn_whitelist', ''),
             'rateLimitLogin' => (int)Setting::get('rate_limit_login', '5'),
@@ -550,6 +554,36 @@ class ConfigurationController
         ];
     }
 
+    private function getTicketsData(): array
+    {
+        return [
+            'ticketSupportInboxEmail' => Setting::get('ticket_support_inbox_email', ''),
+            'ticketEmailsEnabled' => Setting::get('ticket_emails_enabled', '1'),
+            'ticketNotifyAdminOnOpen' => Setting::get('ticket_notify_admin_on_open', '1'),
+            'ticketNotifyUserOnOpen' => Setting::get('ticket_notify_user_on_open', '1'),
+            'ticketNotifyAdminOnUserReply' => Setting::get('ticket_notify_admin_on_user_reply', '1'),
+            'ticketNotifyUserOnStaffReply' => Setting::get('ticket_notify_user_on_staff_reply', '1'),
+            'ticketNotifyUserOnClose' => Setting::get('ticket_notify_user_on_close', '1'),
+            'ticketNotifyAdminOnContact' => Setting::get('ticket_notify_admin_on_contact', '1'),
+            'ticketNotifyAdminOnAbuse' => Setting::get('ticket_notify_admin_on_abuse', '1'),
+            'ticketNotifyAdminOnDmca' => Setting::get('ticket_notify_admin_on_dmca', '1'),
+            'ticketWaitingUserRemindersEnabled' => Setting::get('ticket_waiting_user_reminders_enabled', '1'),
+            'ticketWaitingUserReminderDays' => Setting::get('ticket_waiting_user_reminder_days', '3'),
+            'ticketRateLimitSupportCreateUser' => Setting::get('ticket_rate_limit_support_create_user', '5'),
+            'ticketRateLimitSupportCreateWindow' => Setting::get('ticket_rate_limit_support_create_window', '60'),
+            'ticketRateLimitSupportCreateIp' => Setting::get('ticket_rate_limit_support_create_ip', '10'),
+            'ticketRateLimitSupportReplyUser' => Setting::get('ticket_rate_limit_support_reply_user', '20'),
+            'ticketRateLimitSupportReplyWindow' => Setting::get('ticket_rate_limit_support_reply_window', '60'),
+            'ticketRateLimitSupportReplyIp' => Setting::get('ticket_rate_limit_support_reply_ip', '40'),
+            'ticketRateLimitContactIp' => Setting::get('ticket_rate_limit_contact_ip', '6'),
+            'ticketRateLimitContactWindow' => Setting::get('ticket_rate_limit_contact_window', '60'),
+            'ticketRateLimitAbuseIp' => Setting::get('ticket_rate_limit_abuse_ip', '12'),
+            'ticketRateLimitAbuseWindow' => Setting::get('ticket_rate_limit_abuse_window', '60'),
+            'ticketRateLimitDmcaIp' => Setting::get('ticket_rate_limit_dmca_ip', '30'),
+            'ticketRateLimitDmcaWindow' => Setting::get('ticket_rate_limit_dmca_window', '60'),
+        ];
+    }
+
     /**
      * Unified Save Entry Point
      */
@@ -605,6 +639,9 @@ class ConfigurationController
                     break;
                 case 'link_checker':
                     $this->saveLinkCheckerSettings();
+                    break;
+                case 'tickets':
+                    $this->saveTicketSettings();
                     break;
             }
         } catch (\RuntimeException $e) {
@@ -965,6 +1002,47 @@ class ConfigurationController
         $linksPerSecond = max(1, min(250, (int)($_POST['link_checker_links_per_second'] ?? 25)));
         $this->updateSetting('link_checker_links_per_second', (string)$linksPerSecond, 'link_checker');
         $this->updateSetting('link_checker_allow_copy_to_account', isset($_POST['link_checker_allow_copy_to_account']) ? '1' : '0', 'link_checker');
+    }
+
+    private function saveTicketSettings(): void
+    {
+        $supportInboxEmail = trim((string)($_POST['ticket_support_inbox_email'] ?? ''));
+        if ($supportInboxEmail !== '' && filter_var($supportInboxEmail, FILTER_VALIDATE_EMAIL) === false) {
+            throw new \RuntimeException('Support inbox email must be a valid email address.');
+        }
+
+        $this->updateSetting('ticket_support_inbox_email', $supportInboxEmail, 'tickets');
+        $this->updateSetting('ticket_emails_enabled', isset($_POST['ticket_emails_enabled']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_notify_admin_on_open', isset($_POST['ticket_notify_admin_on_open']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_notify_user_on_open', isset($_POST['ticket_notify_user_on_open']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_notify_admin_on_user_reply', isset($_POST['ticket_notify_admin_on_user_reply']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_notify_user_on_staff_reply', isset($_POST['ticket_notify_user_on_staff_reply']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_notify_user_on_close', isset($_POST['ticket_notify_user_on_close']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_notify_admin_on_contact', isset($_POST['ticket_notify_admin_on_contact']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_notify_admin_on_abuse', isset($_POST['ticket_notify_admin_on_abuse']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_notify_admin_on_dmca', isset($_POST['ticket_notify_admin_on_dmca']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_waiting_user_reminders_enabled', isset($_POST['ticket_waiting_user_reminders_enabled']) ? '1' : '0', 'tickets');
+        $this->updateSetting('ticket_waiting_user_reminder_days', (string)max(1, min(30, (int)($_POST['ticket_waiting_user_reminder_days'] ?? 3))), 'tickets');
+
+        $limitFields = [
+            'ticket_rate_limit_support_create_user' => [1, 100],
+            'ticket_rate_limit_support_create_window' => [1, 1440],
+            'ticket_rate_limit_support_create_ip' => [1, 250],
+            'ticket_rate_limit_support_reply_user' => [1, 500],
+            'ticket_rate_limit_support_reply_window' => [1, 1440],
+            'ticket_rate_limit_support_reply_ip' => [1, 1000],
+            'ticket_rate_limit_contact_ip' => [1, 250],
+            'ticket_rate_limit_contact_window' => [1, 1440],
+            'ticket_rate_limit_abuse_ip' => [1, 500],
+            'ticket_rate_limit_abuse_window' => [1, 1440],
+            'ticket_rate_limit_dmca_ip' => [1, 2000],
+            'ticket_rate_limit_dmca_window' => [1, 1440],
+        ];
+
+        foreach ($limitFields as $key => [$min, $max]) {
+            $value = max($min, min($max, (int)($_POST[$key] ?? $min)));
+            $this->updateSetting($key, (string)$value, 'tickets');
+        }
     }
 
     private function saveDownloadSettings(): void

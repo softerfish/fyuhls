@@ -138,7 +138,7 @@ $paymentEnabled = !empty($stripeEnabled) || !empty($paypalEnabled);
 
             <div class="toolbar-right">
                 <div class="toolbar-controls">
-                    <span class="plans-toolbar-note">Compare the paid account levels this install offers, then continue into checkout for the plan you want.</span>
+                    <span class="plans-toolbar-note">Compare account levels, review what each plan includes, and continue to checkout when you are ready.</span>
                 </div>
             </div>
         </div>
@@ -157,7 +157,7 @@ $paymentEnabled = !empty($stripeEnabled) || !empty($paypalEnabled);
                         <h3 class="plans-card-title"><?= htmlspecialchars((string)($package['name'] ?? 'Premium Plan')) ?></h3>
                         <div class="plans-price">$<?= number_format((float)($package['price'] ?? 0), 2) ?></div>
                         <p class="plans-copy">
-                            Upgrade this account for more storage, faster delivery rules, and the package-specific controls this install enables for paid members.
+                            Upgrade for more storage, faster delivery, and additional account features for paid members.
                         </p>
                         <ul class="plans-features">
                             <li>Storage: <?= htmlspecialchars($formatBytes($maxStorage)) ?></li>
@@ -180,7 +180,7 @@ $paymentEnabled = !empty($stripeEnabled) || !empty($paypalEnabled);
 
             <?php if (!$paymentEnabled): ?>
                 <div class="plans-gateway-note">
-                    No payment gateways are currently ready for this install. Configure <strong>Enable Stripe Checkout</strong> or <strong>Enable PayPal Checkout</strong> and save the required credentials in Config Hub before users can complete upgrades. The PayPal sandbox switch only changes the environment; it does not enable checkout by itself.
+                    Premium upgrades are temporarily unavailable because checkout is not fully set up yet. Please check back again soon.
                 </div>
             <?php endif; ?>
         </div>

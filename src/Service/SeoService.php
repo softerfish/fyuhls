@@ -223,18 +223,26 @@ class SeoService
         if (FeatureService::rewardsEnabled()) {
             $add($urls, self::canonicalUrl('/rewards'), 'weekly', '0.5');
         }
-        if (FeatureService::affiliateEnabled()) {
+        if (FeatureService::rewardsEnabled()) {
             $add($urls, self::canonicalUrl('/affiliate'), 'weekly', '0.5');
         }
 
         if ($config['seo_sitemap_include_files'] === '1') {
-            $db = Database::getInstance()->getConnection();
-            $stmt = $db->query("SELECT short_id, updated_at FROM files WHERE status = 'active' AND is_public = 1 ORDER BY id DESC");
-            foreach ($stmt->fetchAll() as $file) {
-                if (empty($file['short_id'])) {
-                    continue;
+            try {
+                $db = Database::getInstance()->getConnection();
+                if ($db) {
+                    $stmt = $db->query("SELECT short_id, updated_at FROM files WHERE status = 'active' AND is_public = 1 ORDER BY id DESC");
+                    foreach ($stmt->fetchAll() as $file) {
+                        if (empty($file['short_id'])) {
+                            continue;
+                        }
+                        $add($urls, self::canonicalUrl('/file/' . $file['short_id']), 'weekly', '0.7', !empty($file['updated_at']) ? date('c', strtotime($file['updated_at'])) : null);
+                    }
+                } else {
+                    error_log('SEO_SITEMAP: Skipping public file URLs because the database connection is unavailable for this request.');
                 }
-                $add($urls, self::canonicalUrl('/file/' . $file['short_id']), 'weekly', '0.7', !empty($file['updated_at']) ? date('c', strtotime($file['updated_at'])) : null);
+            } catch (\Throwable $e) {
+                error_log('SEO_SITEMAP: Failed to include public file URLs: ' . $e->getMessage());
             }
         }
 

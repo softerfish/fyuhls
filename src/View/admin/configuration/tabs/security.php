@@ -127,6 +127,7 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                         </div>
                         <ul class="config-summary-chips">
                             <li class="config-summary-chip config-summary-chip--info">Mode: <?= htmlspecialchars(ucfirst((string)($vpnProtectionMode ?? 'none'))) ?></li>
+                            <li class="config-summary-chip config-summary-chip--info">Scope: <?= htmlspecialchars(($vpnProtectionScope ?? 'all_pages') === 'download_pages' ? 'Download pages' : 'All public pages') ?></li>
                             <li class="config-summary-chip config-summary-chip--info">Login limit: <?= (int)$rateLimitLogin ?>/5m</li>
                             <li class="config-summary-chip config-summary-chip--info">Registration: <?= (int)$rateLimitReg ?>/10m</li>
                         </ul>
@@ -161,6 +162,27 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                                     <span class="small text-muted">Query proxycheck.io, store the result on the download session/receipt, and use it for fraud scoring without blocking. This gives the Rewards Fraud page stronger proxy and VPN detection signals even when you do not want to hard-block the visitor.</span>
                                 </label>
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm config-section-card mt-4">
+                        <div class="card-body">
+                            <div class="fw-bold mb-3">Enforcement Scope</div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="radio" name="vpn_proxy_scope" id="vpnScopeAllPages" value="all_pages" <?= ($vpnProtectionScope ?? 'all_pages') === 'all_pages' ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="vpnScopeAllPages">
+                                    <span class="fw-bold d-block">Block across all public pages</span>
+                                    <span class="small text-muted">Use this when you want VPN/proxy visitors stopped before they reach any normal public page on the site.</span>
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="vpn_proxy_scope" id="vpnScopeDownloadPages" value="download_pages" <?= ($vpnProtectionScope ?? 'all_pages') === 'download_pages' ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="vpnScopeDownloadPages">
+                                    <span class="fw-bold d-block">Block only on download pages</span>
+                                    <span class="small text-muted">Leave normal public pages open, but still block VPN/proxy traffic on download pages and download actions when enforcement is active.</span>
+                                </label>
+                            </div>
+                            <small class="config-form-note d-block mt-3">This setting only applies when Protection Mode is set to Enforcement.</small>
                         </div>
                     </div>
 

@@ -1,60 +1,45 @@
 <div class="p-1">
-    <p class="guide-purpose mb-4">Use the Security tab to control identity protection, bot protection, encryption, and schema health. The tab is split into sub-sections, each with its own save or action buttons.</p>
+    <p class="guide-purpose mb-4">Use the Security tab for identity protection, bot protection, encryption hygiene, and trusted-proxy behavior. It is the place for security posture and infrastructure trust, not everyday moderation work.</p>
 
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Security Sections</h6>
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">When To Use This Page</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Identity &amp; VPN:</strong> ProxyCheck mode, whitelist entries, and login or registration rate limits.</li>
-        <li class="mb-2"><strong>Two-Factor Authentication:</strong> Separate controls for enabling 2FA globally and choosing an enforcement date.</li>
-        <li class="mb-2"><strong>Encryption Keys:</strong> Shows key strength and lets you generate a stronger replacement key.</li>
-        <li class="mb-2"><strong>Captcha:</strong> Stores Turnstile site and secret keys plus every enabled placement.</li>
-        <li class="mb-2"><strong>Cloudflare:</strong> Controls trusted-proxy behavior and the Cloudflare IP-range sync action.</li>
-        <li class="mb-2"><strong>Migration:</strong> Encrypts any remaining plaintext data and reports pending rows.</li>
-        <li><strong>Database Health:</strong> Runs schema sync and optional drift repair.</li>
+        <li class="mb-2"><strong>Use it when:</strong> You need to change VPN or proxy policy, login protection, 2FA rules, Turnstile placement, Cloudflare trust, or encryption-maintenance actions.</li>
+        <li class="mb-2"><strong>Use another page when:</strong> You need to review abuse, DMCA, or reward-fraud items. Those pages consume the security signals set here.</li>
+        <li><strong>What it does not do:</strong> It does not replace package-level user experience settings or page-level moderation queues.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Identity &amp; VPN</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>None mode:</strong> Does not query ProxyCheck and does not block VPN or proxy traffic. This is also the effective fallback when no ProxyCheck key is saved.</li>
-        <li class="mb-2"><strong>Enforcement mode:</strong> Blocks suspicious VPN or proxy traffic before it reaches the app. Select the radio button and click <strong>Save Security Rules</strong>.</li>
-        <li class="mb-2"><strong>Intelligence mode:</strong> Does not block by itself. It stores proxy and VPN intelligence so systems like <strong>Rewards Fraud</strong> can score traffic more accurately. Select it, then save the Identity &amp; VPN section.</li>
-        <li class="mb-2"><strong>ProxyCheck.io API Key:</strong> Required for both enforcement and intelligence lookups. Enter the key, then click <strong>Save Security Rules</strong>.</li>
-        <li class="mb-2"><strong>VPN / Proxy Whitelist:</strong> Lets trusted IPs or CIDR ranges bypass proxy enforcement and intelligence scoring. Edit the list, then save the Identity &amp; VPN section.</li>
-        <li class="mb-2"><strong>Login Rate Limit:</strong> Caps sign-in attempts per five-minute window. Change the number, then save the Identity &amp; VPN section.</li>
-        <li><strong>Registration Rate Limit:</strong> Caps new signups per IP address over a ten-minute window. Change the number, then save the Identity &amp; VPN section.</li>
+        <li class="mb-2"><strong>Protection Mode:</strong> <strong>None</strong> disables ProxyCheck use, <strong>Enforcement</strong> blocks suspicious traffic, and <strong>Intelligence</strong> stores proxy signals without blocking by itself.</li>
+        <li class="mb-2"><strong>Enforcement Scope:</strong> Choose whether enforcement applies to <strong>all public pages</strong> or only <strong>download pages</strong>.</li>
+        <li class="mb-2"><strong>ProxyCheck API Key:</strong> Required for both Enforcement and Intelligence modes.</li>
+        <li class="mb-2"><strong>Whitelist:</strong> Trusted IPs or CIDR ranges that should bypass VPN or proxy enforcement and scoring.</li>
+        <li><strong>Login and registration rate limits:</strong> Caps authentication pressure even when proxy blocking is not the main control.</li>
     </ul>
 
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Two-Factor Authentication</h6>
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Other Security Sections</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Enable 2FA:</strong> Turns on the built-in two-factor system. Toggle it, then click <strong>Save 2FA Settings</strong>.</li>
-        <li><strong>Enforcement Start Date:</strong> If set, users without 2FA are forced to enroll after that date. Choose the date, then save the 2FA section.</li>
+        <li class="mb-2"><strong>2FA:</strong> Enable globally, then optionally set an enforcement date once you are ready to require it.</li>
+        <li class="mb-2"><strong>Captcha:</strong> Turnstile keys and per-placement switches for login, registration, public forms, and download surfaces.</li>
+        <li class="mb-2"><strong>Cloudflare:</strong> Only trust Cloudflare headers if the site is truly behind Cloudflare and your proxy ranges are current.</li>
+        <li class="mb-2"><strong>Migration:</strong> Encrypt pending legacy data without rotating the live key unexpectedly.</li>
+        <li><strong>Database Health:</strong> Schema sync and repair tools for structural drift.</li>
     </ul>
 
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Captcha And Cloudflare</h6>
-    <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Site Key / Secret Key:</strong> Cloudflare Turnstile credentials used across all enabled placements. Enter the keys, then click <strong>Save Captcha Rules</strong>.</li>
-        <li class="mb-2"><strong>Captcha placements:</strong> Login, User Registration, Guest Download, Free User Download, Report File, Contact Us, DMCA Form, and Link Checker can all be toggled independently. Change the switches, then save the Captcha section.</li>
-        <li class="mb-2"><strong>Invisible mode caution:</strong> If you use Cloudflare Turnstile in <code>Invisible</code> mode, users who click submit very quickly can still hit a temporary <code>Please complete the captcha.</code> error if the background token has not finished loading yet. Managed mode is the safer default.</li>
-        <li class="mb-2"><strong>Trust Cloudflare Headers:</strong> Only enable this when the site is really behind Cloudflare and you keep the trusted proxy ranges current. Toggle it, then save the Cloudflare section.</li>
-        <li><strong>Sync Cloudflare IP Ranges Now:</strong> Refreshes the internal trusted-proxy list used for real IP restoration, country checks, and network-aware fraud scoring.</li>
-    </ul>
-
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Keys, Migration, And Health</h6>
-    <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Current Encryption Standard:</strong> Shows whether the configured key meets the current enterprise format expectations.</li>
-        <li class="mb-2"><strong>Generate New Enterprise Key:</strong> Creates a stronger replacement key. Use the <strong>Show</strong> and <strong>Copy</strong> buttons, then update your config file during maintenance.</li>
-        <li class="mb-2"><strong>Secure All Pending Data:</strong> Encrypts legacy rows that are still in plaintext. Use the button in the Migration section.</li>
-        <li><strong>Run Schema Sync / Deep Repair:</strong> Checks the database schema for missing or drifted structures and optionally repairs them from the Database Health section.</li>
-    </ul>
-
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Recommended Setup Order</h6>
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Recommended Workflow</h6>
     <ol class="guide-steps mb-4">
-        <li><strong>Decide your VPN mode first:</strong> Use None if you are not supplying a ProxyCheck key, Enforcement if you want ProxyCheck to block suspicious traffic immediately, or Intelligence if you only want fraud signals.</li>
-        <li><strong>Whitelist safe networks:</strong> Add trusted office IPs, probes, or internal gateways before testing enforcement.</li>
-        <li><strong>Turn on Cloudflare trust only after syncing ranges:</strong> This keeps the app from trusting spoofed headers from the open internet.</li>
-        <li><strong>Set 2FA policy last:</strong> Enable it first, then set an enforcement date only after you are ready for users to be forced through setup.</li>
+        <li><strong>Choose the ProxyCheck mode first:</strong> Decide whether you want blocking, intelligence-only scoring, or neither.</li>
+        <li><strong>Set the scope deliberately:</strong> Use download-page-only enforcement if you want the public site to stay reachable while still protecting transfer surfaces.</li>
+        <li><strong>Whitelist safe networks before enforcement testing:</strong> Office IPs, staging probes, or trusted gateways should be added first.</li>
+        <li><strong>Turn on Cloudflare trust only after syncing ranges:</strong> This keeps spoofed client headers from becoming trusted.</li>
+        <li><strong>Change keys cautiously:</strong> Encryption-key work is operationally sensitive and should be handled during a planned maintenance window.</li>
     </ol>
 
-    <div class="alert alert-danger border-0 shadow-sm small">
-        <strong>Critical:</strong> Do not replace the encryption key on a live install unless you intend to re-encrypt the database. Existing encrypted data depends on that key.
+    <div class="alert alert-danger border-0 shadow-sm small mb-3">
+        <strong>Critical:</strong> Do not replace the live encryption key unless you understand the re-encryption implications for existing stored data.
+    </div>
+
+    <div class="alert alert-light border-0 shadow-sm small mb-0">
+        <strong>Related pages:</strong> <a href="/admin/rewards-fraud" class="guide-action-link">Rewards Fraud</a> for downstream risk review, <a href="/admin/configuration?tab=downloads" class="guide-action-link">Config Hub &gt; Downloads</a> for transfer-side behavior that can combine with VPN policy, and <a href="/admin/status" class="guide-action-link">System Status</a> for encryption, queue, and schema health checks.
     </div>
 </div>

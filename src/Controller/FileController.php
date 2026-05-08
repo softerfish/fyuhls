@@ -1057,6 +1057,12 @@ class FileController
             die("Captcha verification failed.");
         }
 
+        $abuseRateLimit = \App\Service\TicketService::getRateLimitConfig('abuse_ip');
+        if (!\App\Service\RateLimiterService::check('abuse_report_form', \App\Service\SecurityService::getClientIp(), (int)$abuseRateLimit['max'], (int)$abuseRateLimit['window'])) {
+            http_response_code(429);
+            die("Too many abuse reports have been submitted from your connection. Please wait and try again.");
+        }
+
         $fileRef = trim((string)($_POST['file_id'] ?? ''));
         $reason = $_POST['reason'];
         $details = $_POST['details'] ?? '';
@@ -1067,39 +1073,46 @@ class FileController
         }
         $fileId = (int)$file['id'];
 
-        $encIp = \App\Service\EncryptionService::encrypt(\App\Service\SecurityService::getClientIp());
-        $encDetails = \App\Service\EncryptionService::encrypt($details);
+        $reporterName = '';
+        $reporterEmail = '';
+        if (Auth::check()) {
+            $user = \App\Model\User::find(Auth::id());
+            if ($user) {
+                $reporterName = Auth::username();
+                $reporterEmail = !empty($user['email']) ? \App\Service\EncryptionService::decrypt($user['email']) : '';
+            }
+        }
 
-        $db = \App\Core\Database::getInstance()->getConnection();
-        $stmt = $db->prepare("INSERT INTO abuse_reports (file_id, reporter_ip, reason, details) VALUES (?, ?, ?, ?)");
-        if ($stmt->execute([$fileId, $encIp, $reason, $encDetails])) {
+        try {
+            \App\Service\TicketService::createExternalTicket('abuse', [
+                'subject' => 'Abuse report for ' . (string)$file['filename'],
+                'body' => trim((string)$details) !== '' ? (string)$details : ('Reported reason: ' . strtoupper((string)$reason)),
+                'name' => $reporterName,
+                'email' => $reporterEmail,
+                'user_id' => Auth::check() ? (int)Auth::id() : null,
+                'related_file_id' => $fileId,
+                'ip_address' => \App\Service\SecurityService::getClientIp(),
+                'source' => 'abuse_form',
+                'metadata' => [
+                    'reason' => (string)$reason,
+                    'file_name' => (string)$file['filename'],
+                    'short_id' => (string)($file['short_id'] ?? ''),
+                    'details' => (string)$details,
+                ],
+            ]);
+
             $filename = $file ? $file['filename'] : 'Unknown File';
 
-            // Send Alert to Admin
-            $adminEmail = Setting::get('admin_notification_email', '');
-            if ($adminEmail) {
-                $safeReason = $this->sanitizeAbuseEmailText($reason, 200);
-                $safeDetails = $this->sanitizeAbuseEmailText($details, 2000);
-                \App\Service\MailService::sendTemplate($adminEmail, 'admin_notification', [
-                    '{event_type}' => 'New Abuse Report',
-                    '{details}' => "File: $filename (ID: $fileId)\nReason: $safeReason\nDetails: $safeDetails"
+            // Send Confirmation to Reporter if logged in and has email
+            if ($reporterEmail !== '') {
+                \App\Service\MailService::sendTemplate($reporterEmail, 'abuse_report_confirmation', [
+                    '{username}' => $reporterName !== '' ? $reporterName : 'Reporter',
+                    '{file_name}' => $filename
                 ]);
             }
 
-            // Send Confirmation to Reporter if logged in and has email
-            if (Auth::check()) {
-                $user = \App\Model\User::find(Auth::id());
-                if ($user && !empty($user['email'])) {
-                    $email = \App\Service\EncryptionService::decrypt($user['email']);
-                    \App\Service\MailService::sendTemplate($email, 'abuse_report_confirmation', [
-                        '{username}' => Auth::username(),
-                        '{file_name}' => $filename
-                    ]);
-                }
-            }
-
             echo "Success: Your report has been submitted.";
-        } else {
+        } catch (\Throwable $e) {
             echo "Error: Failed to submit report.";
         }
     }
@@ -1186,8 +1199,10 @@ class FileController
 
         // check vpn/proxy block (only hard-block in enforcement mode)
         $vpnMode = \App\Service\SecurityService::getVpnProtectionMode();
+        $vpnScope = \App\Service\SecurityService::getVpnProtectionScope();
         $clientIp = \App\Service\SecurityService::getClientIp();
-        if ($vpnMode === 'enforcement' && ($package['block_vpn'] ?? 0) && $security->isVpnOrProxy($clientIp)) {
+        $downloadVpnProtectionEnabled = $vpnScope === 'download_pages' || !empty($package['block_vpn']);
+        if ($vpnMode === 'enforcement' && $downloadVpnProtectionEnabled && $security->isVpnOrProxy($clientIp)) {
             $this->renderVpnBlockedStatePage($package, $file);
             return;
         } elseif ($vpnMode === 'intelligence') {
@@ -1321,7 +1336,9 @@ class FileController
 
         // check vpn/proxy (again, to prevent bypassing ui check - enforcement mode only)
         $vpnMode = $vpnMode ?? \App\Service\SecurityService::getVpnProtectionMode();
-        if ($vpnMode === 'enforcement' && ($package['block_vpn'] ?? 0) && $security->isVpnOrProxy(\App\Service\SecurityService::getClientIp())) {
+        $vpnScope = $vpnScope ?? \App\Service\SecurityService::getVpnProtectionScope();
+        $downloadVpnProtectionEnabled = $vpnScope === 'download_pages' || !empty($package['block_vpn']);
+        if ($vpnMode === 'enforcement' && $downloadVpnProtectionEnabled && $security->isVpnOrProxy(\App\Service\SecurityService::getClientIp())) {
             $file = File::findByShortId($fileId);
             if ($isAjax) {
                 $respondJsonError('VPN or proxy use is blocked for this download. Disable it, refresh the file page, and try again.', 403);

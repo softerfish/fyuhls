@@ -65,6 +65,21 @@ class Package
         return $stmt->execute($values);
     }
 
+    public static function create(array $data): int
+    {
+        $db = Database::getInstance()->getConnection();
+        self::ensureRuntimeColumns($db);
+
+        $fields = array_keys($data);
+        $placeholders = array_fill(0, count($fields), '?');
+        $values = array_map(static fn ($field) => $data[$field], $fields);
+
+        $sql = "INSERT INTO packages (" . implode(', ', $fields) . ") VALUES (" . implode(', ', $placeholders) . ")";
+        $stmt = $db->prepare($sql);
+        $stmt->execute($values);
+        return (int)$db->lastInsertId();
+    }
+
     private static function ensureRuntimeColumns($db): void
     {
         if (self::$runtimeColumnsChecked) {

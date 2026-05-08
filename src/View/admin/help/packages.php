@@ -1,36 +1,44 @@
 <div class="p-1">
-    <p class="guide-purpose mb-4">Packages control quotas, waiting times, storage allowances, premium behavior, and capability flags assigned to users. Every signup, upgrade, and downgrade eventually maps back to one of these package records.</p>
+    <p class="guide-purpose mb-4">Packages define what a user can do, how downloads feel, what limits apply, and whether a plan participates in rewards or checkout. Think of this page as the per-plan rules layer, not the master switch for every related system.</p>
 
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Current Page Behavior</h6>
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">When To Use This Page</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Built-in packages only:</strong> This page edits package records that already exist in the database.</li>
-        <li class="mb-2"><strong>Type:</strong> The package level identifier, such as free or premium, used by the app logic.</li>
-        <li class="mb-2"><strong>Max Upload:</strong> Maximum allowed size for a single uploaded file in this package.</li>
-        <li class="mb-2"><strong>Max Storage:</strong> Total storage quota for the account. This is enforced during uploads.</li>
-        <li class="mb-2"><strong>Wait Time:</strong> Delay before a download can start for users on that package.</li>
-        <li class="mb-2"><strong>Expiry:</strong> Number of inactive days before files from that package become eligible for cleanup. <code>0</code> means never expire.</li>
-        <li><strong>Ads:</strong> Whether download pages for that package are allowed to show ad placements.</li>
+        <li class="mb-2"><strong>Use it when:</strong> You need to change limits, waits, pricing, ad behavior, remote-upload access, or reward participation for a specific plan.</li>
+        <li class="mb-2"><strong>Use Config Hub instead when:</strong> You need to change site-wide rewards rules, affiliate settings, VPN policy, ticket settings, or global upload and download defaults.</li>
+        <li><strong>What it does not do:</strong> It does not replace SMTP, monetization master switches, or global security controls.</li>
     </ul>
 
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Edit Screen Options</h6>
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">What Is On The Page</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Max Daily Downloads:</strong> Total daily bandwidth allowance for the package.</li>
-        <li class="mb-2"><strong>Download Speed:</strong> Optional throttling limit in bytes per second.</li>
-        <li class="mb-2"><strong>Allow Remote Upload:</strong> Lets users import a file from a URL instead of their browser.</li>
-        <li class="mb-2"><strong>Allow Direct Hotlinking:</strong> Lets the package use direct file links where enabled.</li>
-        <li class="mb-2"><strong>Concurrent Uploads / Downloads:</strong> Per-package concurrency limits. Download concurrency depends on active-download tracking being enabled.</li>
-        <li><strong>Package Price:</strong> Used by checkout and payment gateways for paid upgrades.</li>
+        <li class="mb-2"><strong>Package index:</strong> Compare plans side by side, including price, storage, upload size, bandwidth, rewards mode, ads, and assigned-user counts.</li>
+        <li class="mb-2"><strong>Clone:</strong> Duplicate a normal package to create a new tier faster. Singleton system plans such as <code>guest</code> and <code>admin</code> cannot be cloned.</li>
+        <li class="mb-2"><strong>Edit page summary:</strong> The top chips surface the most important plan details before you scroll into the full form.</li>
+        <li><strong>Customer preview card:</strong> Shows the package the way a buyer or upgrader is more likely to think about it.</li>
     </ul>
 
-    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Recommended Package Workflow</h6>
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Edit Screen Sections</h6>
+    <ul class="extra-small text-muted mb-4">
+        <li class="mb-2"><strong>Overview:</strong> Name, level, price, and high-level plan identity.</li>
+        <li class="mb-2"><strong>Storage &amp; Uploads:</strong> Single-file upload size, total storage, and upload-related limits.</li>
+        <li class="mb-2"><strong>Downloads &amp; Delivery:</strong> Wait time, bandwidth, speed, concurrency, and direct-link behavior.</li>
+        <li class="mb-2"><strong>Rewards &amp; Payout:</strong> Whether the plan participates in PPD or PPS when those systems are enabled globally.</li>
+        <li><strong>Ads &amp; Restrictions:</strong> Plan-level experience flags such as ad behavior and related capability switches.</li>
+    </ul>
+
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Recommended Workflow</h6>
     <ol class="guide-steps mb-4">
-        <li><strong>Create the free baseline first:</strong> Define the lowest-tier behavior clearly before layering premium plans on top.</li>
-        <li><strong>Keep upload size and storage aligned:</strong> A package should not allow huge single uploads that make no sense against the total quota.</li>
-        <li><strong>Review daily download logic with rewards and abuse rules:</strong> Large bandwidth allowances affect cost, fraud strategy, and user expectations.</li>
-        <li><strong>Test with a real account:</strong> After major changes, log into a user on that package and confirm uploads, downloads, waits, and limits behave as expected.</li>
+        <li><strong>Read the summary chips first:</strong> Confirm you are editing the right package before changing limits.</li>
+        <li><strong>Change one family of settings at a time:</strong> Limits, rewards participation, and pricing have different downstream effects.</li>
+        <li><strong>Keep plan math coherent:</strong> Very large single-upload sizes should still make sense against storage and daily bandwidth.</li>
+        <li><strong>Use clones for new tiers:</strong> It is usually safer than rebuilding a plan from scratch.</li>
+        <li><strong>Test with a real account after major changes:</strong> Especially when you change waits, concurrency, rewards participation, or checkout-facing pricing.</li>
     </ol>
 
-    <div class="alert alert-warning border-0 shadow-sm small">
-        <strong>Important:</strong> Package numbers are stored in bytes for accuracy. Use the examples on the edit screen when converting MB, GB, or TB values.
+    <div class="alert alert-info border-0 shadow-sm small mb-3">
+        <strong>Rewards note:</strong> The package page controls whether a plan participates in rewards. Global reward rates, payout rules, and affiliate-system switches still live in <strong>Config Hub</strong>.
+    </div>
+
+    <div class="alert alert-light border-0 shadow-sm small mb-0">
+        <strong>Related pages:</strong> <a href="/admin/subscriptions" class="guide-action-link">Subscriptions</a> for active paid-plan state, <a href="/admin/configuration?tab=monetization" class="guide-action-link">Config Hub &gt; Monetization</a> for global rewards and affiliate settings, and <a href="/admin/users" class="guide-action-link">Users</a> when you need to confirm who is already on a plan before changing it.
     </div>
 </div>

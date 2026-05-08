@@ -1,9 +1,14 @@
 <?php
+use App\Service\SiteContentService;
+
+$pageLocale = SiteContentService::requestLocale();
+$siteContent = SiteContentService::page('homepage', $pageLocale);
+$siteContentTokens = SiteContentService::tokenContext();
+$extraHead = ($extraHead ?? '') . SiteContentService::previewHeadHtml('homepage', $pageLocale);
+
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $title = \App\Model\Setting::get('seo_home_title', "{$siteName} - File Hosting");
 $metaDescription = \App\Model\Setting::get('seo_home_description', 'Self-hosted PHP file hosting with package controls, external storage backends, admin tools, and optional rewards.');
-$seoHomeH1 = \App\Model\Setting::get('seo_home_h1', '');
-$seoHomeIntro = \App\Model\Setting::get('seo_home_intro', '');
 include __DIR__ . '/header.php';
 
 $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1';
@@ -53,175 +58,98 @@ $creatorSummary = $rewardsEnabled
 $tierSummary = $paidPackage
     ? htmlspecialchars($paidPackage['name']) . ' is available for users who need more speed, storage, or fewer restrictions.'
     : 'Everything here is currently focused on the site\'s active access tiers without a paid upgrade step.';
+
+$heroContent = $siteContent['hero'] ?? [];
+$panelContent = $siteContent['panel'] ?? [];
+$featuresSectionContent = $siteContent['features_section'] ?? [];
+$featureCardsContent = $siteContent['feature_cards'] ?? [];
+$quickFaqSectionContent = $siteContent['quick_faq_section'] ?? [];
+$quickFaqCardsContent = $siteContent['quick_faq_cards'] ?? [];
+$pricingSectionContent = $siteContent['pricing_section'] ?? [];
 ?>
 
 <div class="hero">
     <div class="hero-copy">
-        <div class="hero-kicker">Hosted by <?= htmlspecialchars($siteName) ?></div>
-        <h1><?= htmlspecialchars($seoHomeH1 !== '' ? $seoHomeH1 : 'Share files with rules that match your site.') ?></h1>
-        <p>
-            <?= htmlspecialchars($seoHomeIntro !== '' ? $seoHomeIntro : 'Upload, organize, and deliver files from a responsive web interface with package-based limits, configurable download rules, and optional creator rewards.') ?>
-        </p>
+        <div class="hero-kicker"><?= SiteContentService::renderInlineMarkdown((string)($heroContent['kicker'] ?? 'Hosted by {site_name}'), $siteContentTokens) ?></div>
+        <h1><?= SiteContentService::renderInlineMarkdown((string)($heroContent['title'] ?? 'Share files with rules that match your site.'), $siteContentTokens) ?></h1>
+        <div class="hero-rich-copy"><?= SiteContentService::renderMarkdown((string)($heroContent['intro'] ?? ''), $siteContentTokens) ?></div>
         <div class="cta-group">
             <?php if ($allowRegistrations): ?>
-                <a href="/register" class="btn btn-lg">Create Account</a>
+                <a href="<?= htmlspecialchars(SiteContentService::localizeUrl('/register', $pageLocale)) ?>" class="btn btn-lg"><?= htmlspecialchars((string)($heroContent['primary_cta_label'] ?? 'Create Account')) ?></a>
             <?php else: ?>
-                <a href="/login" class="btn btn-lg">Login</a>
+                <a href="<?= htmlspecialchars(SiteContentService::localizeUrl('/login', $pageLocale)) ?>" class="btn btn-lg"><?= htmlspecialchars((string)($heroContent['primary_cta_label'] ?? 'Login')) ?></a>
             <?php endif; ?>
             <?php if ($guestUploadsAllowed): ?>
-                <a href="/upload" class="btn btn-lg btn-outline">Guest Upload</a>
+                <a href="<?= htmlspecialchars(SiteContentService::localizeUrl('/upload', $pageLocale)) ?>" class="btn btn-lg btn-outline"><?= htmlspecialchars((string)($heroContent['guest_cta_label'] ?? 'Guest Upload')) ?></a>
             <?php endif; ?>
-            <a href="#features" class="btn btn-lg btn-outline">See Features</a>
+            <a href="#features" class="btn btn-lg btn-outline"><?= htmlspecialchars((string)($heroContent['features_cta_label'] ?? 'See Features')) ?></a>
         </div>
         <div class="hero-meta">
-            <span><?= $allowRegistrations ? 'Registrations are open' : 'Registrations are currently closed' ?></span>
-            <span><?= $requireAccountToDownload ? 'Downloads require an account' : 'Guest downloads are allowed' ?></span>
-            <span><?= $requireVerification ? 'Email verification is enabled' : 'Email verification is optional' ?></span>
-            <span><?= $guestUploadsAllowed ? 'Guest uploads are enabled' : 'Uploads require login' ?></span>
+            <span><?= htmlspecialchars($allowRegistrations ? (string)($heroContent['meta_registration_open'] ?? 'Registrations are open') : (string)($heroContent['meta_registration_closed'] ?? 'Registrations are currently closed')) ?></span>
+            <span><?= htmlspecialchars($requireAccountToDownload ? (string)($heroContent['meta_downloads_require_account'] ?? 'Downloads require an account') : (string)($heroContent['meta_downloads_guest_allowed'] ?? 'Guest downloads are allowed')) ?></span>
+            <span><?= htmlspecialchars($requireVerification ? (string)($heroContent['meta_verification_enabled'] ?? 'Email verification is enabled') : (string)($heroContent['meta_verification_optional'] ?? 'Email verification is optional')) ?></span>
+            <span><?= htmlspecialchars($guestUploadsAllowed ? (string)($heroContent['meta_guest_uploads_enabled'] ?? 'Guest uploads are enabled') : (string)($heroContent['meta_guest_uploads_disabled'] ?? 'Uploads require login')) ?></span>
         </div>
     </div>
     <div class="hero-panel">
-        <h3>Why Use <?= htmlspecialchars($siteName) ?></h3>
+        <h3><?= SiteContentService::renderInlineMarkdown((string)($panelContent['title'] ?? 'Why Use {site_name}'), $siteContentTokens) ?></h3>
         <div class="hero-panel-grid">
             <div class="hero-stat">
-                <span class="hero-stat-label">Account Levels</span>
+                <span class="hero-stat-label"><?= htmlspecialchars((string)($panelContent['account_levels_label'] ?? 'Account Levels')) ?></span>
                 <strong><?= (int) $packageCount ?> plan<?= $packageCount === 1 ? '' : 's' ?></strong>
-                <small><?= $hasPaidPlan ? 'Starts simple and scales into premium access' : 'Built around the current access levels on this site' ?></small>
+                <small><?= strip_tags(SiteContentService::renderMarkdown($hasPaidPlan ? (string)($panelContent['account_levels_summary_paid'] ?? 'Starts simple and scales into premium access') : (string)($panelContent['account_levels_summary_free'] ?? 'Built around the current access levels on this site'), $siteContentTokens)) ?></small>
             </div>
             <div class="hero-stat">
-                <span class="hero-stat-label">Access Style</span>
+                <span class="hero-stat-label"><?= htmlspecialchars((string)($panelContent['access_style_label'] ?? 'Access Style')) ?></span>
                 <strong><?= $requireAccountToDownload ? 'Member downloads' : 'Guest downloads' ?></strong>
-                <small><?= $requireVerification ? 'Email confirmation helps keep accounts cleaner' : 'Account signup stays lightweight for new users' ?></small>
+                <small><?= strip_tags(SiteContentService::renderMarkdown($requireAccountToDownload ? (string)($panelContent['access_style_summary_member'] ?? 'Email confirmation helps keep accounts cleaner') : (string)($panelContent['access_style_summary_guest'] ?? 'Account signup stays lightweight for new users'), $siteContentTokens)) ?></small>
             </div>
         </div>
         <ul>
-            <li>
-                <?= $freePackage
-                    ? 'Get started with uploads up to ' . htmlspecialchars($formatBytes((int) $freePackage['max_upload_size'])) . ' and ' . htmlspecialchars($formatBytes((int) $freePackage['max_storage_bytes'])) . ' of storage on the current ' . htmlspecialchars($freePackage['name']) . ' plan.'
-                    : 'Upload limits and storage space are shaped around the account level this site offers.' ?>
-            </li>
-            <li>
-                <?= $supportsRemoteUpload
-                    ? 'Import files from a remote URL as well as through standard browser uploads on supported plans.'
-                    : 'Upload directly from your browser with the same package-based controls used across the site.' ?>
-            </li>
-            <li>
-                <?= $guestUploadsAllowed
-                    ? 'Guests can open the dedicated upload page without creating an account first.'
-                    : 'Uploads currently require a signed-in account before files can be added.' ?>
-            </li>
-            <li><?= $creatorSummary ?></li>
-            <li><?= $tierSummary ?></li>
+            <li><?= SiteContentService::renderInlineMarkdown((string)($panelContent['bullet_free_package'] ?? ''), $siteContentTokens) ?></li>
+            <li><?= SiteContentService::renderInlineMarkdown($supportsRemoteUpload ? (string)($panelContent['bullet_remote_upload_enabled'] ?? '') : (string)($panelContent['bullet_remote_upload_disabled'] ?? ''), $siteContentTokens) ?></li>
+            <li><?= SiteContentService::renderInlineMarkdown($guestUploadsAllowed ? (string)($panelContent['bullet_guest_upload_enabled'] ?? '') : (string)($panelContent['bullet_guest_upload_disabled'] ?? ''), $siteContentTokens) ?></li>
+            <li><?= SiteContentService::renderInlineMarkdown((string)($panelContent['bullet_creator_summary'] ?? $creatorSummary), $siteContentTokens) ?></li>
+            <li><?= SiteContentService::renderInlineMarkdown((string)($panelContent['bullet_tier_summary'] ?? $tierSummary), $siteContentTokens) ?></li>
         </ul>
     </div>
 </div>
 
 <div class="section" id="features">
     <div class="section-title">
-        <h2>Built around the rules your admin sets</h2>
-        <p>These highlights reflect live configuration and package settings instead of fixed marketing promises.</p>
+        <h2><?= SiteContentService::renderInlineMarkdown((string)($featuresSectionContent['title'] ?? 'Built around the rules your admin sets'), $siteContentTokens) ?></h2>
+        <div class="section-rich-copy"><?= SiteContentService::renderMarkdown((string)($featuresSectionContent['intro'] ?? ''), $siteContentTokens) ?></div>
     </div>
     <div class="features">
-        <div class="feature-card">
-            <span class="feature-icon">Upload</span>
-            <h3>Package-Based Limits</h3>
-            <p>
-                <?= $freePackage
-                    ? htmlspecialchars($freePackage['name']) . ' currently allows up to ' . $formatBytes((int) $freePackage['max_upload_size']) . ' per file and ' . $formatBytes((int) $freePackage['max_storage_bytes']) . ' total storage.'
-                    : 'Upload limits are controlled per package so different account levels can use different quotas.' ?>
-            </p>
-        </div>
-        <div class="feature-card">
-            <span class="feature-icon">Access</span>
-            <h3>Download Controls</h3>
-            <p>
-                <?= $requireAccountToDownload
-                    ? 'This site currently requires a registered account before downloads can begin.'
-                    : 'This site currently allows guest access to downloads, subject to package and security rules.' ?>
-            </p>
-        </div>
-        <div class="feature-card">
-            <span class="feature-icon">Security</span>
-            <h3>Onboarding Security</h3>
-            <p>
-                <?= $requireVerification
-                    ? 'New accounts must confirm their email address before they can start using the platform.'
-                    : 'Account creation is streamlined right now because email verification is optional.' ?>
-            </p>
-        </div>
-        <div class="feature-card">
-            <span class="feature-icon">Rewards</span>
-            <h3>Creator Monetization</h3>
-            <p>
-                <?= $rewardsEnabled
-                    ? ($affiliateEnabled
-                        ? 'Eligible users can access rewards and affiliate tools from their account area.'
-                        : 'Eligible users can access rewards and payout tools from their account area.')
-                    : 'Creator rewards are disabled on this install, so accounts only use the storage and sharing features.' ?>
-            </p>
-        </div>
-        <div class="feature-card">
-            <span class="feature-icon">API</span>
-            <h3>Public API and Tokens</h3>
-            <p>Personal API tokens, managed upload flows, multipart session control, file metadata access, and application-signed download links are built into the platform.</p>
-        </div>
-        <div class="feature-card">
-            <span class="feature-icon">Multipart</span>
-            <h3>Large-File Upload Path</h3>
-            <p>Fyuhls supports resumable multipart upload sessions for object storage, so larger installs can move file bytes directly to storage instead of routing everything through PHP.</p>
-        </div>
-        <div class="feature-card">
-            <span class="feature-icon">Fraud</span>
-            <h3>Rewards Fraud Review</h3>
-            <p>When rewards are enabled, admins can hold earnings, inspect suspicious traffic, and review uploader or network risk signals from a dedicated fraud console.</p>
-        </div>
-        <div class="feature-card">
-            <span class="feature-icon">Ops</span>
-            <h3>Live Operations</h3>
-            <p>Admins can monitor current downloads, review system status, export sanitized support bundles, and manage storage or delivery behavior without leaving the control surface.</p>
-        </div>
+        <?php foreach ($featureCardsContent as $card): ?>
+            <div class="feature-card">
+                <span class="feature-icon"><?= htmlspecialchars((string)($card['icon'] ?? $card['label'] ?? 'Feature')) ?></span>
+                <h3><?= SiteContentService::renderInlineMarkdown((string)($card['title'] ?? ''), $siteContentTokens) ?></h3>
+                <div class="feature-rich-copy"><?= SiteContentService::renderMarkdown((string)($card['body'] ?? ''), $siteContentTokens) ?></div>
+            </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
 <div class="section" id="homepage-faq">
     <div class="section-title">
-        <h2>Quick answers before someone signs up</h2>
-        <p>A compact overview of how this install is currently set up.</p>
+        <h2><?= SiteContentService::renderInlineMarkdown((string)($quickFaqSectionContent['title'] ?? 'Quick answers before someone signs up'), $siteContentTokens) ?></h2>
+        <div class="section-rich-copy"><?= SiteContentService::renderMarkdown((string)($quickFaqSectionContent['intro'] ?? ''), $siteContentTokens) ?></div>
     </div>
     <div class="faq-grid">
-        <div class="faq-card">
-            <h3>Do downloads require an account?</h3>
-            <p><?= $requireAccountToDownload
-                ? 'Yes. This install currently requires users to register and log in before downloading files.'
-                : 'No. Guest downloads are currently allowed, although package and security rules can still apply.' ?></p>
-        </div>
-        <div class="faq-card">
-            <h3>Can users register right now?</h3>
-            <p><?= $allowRegistrations
-                ? 'Yes. New account registration is currently open.'
-                : 'Not right now. Registration is currently closed by the administrator.' ?></p>
-        </div>
-        <div class="faq-card">
-            <h3>Are creator rewards enabled?</h3>
-            <p><?= $rewardsEnabled
-                ? ($affiliateEnabled
-                    ? 'Yes. Rewards and affiliate referrals are both enabled for eligible users.'
-                    : 'Yes. Rewards are enabled for eligible users, while affiliate referrals are currently off.')
-                : 'Not at the moment. This install is currently focused on file hosting and sharing without reward payouts.' ?></p>
-        </div>
-        <div class="faq-card">
-            <h3>What kind of account levels are available?</h3>
-            <p><?= $paidPackage
-                ? 'This install offers multiple package levels, including ' . htmlspecialchars($paidPackage['name']) . ' as the current upgrade path.'
-                : 'This install currently uses its configured guest and free account levels without a paid upgrade path.' ?></p>
-        </div>
+        <?php foreach ($quickFaqCardsContent as $card): ?>
+            <div class="faq-card">
+                <h3><?= SiteContentService::renderInlineMarkdown((string)($card['question'] ?? ''), $siteContentTokens) ?></h3>
+                <div class="faq-card-copy"><?= SiteContentService::renderMarkdown((string)($card['answer'] ?? ''), $siteContentTokens) ?></div>
+            </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
 <div class="section section-soft" id="pricing">
     <div class="section-title">
-        <h2>Account Levels</h2>
-        <p>The plan cards below are generated from the current package configuration.</p>
+        <h2><?= SiteContentService::renderInlineMarkdown((string)($pricingSectionContent['title'] ?? 'Account Levels'), $siteContentTokens) ?></h2>
+        <div class="section-rich-copy"><?= SiteContentService::renderMarkdown((string)($pricingSectionContent['intro'] ?? ''), $siteContentTokens) ?></div>
     </div>
     <div class="pricing">
         <?php foreach ($packages as $pkg): ?>
@@ -246,7 +174,7 @@ $tierSummary = $paidPackage
                     <li><?= !empty($pkg['allow_remote_upload']) ? 'Remote URL upload enabled' : 'Remote URL upload disabled' ?></li>
                     <li><?= !empty($pkg['show_ads']) ? 'Download pages may show ads' : 'No download-page ads' ?></li>
                 </ul>
-                <a href="<?= htmlspecialchars($buttonHref) ?>" class="btn <?= $levelType === 'paid' ? 'btn-primary' : 'btn-outline' ?>">
+                <a href="<?= htmlspecialchars(SiteContentService::localizeUrl($buttonHref, $pageLocale)) ?>" class="btn <?= $levelType === 'paid' ? 'btn-primary' : 'btn-outline' ?>">
                     <?= htmlspecialchars($buttonLabel) ?>
                 </a>
             </div>
@@ -290,6 +218,18 @@ $tierSummary = $paidPackage
         color: var(--text-muted);
         max-width: 700px;
         margin: 0 0 2rem;
+    }
+    .hero-rich-copy p:first-child,
+    .section-rich-copy p:first-child,
+    .feature-rich-copy p:first-child,
+    .faq-card-copy p:first-child {
+        margin-top: 0;
+    }
+    .hero-rich-copy p:last-child,
+    .section-rich-copy p:last-child,
+    .feature-rich-copy p:last-child,
+    .faq-card-copy p:last-child {
+        margin-bottom: 0;
     }
     .hero-panel {
         background: #0f172a;
@@ -366,6 +306,7 @@ $tierSummary = $paidPackage
         display: flex;
         gap: 1rem;
         flex-wrap: wrap;
+        margin-top: 0.75rem;
     }
     .btn-lg {
         padding: 0.875rem 2rem;
@@ -455,6 +396,11 @@ $tierSummary = $paidPackage
         color: var(--text-muted);
         line-height: 1.6;
         max-width: none;
+    }
+    .feature-rich-copy,
+    .faq-card-copy,
+    .section-rich-copy {
+        color: inherit;
     }
     .price-card {
         padding: 2rem;

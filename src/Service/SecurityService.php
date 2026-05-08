@@ -23,6 +23,12 @@ class SecurityService {
         return Setting::get('block_vpn_traffic', '0') === '1' ? 'enforcement' : 'intelligence';
     }
 
+    public static function getVpnProtectionScope(): string
+    {
+        $scope = strtolower(trim((string)Setting::get('vpn_proxy_scope', 'all_pages')));
+        return in_array($scope, ['all_pages', 'download_pages'], true) ? $scope : 'all_pages';
+    }
+
     public static function isHttpsRequest(): bool
     {
         if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {

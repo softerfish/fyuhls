@@ -1,15 +1,25 @@
 <?php
+use App\Service\SiteContentService;
+
+$pageLocale = SiteContentService::requestLocale();
+$siteContent = SiteContentService::page('api', $pageLocale);
+$siteContentTokens = SiteContentService::tokenContext();
+$extraHead = ($extraHead ?? '') . SiteContentService::previewHeadHtml('api', $pageLocale);
+
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $title = "API Reference - {$siteName}";
 $metaDescription = "Public API reference for {$siteName}, covering personal API tokens, multipart uploads, managed uploads, file metadata, idempotency, and controlled download links.";
+$apiHero = $siteContent['hero'] ?? [];
+$apiOverview = $siteContent['overview'] ?? [];
+$apiAuth = $siteContent['auth'] ?? [];
 include __DIR__ . '/header.php';
 ?>
 
 <div class="api-shell">
     <div class="api-hero">
-        <span class="api-eyebrow">Developer API</span>
-        <h1><?= htmlspecialchars($siteName) ?> API Reference</h1>
-        <p class="api-lead">The current <code>/api/v1/</code> API is built for account-bound integrations. It supports personal API tokens, direct-to-storage multipart uploads, a managed upload shortcut for desktop tools, owner-scoped file metadata, and application-controlled download links.</p>
+        <span class="api-eyebrow"><?= SiteContentService::renderInlineMarkdown((string)($apiHero['eyebrow'] ?? 'Developer API'), $siteContentTokens) ?></span>
+        <h1><?= SiteContentService::renderInlineMarkdown((string)($apiHero['title'] ?? '{site_name} API Reference'), $siteContentTokens) ?></h1>
+        <p class="api-lead"><?= SiteContentService::renderInlineMarkdown((string)($apiHero['lead'] ?? 'The current `/api/v1/` API is built for account-based integrations. It supports personal API tokens, direct-to-storage multipart uploads, managed upload shortcuts for desktop tools, owner-scoped file metadata, and application-controlled download links.'), $siteContentTokens) ?></p>
         <div class="api-callouts">
             <div class="api-chip">Version: <strong>v1</strong></div>
             <div class="api-chip">Auth: <strong>Bearer or X-API-Token</strong></div>
@@ -39,8 +49,8 @@ include __DIR__ . '/header.php';
 
         <div class="api-content">
             <section id="overview" class="api-card">
-                <h2>Overview</h2>
-                <p>This API is designed for real integrations, not just browser calls. Every API token belongs to a specific user account, so uploads, quotas, folders, visibility rules, and package limits all run in that user context.</p>
+                <h2><?= SiteContentService::renderInlineMarkdown((string)($apiOverview['title'] ?? 'Overview'), $siteContentTokens) ?></h2>
+                <p><?= SiteContentService::renderInlineMarkdown((string)($apiOverview['intro'] ?? 'This API is designed for real integrations, not just browser calls. Every API token belongs to a specific user account, so uploads, quotas, folders, visibility rules, and package limits all run in that user context.'), $siteContentTokens) ?></p>
                 <ul class="api-list">
                     <li>Uploads land in the authenticated user's account.</li>
                     <li>Quota is reserved before upload completion to avoid oversubscription.</li>
@@ -48,14 +58,14 @@ include __DIR__ . '/header.php';
                     <li>Some storage backends can also support app-routed multipart part uploads for local-style flows.</li>
                     <li>Download links stay application-controlled so <?= htmlspecialchars($siteName) ?> can decide CDN, signed-origin, or tracked delivery.</li>
                 </ul>
-                <p class="api-note">OpenAPI discovery is available at <code>/api/v1/openapi.json</code> for clients that want to generate their own request wrappers.</p>
-                <p class="api-note">Uploads are direct-to-storage, but downloads stay policy-driven. Your client requests a signed download link from <?= htmlspecialchars($siteName) ?> and the app still decides whether the final transfer uses CDN, signed origin, Nginx, Apache, LiteSpeed, or PHP based on site configuration, package rules, and payout-verification requirements.</p>
+                <p class="api-note"><?= SiteContentService::renderInlineMarkdown((string)($apiOverview['openapi_note'] ?? 'OpenAPI discovery is available at `/api/v1/openapi.json` for clients that want to generate their own request wrappers.'), $siteContentTokens) ?></p>
+                <p class="api-note"><?= SiteContentService::renderInlineMarkdown((string)($apiOverview['delivery_note'] ?? 'Uploads go directly to storage, while download links stay application-controlled. Your client requests a signed link from `{site_name}`, and the service handles delivery based on the user package, transfer rules, and protection checks in place.'), $siteContentTokens) ?></p>
             </section>
 
             <section id="auth" class="api-card">
-                <h2>Authentication</h2>
-                <p>Third-party tools should use personal API tokens. Browser-session calls still work for the site itself, but tokens are the intended public integration method.</p>
-                <p class="api-note">If someone is using a third-party uploader such as Zoom Uploader, they should log into their fyuhls account, open <code>/settings</code>, create a personal API token with the needed scopes, and paste that token into the uploader. They should not use their account password or browser cookies in the tool.</p>
+                <h2><?= SiteContentService::renderInlineMarkdown((string)($apiAuth['title'] ?? 'Authentication'), $siteContentTokens) ?></h2>
+                <p><?= SiteContentService::renderInlineMarkdown((string)($apiAuth['intro'] ?? 'Third-party tools should use personal API tokens. Browser-session calls still work for the site itself, but tokens are the intended public integration method.'), $siteContentTokens) ?></p>
+                <p class="api-note"><?= SiteContentService::renderInlineMarkdown((string)($apiAuth['tool_note'] ?? 'If someone is using a third-party uploader, they should log into their account, open `/settings`, create a personal API token with the needed scopes, and paste that token into the tool. They should not use their account password or browser cookies.'), $siteContentTokens) ?></p>
                 <div class="api-subgrid">
                     <div>
                         <h3>Supported headers</h3>

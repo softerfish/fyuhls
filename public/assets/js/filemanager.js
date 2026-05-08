@@ -15,7 +15,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const fmSort = document.getElementById('fmSort');
     const fmFilterChips = document.getElementById('fmFilterChips');
     const fmFilterResults = document.getElementById('fmFilterResults');
+    const fmClearFiltersBtn = document.getElementById('fmClearFiltersBtn');
+    const fmResetWorkspaceBtn = document.getElementById('fmResetWorkspaceBtn');
     const viewToggle = document.getElementById('viewToggle');
+    const dashboardUploadCard = document.getElementById('dashboardUploadCard');
+    const toggleUploadAreaBtn = document.getElementById('toggleUploadAreaBtn');
     const listSelectAll = document.getElementById('listSelectAll');
     const listSortButtons = document.querySelectorAll('[data-list-sort]');
     const bulkMakePublicBtn = document.getElementById('bulkMakePublicBtn');
@@ -1438,6 +1442,27 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadBtn.addEventListener('click', () => fileInput?.click());
     }
 
+    toggleUploadAreaBtn?.addEventListener('click', () => {
+        if (!dashboardUploadCard) return;
+        const nextCollapsed = !dashboardUploadCard.classList.contains('is-collapsed');
+        dashboardUploadCard.classList.toggle('is-collapsed', nextCollapsed);
+        toggleUploadAreaBtn.textContent = nextCollapsed ? 'Show drag and drop area' : 'Hide drag and drop area';
+    });
+
+    window.addEventListener('dragenter', (event) => {
+        if (!dashboardUploadCard || !dashboardUploadCard.classList.contains('is-collapsed')) {
+            return;
+        }
+        const transfer = event.dataTransfer;
+        if (!transfer || !Array.from(transfer.types || []).includes('Files')) {
+            return;
+        }
+        dashboardUploadCard.classList.remove('is-collapsed');
+        if (toggleUploadAreaBtn) {
+            toggleUploadAreaBtn.textContent = 'Hide drag and drop area';
+        }
+    });
+
     // 5. Drag and Drop (Internal Movement - Use Delegation)
     fileGrid?.addEventListener('dragover', (e) => {
         const folder = e.target.closest('.folder-item');
@@ -1828,6 +1853,24 @@ document.addEventListener('DOMContentLoaded', () => {
     fmVisibilityFilter?.addEventListener('change', () => applySearchFilter());
     fmStatusFilter?.addEventListener('change', () => applySearchFilter());
     fmSort?.addEventListener('change', () => applySearchFilter());
+    fmClearFiltersBtn?.addEventListener('click', () => {
+        if (fmSearch) fmSearch.value = '';
+        if (fmTypeFilter) fmTypeFilter.value = 'all';
+        if (fmVisibilityFilter) fmVisibilityFilter.value = 'all';
+        if (fmStatusFilter) fmStatusFilter.value = 'all';
+        if (fmSort) fmSort.value = 'newest';
+        applySearchFilter();
+    });
+    fmResetWorkspaceBtn?.addEventListener('click', () => {
+        if (fmSearch) fmSearch.value = '';
+        if (fmTypeFilter) fmTypeFilter.value = 'all';
+        if (fmVisibilityFilter) fmVisibilityFilter.value = 'all';
+        if (fmStatusFilter) fmStatusFilter.value = 'all';
+        if (fmSort) fmSort.value = 'newest';
+        setFileManagerView('list');
+        applySearchFilter();
+        clearSelection();
+    });
     listSortButtons.forEach(button => {
         button.addEventListener('click', () => {
             if (!fmSort) {

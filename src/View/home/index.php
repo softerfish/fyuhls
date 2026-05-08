@@ -4,17 +4,213 @@ $title = $pageTitle ?? "Dashboard - {$siteName}";
 $extraHead = '
 <link rel="stylesheet" href="/assets/css/filemanager.css?v=' . filemtime(BASE_PATH . '/public/assets/css/filemanager.css') . '">
 <style>
-    .trash-history-section { margin-top: 2rem; }
+    .home-header { padding: 0.85rem 1.75rem; }
+    .home-nav { gap: 1.25rem; }
+    .home-nav-link { font-size: 0.95rem; color: #475569; }
+    .home-nav-link:hover { color: var(--text-color); }
+    .home-logout-btn { background: #e9eef6; color: #0f172a; }
+    .home-notification-link { opacity: 0.82; transition: opacity .15s ease; }
+    .home-notification-link:hover { opacity: 1; }
+    .dashboard-shell { margin-top: 1rem; }
+    .dashboard-workspace-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1.25rem;
+        align-items: flex-start;
+        margin-bottom: 1.25rem;
+        padding: 1.15rem 1.25rem;
+        background: #fff;
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+    }
+    .dashboard-workspace-heading { flex: 1 1 auto; min-width: 0; }
+    .dashboard-workspace-title-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.45rem; }
+    .dashboard-workspace-title { margin: 0; font-size: 1.45rem; line-height: 1.2; font-weight: 800; color: #0f172a; }
+    .dashboard-workspace-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 0.34rem 0.72rem;
+        background: #eef4ff;
+        color: var(--primary-color);
+        font-size: 0.76rem;
+        font-weight: 700;
+    }
+    .dashboard-workspace-copy { margin: 0.35rem 0 0; color: var(--text-muted); font-size: 0.92rem; line-height: 1.6; max-width: 760px; }
+    .dashboard-breadcrumbs { margin-top: 0.65rem; }
+    .dashboard-workspace-stats { display: flex; align-items: stretch; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end; min-width: min(100%, 430px); }
+    .dashboard-workspace-stat { min-width: 112px; padding: 0.85rem 0.95rem; border-radius: 14px; background: #f8fafc; border: 1px solid #e2e8f0; }
+    .dashboard-workspace-stat-label { display: block; font-size: 0.7rem; color: var(--text-muted); font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.35rem; }
+    .dashboard-workspace-stat-value { display: block; font-size: 1rem; font-weight: 800; color: #0f172a; line-height: 1.25; }
+    .dashboard-workspace-stat-meta { display: block; margin-top: 0.3rem; color: var(--text-muted); font-size: 0.76rem; }
+    .dashboard-main-actions { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .dashboard-main-actions-left, .dashboard-main-actions-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .dashboard-primary-upload { min-width: 154px; justify-content: center; }
+    .dashboard-upload-card, .dashboard-file-panel {
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04);
+    }
+    .dashboard-upload-card { padding: 1rem 1.1rem 1.15rem; margin-bottom: 1.25rem; }
+    .dashboard-file-panel { padding: 1rem; }
+    .dashboard-upload-card.is-collapsed {
+        padding-bottom: 1rem;
+    }
+    .dashboard-upload-card-head, .dashboard-file-panel-head, .dashboard-filter-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .dashboard-upload-card-head { margin-bottom: 0.85rem; }
+    .dashboard-file-panel-head { margin-bottom: 0.9rem; }
+    .dashboard-upload-card-title, .dashboard-filter-title, .dashboard-file-panel-title { margin: 0; font-size: 0.98rem; font-weight: 800; color: #0f172a; }
+    .dashboard-upload-card-copy, .dashboard-filter-copy, .dashboard-file-panel-copy { margin: 0.2rem 0 0; color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; }
+    .dashboard-upload-hint { display: inline-flex; align-items: center; padding: 0.35rem 0.6rem; border-radius: 999px; background: #f8fafc; border: 1px solid #e2e8f0; color: #475569; font-size: 0.76rem; font-weight: 600; white-space: nowrap; }
+    .dashboard-upload-head-tools { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-left: auto; }
+    .dashboard-upload-toggle {
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        background: #fff;
+        color: #475569;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 0.46rem 0.82rem;
+        cursor: pointer;
+    }
+    .dashboard-drop-zone { margin-bottom: 0; padding: 1.55rem 1.5rem; min-height: 0; }
+    .dashboard-drop-zone .dz-message p { font-size: 0.98rem; margin-bottom: 0.35rem; }
+    .dashboard-drop-zone .dz-message small { display: block; font-size: 0.8rem; color: var(--text-muted); line-height: 1.45; }
+    .dashboard-upload-card.is-collapsed .dashboard-drop-zone {
+        display: none;
+    }
+    .dashboard-filter-card { border-radius: 16px; }
+    .dashboard-filter-head { margin-bottom: 0.95rem; }
+    .dashboard-filter-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-left: auto; }
+    .dashboard-filter-search { width: min(250px, 100%); flex: 1 1 210px; }
+    .dashboard-filter-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .dashboard-filter-clear {
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        background: #fff;
+        color: #475569;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 0.48rem 0.85rem;
+        cursor: pointer;
+    }
+    .dashboard-filter-reset {
+        border: 1px solid #c7d2fe;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: #3730a3;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 0.48rem 0.85rem;
+        cursor: pointer;
+    }
+    .dashboard-file-panel-meta { color: var(--text-muted); font-size: 0.8rem; font-weight: 600; }
+    .trash-history-section {
+        margin-top: 2rem;
+        border-top: 1px solid #e5e7eb;
+        padding-top: 1.6rem;
+    }
     .trash-history-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-    .trash-history-title { margin: 0; font-size: 1rem; font-weight: 700; color: var(--text-color); }
-    .trash-history-copy { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.875rem; }
-    .trash-history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.875rem; }
-    .trash-history-card { border: 1px solid var(--border-color); border-radius: 8px; background: #fff; padding: 1rem; min-width: 0; }
-    .trash-history-file { font-weight: 700; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.5rem; }
-    .trash-history-meta { color: var(--text-muted); font-size: 0.8rem; line-height: 1.45; margin-bottom: 0.75rem; }
-    .trash-history-label { display: block; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.25rem; }
-    .trash-history-reason { color: var(--text-color); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
-    .trash-history-empty { border: 1px dashed var(--border-color); border-radius: 8px; padding: 1rem; color: var(--text-muted); font-size: 0.875rem; background: #f8fafc; }
+    .trash-history-title { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--text-color); }
+    .trash-history-copy { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.875rem; max-width: 780px; line-height: 1.55; }
+    .trash-history-controls {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.9rem;
+    }
+    .trash-history-results {
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+    .trash-history-table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        background: #fff;
+    }
+    .trash-history-table {
+        width: 100%;
+        min-width: 760px;
+        border-collapse: collapse;
+    }
+    .trash-history-table th {
+        background: #f8fafc;
+        text-align: left;
+        padding: 0.9rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+    }
+    .trash-history-table th.nowrap {
+        white-space: nowrap;
+    }
+    .trash-history-table td {
+        padding: 0.95rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.875rem;
+        vertical-align: top;
+    }
+    .trash-history-table tbody tr:last-child td { border-bottom: none; }
+    .trash-history-file { font-weight: 700; color: var(--text-color); line-height: 1.45; overflow-wrap: anywhere; }
+    .trash-history-meta { color: var(--text-muted); font-size: 0.8rem; line-height: 1.5; }
+    .trash-history-reason { color: var(--text-color); line-height: 1.55; overflow-wrap: anywhere; }
+    .trash-history-empty { border: 1px dashed var(--border-color); border-radius: 12px; padding: 1rem; color: var(--text-muted); font-size: 0.875rem; background: #f8fafc; }
+    .trash-history-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-top: 0.95rem;
+    }
+    .trash-history-page-meta {
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+    .trash-history-page-links {
+        display: flex;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+    }
+    .trash-history-page-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 2.25rem;
+        height: 2.25rem;
+        padding: 0 0.8rem;
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+        background: #fff;
+        color: #334155;
+        text-decoration: none;
+        font-size: 0.82rem;
+        font-weight: 700;
+    }
+    .trash-history-page-link.is-current {
+        border-color: #c7d2fe;
+        background: #eef2ff;
+        color: #3730a3;
+    }
+    .trash-history-page-link.is-disabled {
+        opacity: 0.45;
+        pointer-events: none;
+    }
     .bulk-links-modal { width: min(940px, calc(100vw - 2rem)) !important; max-width: min(940px, calc(100vw - 2rem)) !important; max-height: calc(100vh - 2rem); overflow-y: auto; overscroll-behavior: contain; margin: 1rem auto !important; }
     .bulk-links-summary { margin: 0.45rem 0 1rem; color: var(--text-muted); font-size: 0.92rem; line-height: 1.5; }
     .bulk-links-summary strong { color: var(--text-color); }
@@ -51,6 +247,15 @@ $extraHead = '
         .bulk-tools-panel-head, .bulk-tools-actions { flex-direction: column; align-items: stretch; }
         .bulk-tools-actions-group { justify-content: stretch; }
         .bulk-tools-actions-group .btn { width: 100%; }
+        .dashboard-workspace-header,
+        .dashboard-filter-head,
+        .dashboard-main-actions,
+        .dashboard-upload-card-head,
+        .dashboard-file-panel-head { flex-direction: column; align-items: stretch; }
+        .dashboard-workspace-stats,
+        .dashboard-main-actions-right,
+        .dashboard-filter-tools { justify-content: flex-start; min-width: 0; }
+        .dashboard-filter-search { width: 100%; }
     }
 </style>';
 include __DIR__ . '/header.php';
@@ -63,10 +268,46 @@ $guestMode = !empty($guestMode);
 
 $packageMaxUpload = !empty($package['max_upload_size']) ? (int) $package['max_upload_size'] : 0;
 $effectiveUploadLimit = $packageMaxUpload;
+$activeFileCount = is_array($files ?? null) ? count($files) : 0;
+$activeFolderCount = is_array($folders ?? null) ? count($folders) : 0;
+$openTicketCount = 0;
+$recentUploadTimestamp = null;
+if (!$guestMode && !empty($files)) {
+    foreach ($files as $dashboardFile) {
+        if (!empty($dashboardFile['created_at'])) {
+            $createdAt = strtotime((string)$dashboardFile['created_at']);
+            if ($createdAt && ($recentUploadTimestamp === null || $createdAt > $recentUploadTimestamp)) {
+                $recentUploadTimestamp = $createdAt;
+            }
+        }
+    }
+}
+$shouldCompactUploadArea = !$guestMode && empty($isTrash) && ($activeFileCount + $activeFolderCount) > 0;
+$topUnreadNotificationCount = 0;
+if ($currentUserId > 0 && !$guestMode) {
+    try {
+        $topUnreadNotificationCount = count(\App\Service\NotificationService::getUnread($currentUserId));
+    } catch (\Throwable $e) {
+        $topUnreadNotificationCount = 0;
+    }
+
+    try {
+        $topTickets = \App\Service\TicketService::getUserTickets($currentUserId);
+        foreach ($topTickets as $ticket) {
+            if (($ticket['status'] ?? '') !== 'closed') {
+                $openTicketCount++;
+            }
+        }
+    } catch (\Throwable $e) {
+        $openTicketCount = 0;
+    }
+}
+$recentUploadLabel = $recentUploadTimestamp ? date('M j, Y', $recentUploadTimestamp) : 'No uploads yet';
+$workspaceModeLabel = !empty($isTrash) ? 'Trash' : ($guestMode ? 'Guest Upload' : '');
 
 $uploadLimitText = $effectiveUploadLimit > 0
     ? 'Maximum upload size: ' . formatBytes($effectiveUploadLimit, 1)
-    : 'Maximum upload size depends on your account and storage policy';
+    : 'Maximum upload size: Unlimited for this plan';
 ?>
 
 <div class="fm-container dashboard-shell<?= $guestMode ? ' guest-upload-shell' : '' ?>">
@@ -88,13 +329,29 @@ $uploadLimitText = $effectiveUploadLimit > 0
             </div>
         </div>
         <?php endif; ?>
-        <div class="fm-toolbar">
-            <input type="hidden" name="csrf_token" value="<?= \App\Core\Csrf::generate() ?>">
-            <input type="hidden" id="currentFolderId" value="<?= $currentFolder ? $currentFolder['id'] : '' ?>">
+        <input type="hidden" name="csrf_token" value="<?= \App\Core\Csrf::generate() ?>">
+        <input type="hidden" id="currentFolderId" value="<?= $currentFolder ? $currentFolder['id'] : '' ?>">
 
-            <div class="toolbar-left">
-                <h2 class="folder-title"><?= htmlspecialchars($pageHeading ?? ($currentFolder ? $currentFolder['name'] : 'All Files')) ?></h2>
-                <div class="breadcrumbs" id="breadcrumbs">
+        <section class="dashboard-workspace-header">
+            <div class="dashboard-workspace-heading">
+                <div class="dashboard-workspace-title-row">
+                    <h2 class="dashboard-workspace-title"><?= htmlspecialchars($pageHeading ?? ($currentFolder ? $currentFolder['name'] : 'All Files')) ?></h2>
+                    <?php if ($workspaceModeLabel !== ''): ?>
+                        <span class="dashboard-workspace-badge"><?= htmlspecialchars($workspaceModeLabel) ?></span>
+                    <?php endif; ?>
+                </div>
+                <p class="dashboard-workspace-copy">
+                    <?php if (!empty($isTrash)): ?>
+                        Review deleted items, restore what still matters, and clear old files only when you are sure they are no longer needed.
+                    <?php elseif ($guestMode): ?>
+                        Upload quickly without an account, or create one later if you want folders, history, and account-side tools.
+                    <?php elseif ($currentFolder): ?>
+                        Work inside this folder, upload new files, and keep the structure tidy without leaving the page.
+                    <?php else: ?>
+                        Upload, organize, and share your files from one workspace. Start with upload, then use filters once the list gets busy.
+                    <?php endif; ?>
+                </p>
+                <div class="breadcrumbs dashboard-breadcrumbs" id="breadcrumbs">
                     <a href="/">Home</a>
                     <?php if (isset($breadcrumbPath) && is_array($breadcrumbPath)): ?>
                         <?php foreach ($breadcrumbPath as $crumb): ?>
@@ -108,48 +365,91 @@ $uploadLimitText = $effectiveUploadLimit > 0
                     <?php endif; ?>
                 </div>
             </div>
-
-            <div class="toolbar-right<?= $guestMode ? ' dashboard-hidden' : '' ?>">
-                <div class="toolbar-controls dashboard-toolbar-controls">
-                    <div class="search-box dashboard-search-box">
-                        <span class="search-icon" aria-hidden="true">&#128269;</span>
-                        <input type="text" id="fmSearch" placeholder="Search files..." class="dashboard-search-input">
-                    </div>
-                    <button class="btn dashboard-view-toggle" id="viewToggle" title="Toggle Grid/List">Grid</button>
+            <div class="dashboard-workspace-stats<?= $guestMode ? ' dashboard-hidden' : '' ?>">
+                <div class="dashboard-workspace-stat">
+                    <span class="dashboard-workspace-stat-label">Visible Files</span>
+                    <span class="dashboard-workspace-stat-value"><?= number_format($activeFileCount) ?></span>
+                    <span class="dashboard-workspace-stat-meta">In this view</span>
                 </div>
-                <?php if ($currentFolder): ?>
+                <div class="dashboard-workspace-stat">
+                    <span class="dashboard-workspace-stat-label">Folders</span>
+                    <span class="dashboard-workspace-stat-value"><?= number_format($activeFolderCount) ?></span>
+                    <span class="dashboard-workspace-stat-meta">Ready to organize</span>
+                </div>
+                <div class="dashboard-workspace-stat">
+                    <span class="dashboard-workspace-stat-label">Open Tickets</span>
+                    <span class="dashboard-workspace-stat-value"><?= number_format($openTicketCount) ?></span>
+                    <span class="dashboard-workspace-stat-meta"><?= $topUnreadNotificationCount > 0 ? number_format($topUnreadNotificationCount) . ' unread notifications' : 'Nothing waiting on you' ?></span>
+                </div>
+                <div class="dashboard-workspace-stat">
+                    <span class="dashboard-workspace-stat-label">Latest Upload</span>
+                    <span class="dashboard-workspace-stat-value"><?= htmlspecialchars($recentUploadLabel) ?></span>
+                    <span class="dashboard-workspace-stat-meta"><?= $activeFileCount > 0 ? 'Most recent file added' : 'Upload to get started' ?></span>
+                </div>
+            </div>
+        </section>
+
+        <div class="dashboard-main-actions<?= $guestMode ? ' dashboard-hidden' : '' ?>">
+            <div class="dashboard-main-actions-left">
+                <?php if (!isset($isTrash)): ?>
+                    <button class="btn btn-primary dashboard-primary-upload" id="uploadBtn">Upload Files</button>
+                    <?php if (\App\Core\Auth::isAdmin() || !empty($package['allow_remote_upload'])): ?>
+                        <button class="btn btn-white" id="remoteUploadBtn">Remote URL</button>
+                    <?php endif; ?>
+                    <button class="btn btn-white" id="newFolderBtn">New Folder</button>
+                <?php elseif (\App\Model\Setting::get('user_can_empty_trash', '1') === '1'): ?>
+                    <button class="btn btn-danger empty-trash-btn">Empty Trash Bin</button>
+                <?php endif; ?>
+            </div>
+            <div class="dashboard-main-actions-right">
+                <?php if ($currentFolder && !$guestMode): ?>
                     <button class="btn btn-white" data-nav-url="<?= $currentFolder['parent_id'] ? '/folder/' . $currentFolder['parent_id'] : '/' ?>">Up One Level</button>
                 <?php endif; ?>
             </div>
         </div>
 
-        <div class="upload-actions-top">
-            <?php if (!isset($isTrash)): ?>
-                <?php if (!$guestMode && (\App\Core\Auth::isAdmin() || !empty($package['allow_remote_upload']))): ?>
-                    <button class="btn btn-primary" id="remoteUploadBtn">Remote URL Upload</button>
-                <?php endif; ?>
-                <?php if (!$guestMode): ?>
-                    <button class="btn btn-primary" id="newFolderBtn">New Folder</button>
-                <?php endif; ?>
-            <?php else: ?>
-                <?php if (\App\Model\Setting::get('user_can_empty_trash', '1') === '1'): ?>
-                    <button class="btn btn-danger empty-trash-btn">Empty Trash Bin</button>
-                <?php endif; ?>
-            <?php endif; ?>
-        </div>
-
         <?php if (!isset($isTrash)): ?>
-        <div class="drop-zone" id="dropZone">
+        <section class="dashboard-upload-card<?= $shouldCompactUploadArea ? ' is-collapsed' : '' ?>" id="dashboardUploadCard">
+            <div class="dashboard-upload-card-head">
+                <div>
+                    <h3 class="dashboard-upload-card-title">Upload area</h3>
+                    <p class="dashboard-upload-card-copy">Use the main upload button for everyday work, or expand the drop area when you want the larger target.</p>
+                </div>
+                <div class="dashboard-upload-head-tools">
+                    <span class="dashboard-upload-hint"><?= htmlspecialchars($uploadLimitText) ?></span>
+                    <?php if ($shouldCompactUploadArea): ?>
+                        <button type="button" class="dashboard-upload-toggle" id="toggleUploadAreaBtn">Show drag and drop area</button>
+                    <?php endif; ?>
+                </div>
+            </div>
+        <div class="drop-zone dashboard-drop-zone" id="dropZone">
             <div class="dz-message">
                 <div class="dz-icon" aria-hidden="true">&#128228;</div>
-                <p>Drag & Drop files here or <span>browse</span></p>
-                <small><?= htmlspecialchars($uploadLimitText) ?></small>
+                <p>Drag and drop files here or <span>browse</span></p>
+                <small>Quick drop target for adding files without leaving the workspace.</small>
             </div>
             <input type="file" id="fileInput" multiple class="dashboard-hidden">
         </div>
+        </section>
         <?php endif; ?>
 
-        <div class="fm-filter-bar<?= $guestMode ? ' dashboard-hidden' : '' ?>">
+        <div class="fm-filter-bar dashboard-filter-card<?= $guestMode ? ' dashboard-hidden' : '' ?>">
+            <div class="dashboard-filter-head">
+                <div>
+                    <h3 class="dashboard-filter-title">Find and narrow items</h3>
+                    <p class="dashboard-filter-copy">Search by name, trim the list by type or status, and change sorting without losing your place.</p>
+                </div>
+                <div class="dashboard-filter-tools">
+                    <div class="search-box dashboard-search-box dashboard-filter-search">
+                        <span class="search-icon" aria-hidden="true">&#128269;</span>
+                        <input type="text" id="fmSearch" placeholder="Search files and folders..." class="dashboard-search-input">
+                    </div>
+                    <div class="dashboard-filter-actions">
+                        <button type="button" class="dashboard-filter-clear" id="fmClearFiltersBtn">Clear filters</button>
+                        <button type="button" class="dashboard-filter-reset" id="fmResetWorkspaceBtn">Reset workspace</button>
+                    </div>
+                </div>
+            </div>
             <div class="fm-filter-group">
                 <label class="fm-filter">
                     <span>Type</span>
@@ -203,6 +503,23 @@ $uploadLimitText = $effectiveUploadLimit > 0
             </div>
         </div>
 
+        <section class="dashboard-file-panel">
+            <div class="dashboard-file-panel-head">
+                <div>
+                    <h3 class="dashboard-file-panel-title"><?= !empty($isTrash) ? 'Deleted items' : 'Files and folders' ?></h3>
+                    <p class="dashboard-file-panel-copy">
+                        <?= !empty($isTrash)
+                            ? 'Review what is waiting in trash before restoring or deleting it permanently.'
+                            : 'Folders stay at the top so the structure is easier to scan before you drop into the files themselves.' ?>
+                    </p>
+                </div>
+                <div class="dashboard-main-actions-right">
+                    <div class="dashboard-file-panel-meta">
+                        <?= number_format($activeFileCount + $activeFolderCount) ?> visible item<?= ($activeFileCount + $activeFolderCount) === 1 ? '' : 's' ?>
+                    </div>
+                    <button class="btn dashboard-view-toggle<?= $guestMode ? ' dashboard-hidden' : '' ?>" id="viewToggle" title="Toggle Grid/List">Grid View</button>
+                </div>
+            </div>
         <div class="file-grid" id="fileGrid">
             <div class="fm-list-header">
                 <div class="fm-list-select"><input type="checkbox" id="listSelectAll" aria-label="Select all visible items"></div>
@@ -353,44 +670,98 @@ $uploadLimitText = $effectiveUploadLimit > 0
                 <?php endforeach; ?>
             <?php endif; ?>
         </div>
+        </section>
 
         <?php if (!empty($isTrash)): ?>
         <?php $fileDeletionHistory = is_array($fileDeletionHistory ?? null) ? $fileDeletionHistory : []; ?>
+        <?php $deletionHistoryScope = 'admin'; ?>
+        <?php $deletionHistoryPage = max(1, (int)($deletionHistoryPage ?? 1)); ?>
+        <?php $deletionHistoryPages = max(1, (int)($deletionHistoryPages ?? 1)); ?>
+        <?php $deletionHistoryTotal = max(0, (int)($deletionHistoryTotal ?? count($fileDeletionHistory))); ?>
+        <?php
+        $buildDeletionHistoryUrl = static function (int $page): string {
+            $page = max(1, $page);
+            $params = [];
+            if ($page > 1) {
+                $params['deletion_page'] = $page;
+            }
+            return '/trash' . (!empty($params) ? ('?' . http_build_query($params)) : '');
+        };
+        $historyRangeStart = $deletionHistoryTotal > 0 ? (($deletionHistoryPage - 1) * (int)($deletionHistoryPerPage ?? 20)) + 1 : 0;
+        $historyRangeEnd = $deletionHistoryTotal > 0 ? min($deletionHistoryTotal, $historyRangeStart + count($fileDeletionHistory) - 1) : 0;
+        ?>
         <section class="trash-history-section" aria-labelledby="trashHistoryTitle">
             <div class="trash-history-header">
                 <div>
-                    <h3 class="trash-history-title" id="trashHistoryTitle">Deleted File History</h3>
-                    <p class="trash-history-copy">Files permanently removed from your account, including the recorded deletion reason.</p>
+                    <h3 class="trash-history-title" id="trashHistoryTitle">Admin Removed File History</h3>
+                    <p class="trash-history-copy">Trash above shows items you can still restore. This history is only for files permanently removed by staff actions such as abuse review, DMCA handling, or moderation.</p>
+                </div>
+            </div>
+            <div class="trash-history-controls">
+                <div class="trash-history-results">
+                    <?php if ($deletionHistoryTotal > 0): ?>
+                        Showing <?= number_format($historyRangeStart) ?>-<?= number_format($historyRangeEnd) ?> of <?= number_format($deletionHistoryTotal) ?>
+                    <?php else: ?>
+                        No deleted history in this view
+                    <?php endif; ?>
                 </div>
             </div>
             <?php if (!empty($fileDeletionHistory)): ?>
-                <div class="trash-history-grid">
+                <div class="trash-history-table-wrap">
+                    <table class="trash-history-table">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Removed</th>
+                                <th class="nowrap">Removed by</th>
+                                <th>Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody>
                     <?php foreach ($fileDeletionHistory as $entry): ?>
                         <?php
                         $actorLabel = trim((string)($entry['deleted_by_label'] ?? ''));
                         if ($actorLabel === '') {
-                            $actorLabel = (($entry['deleted_by_role'] ?? '') === 'admin') ? 'Administrator' : 'You';
+                            $deletedByRole = strtolower(trim((string)($entry['deleted_by_role'] ?? 'system')));
+                            $actorLabel = $deletedByRole === 'admin' ? 'Administrator' : ($deletedByRole === 'user' ? 'You' : 'System');
                         }
                         $reason = trim((string)($entry['delete_reason'] ?? ''));
                         $deletedAt = !empty($entry['deleted_at']) ? strtotime((string)$entry['deleted_at']) : false;
                         ?>
-                        <article class="trash-history-card">
-                            <div class="trash-history-file" title="<?= htmlspecialchars((string)($entry['original_filename'] ?? 'Deleted file')) ?>">
-                                <?= htmlspecialchars((string)($entry['original_filename'] ?? 'Deleted file')) ?>
-                            </div>
-                            <div class="trash-history-meta">
-                                Removed <?= htmlspecialchars($deletedAt ? date('M d, Y H:i', $deletedAt) : 'Unknown date') ?>
-                                by <?= htmlspecialchars($actorLabel) ?>
-                            </div>
-                            <div>
-                                <span class="trash-history-label">Reason</span>
-                                <div class="trash-history-reason">
-                                    <?= $reason !== '' ? htmlspecialchars($reason) : 'No reason was recorded for this deletion.' ?>
-                                </div>
-                            </div>
-                        </article>
+                            <tr>
+                                <td>
+                                    <div class="trash-history-file" title="<?= htmlspecialchars((string)($entry['original_filename'] ?? 'Deleted file')) ?>">
+                                        <?= htmlspecialchars((string)($entry['original_filename'] ?? 'Deleted file')) ?>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="trash-history-meta"><?= htmlspecialchars($deletedAt ? date('M d, Y H:i', $deletedAt) : 'Unknown date') ?></div>
+                                </td>
+                                <td>
+                                    <div class="trash-history-meta"><?= htmlspecialchars($actorLabel) ?></div>
+                                </td>
+                                <td>
+                                    <div class="trash-history-reason">
+                                        <?= $reason !== '' ? htmlspecialchars($reason) : 'No reason was recorded for this deletion.' ?>
+                                    </div>
+                                </td>
+                            </tr>
                     <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
+                <?php if ($deletionHistoryPages > 1): ?>
+                    <div class="trash-history-pagination">
+                        <div class="trash-history-page-meta">Page <?= number_format($deletionHistoryPage) ?> of <?= number_format($deletionHistoryPages) ?></div>
+                        <div class="trash-history-page-links">
+                            <a href="<?= htmlspecialchars($buildDeletionHistoryUrl(1)) ?>" class="trash-history-page-link<?= $deletionHistoryPage <= 1 ? ' is-disabled' : '' ?>">First</a>
+                            <a href="<?= htmlspecialchars($buildDeletionHistoryUrl(max(1, $deletionHistoryPage - 1))) ?>" class="trash-history-page-link<?= $deletionHistoryPage <= 1 ? ' is-disabled' : '' ?>">Previous</a>
+                            <span class="trash-history-page-link is-current"><?= number_format($deletionHistoryPage) ?></span>
+                            <a href="<?= htmlspecialchars($buildDeletionHistoryUrl(min($deletionHistoryPages, $deletionHistoryPage + 1))) ?>" class="trash-history-page-link<?= $deletionHistoryPage >= $deletionHistoryPages ? ' is-disabled' : '' ?>">Next</a>
+                            <a href="<?= htmlspecialchars($buildDeletionHistoryUrl($deletionHistoryPages)) ?>" class="trash-history-page-link<?= $deletionHistoryPage >= $deletionHistoryPages ? ' is-disabled' : '' ?>">Last</a>
+                        </div>
+                    </div>
+                <?php endif; ?>
             <?php else: ?>
                 <div class="trash-history-empty">No permanently deleted file history has been recorded yet.</div>
             <?php endif; ?>

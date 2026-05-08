@@ -1,4 +1,50 @@
-﻿# Changelog
+# Changelog
+
+## v0.2.0
+
+### Site Content Editor
+- Added an admin-managed Site Content system for editing public copy without touching theme files, with markdown content blocks, safe link validation, live saves, reset-to-default behavior, preview links, JSON import/export, revision history with restore, locale variants, and automatic pruning to the newest 10 revisions per page and locale.
+- Wired Site Content into Homepage, FAQ, Contact, DMCA, and Footer using shared rendering helpers with built-in defaults, locale-aware page links, locked footer attribution, and short-lived preview tokens for logged-in admin review on guest-facing routes like the homepage.
+- Expanded the customer-facing copy cleanup around that system by moving public-facing Affiliate and API page copy into Site Content, refreshing Homepage and FAQ defaults to sound more like a real hosting service, and softening related public account, plans, rewards, and checkout language that previously read too much like installer or operator-facing text.
+- Reworked `/faq` into a clearer help-center style page with grouped topic sections, jump chips, live search, tighter support handoff, additional practical questions, and Site Content-managed FAQ categories so the public help flow is easier to scan and maintain.
+- Reworked `/affiliate` into a clearer Creator Rewards page with stronger sectioning, cleaner model comparison, separate reward-guidance cards, better guest and member call-to-action copy, and a more polished rates-and-payout presentation.
+- Added theme compatibility checks and editor polish including custom-theme override warnings, revision detail summaries, grouped page actions, summary chips, section anchors, contextual markdown help, copyable token chips, denser revision history, locale-aware helper notes, unsaved-change cues, revision filters, responsive action layout, clearer "where this appears" guidance, plus docs and an implementation spec for theme authors.
+
+### Admin Navigation
+- Reworked the admin sidebar into clearer grouped sections for Overview, Moderation, Users & Revenue, Content & Files, and Infrastructure, with collapsible group headers, stronger active-state styling, quieter reference/footer links, and preserved badges for requests, withdrawals, Config Hub attention, and available updates.
+
+### Admin Documentation
+- Rebuilt /admin/docs into a task-oriented operator handbook with start-here cards, common task guides, browse-by-task grouping, searchable section cards, and cleaner long-form documentation organized around Getting Started, Daily Operations, Users & Billing, Content & Moderation, Storage & Delivery, Security & Infrastructure, and Troubleshooting & Reference.
+- Refreshed the key page guides to match the current product surface, including Tickets, Packages, Site Content, Config Hub, Email, Security, Storage Nodes, Downloads & Delivery, Support Center, Resources, and the filtered Contact/Abuse/DMCA views, while adding clearer "when to use this page," related-page references, and more workflow-oriented copy.
+
+### Package Management
+- Rebuilt the package index into a clearer comparison workspace with summary cards, stronger at-a-glance plan columns, assigned-user counts, and one-click package cloning so new tiers can be created from a live plan without re-entering every field from scratch.
+- Reworked package edit pages into grouped sections for Overview, Storage & Uploads, Downloads & Delivery, Rewards & Payout, Ads & Restrictions, and extension hooks, with left-side section navigation, top summary context, customer-preview notes, live-impact warnings for plans with assigned users, a sticky save bar, broader plan controls like accepted file types, PPD rates, PPS enablement and commission percent, adblock blocking, and VPN/proxy blocking, plus a fix so unchecked toggles now save as off instead of keeping prior values.
+
+### Tickets
+- Added a full shared ticket system with a logged-in user Tickets page, encrypted ticket/message/event storage, non-sequential public ticket IDs, reopen-on-user-reply behavior, admin/staff replies, internal notes, user/staff notifications, and core email events for ticket opened, replied, and closed actions.
+- Added Config Hub > Tickets plus editable ticket email templates in the Email tab so operators can manage the support inbox address, master and per-trigger email toggles, waiting-on-user reminder settings, and configurable rate limits for support tickets, contact, abuse, and DMCA submissions.
+- Reworked /admin/requests into a true ticket queue with summary stats, search, status/priority/stale filters, clearer row metadata, improved thread and workflow panels, preserved filter/search context after actions, correct latest-reply metadata, intake unification for new Contact/Abuse/DMCA submissions as encrypted ticket records, support for ticket-backed and legacy queue items side by side, abuse delete-file and DMCA file-removal actions, separated ticket-backed activity keys, verified ticket public IDs for ticket-backed admin actions, fail-closed behavior when those IDs are missing or invalid, and persisted DMCA processing in the visible activity trail.
+
+### Security and Email Config
+- Added a VPN/proxy enforcement scope in Config Hub > Security so operators can choose whether blocking applies to **all public pages** or **only download pages**, while keeping the existing download-page and download-action checks active where they matter most.
+- Fixed the Email tab layout in Config Hub by separating the SMTP workspace, test tools column, and template-edit modal into the correct grid structure so the admin page no longer collapses awkwardly at normal widths.
+
+### System Status
+- Reworked /admin/status into a triage-first operations page with top-line summary cards, clear Critical / Warning / Healthy signals, a dedicated Action Center, regrouped sections for App Health, Updates, Upload Pipeline, Storage & Reservations, Download & Delivery, Support Diagnostics, and Logs, calmer collapsible low-priority detail, plainer operator notes, safer next-step links, and an updated Status page guide.
+
+### Logged-In Workspace
+- Reworked the logged-in file manager homepage into a clearer workspace with a stronger header, top-line file and folder context, a primary Upload Files action, cleaner secondary actions, calmer separation between upload, filtering, and file-list sections, a denser filter/search panel, Clear filters and Reset workspace, a file-list header that owns the view toggle, and a compact-by-default upload drop area that can expand on demand or automatically when files are dragged in.
+- Tightened the account sidebar by removing redundant summary chrome, regrouping navigation into Files, Account, and Earnings, and adding useful count badges for Notifications, Tickets, and Trash without changing the underlying routes.
+- Split Trash more clearly from permanent deletion history by keeping recoverable items in the Trash view above, moving deleted-file history into its own paginated list, and adding a separate admin-removal filter so DMCA, abuse, and moderation removals do not blur together with normal user deletions.
+
+### Rewards Dashboard
+- Reworked `/rewards` into a clearer payout-first earnings dashboard with stronger top summary cards, a dedicated payout-status panel, better separation between payout actions and analytics, clearer earnings-state breakdowns, cleaner performance and history sections, and more obvious guidance around what qualified, what is still under review, and when balance is ready for payout.
+
+### Account Settings
+- Reworked /settings into a clearer account hub with grouped sections for Profile & Preferences, Security, Rewards & Payout, and API Tokens, plus a stronger summary header and cleaner section-level guidance.
+- Added a verified email-change flow in account settings so users can update their email address, receive a confirmation link at the new address, and only switch the real login email after that link is opened, plus the editable confirm_email_change template in the admin Email Templates page.
+- Cleaned up `/login` with clearer sign-in copy, better email-or-username field guidance, a more obvious forgot-password path, registration-aware footer messaging, and a calmer verification note when email confirmation is required.
 
 ## v0.1.5
 

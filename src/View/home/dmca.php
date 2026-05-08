@@ -1,5 +1,14 @@
 <?php
-$title = 'DMCA Takedown Notice';
+use App\Service\SiteContentService;
+
+$pageLocale = SiteContentService::requestLocale();
+$siteContent = SiteContentService::page('dmca', $pageLocale);
+$siteContentTokens = SiteContentService::tokenContext();
+$dmcaPage = $siteContent['page'] ?? [];
+$dmcaFields = $siteContent['fields'] ?? [];
+$extraHead = ($extraHead ?? '') . SiteContentService::previewHeadHtml('dmca', $pageLocale);
+
+$title = strip_tags(SiteContentService::renderInlineMarkdown((string)($dmcaPage['title'] ?? 'DMCA Takedown Notice'), $siteContentTokens));
 $metaDescription = 'Submit a DMCA takedown notice for copyrighted material hosted on this site.';
 include __DIR__ . '/header.php';
 include __DIR__ . '/partials/public_form_shell_styles.php';
@@ -52,8 +61,8 @@ include __DIR__ . '/partials/public_form_shell_styles.php';
 
     <div class="public-form-shell">
     <div class="auth-container public-form-card public-form-card--wide public-form-card--plain">
-        <h2>DMCA Takedown Notice</h2>
-        <p class="dmca-intro">If you believe that your copyrighted work has been infringed, please complete the form below.</p>
+        <h2><?= SiteContentService::renderInlineMarkdown((string)($dmcaPage['title'] ?? 'DMCA Takedown Notice'), $siteContentTokens) ?></h2>
+        <div class="dmca-intro"><?= SiteContentService::renderMarkdown((string)($dmcaPage['intro'] ?? ''), $siteContentTokens) ?></div>
 
         <?php if ($error): ?>
             <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
@@ -66,39 +75,39 @@ include __DIR__ . '/partials/public_form_shell_styles.php';
             <?= \App\Core\Csrf::field() ?>
             <div class="dmca-grid">
                 <div class="form-group">
-                    <label for="name">Full Name</label>
+                    <label for="name"><?= htmlspecialchars((string)($dmcaFields['name_label'] ?? 'Full Name')) ?></label>
                     <input type="text" name="name" id="name" value="<?= htmlspecialchars($_POST['name'] ?? '') ?>" required>
                 </div>
                 <div class="form-group">
-                    <label for="email">Email Address</label>
+                    <label for="email"><?= htmlspecialchars((string)($dmcaFields['email_label'] ?? 'Email Address')) ?></label>
                     <input type="email" name="email" id="email" value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required>
                 </div>
             </div>
             <div class="form-group">
-                <label for="url">Infringing URL(s)</label>
+                <label for="url"><?= htmlspecialchars((string)($dmcaFields['url_label'] ?? 'Infringing URL(s)')) ?></label>
                 <textarea name="url" id="url" rows="7" class="dmca-textarea" placeholder="https://yourdomain.com/file/123&#10;https://yourdomain.com/file/456&#10;https://yourdomain.com/file/789" required><?= htmlspecialchars($_POST['url'] ?? '') ?></textarea>
-                <p class="dmca-help">Paste one or more URLs here. You can paste a block of links and fyuhls will sort them into a one-link-per-line list.</p>
+                <div class="dmca-help"><?= SiteContentService::renderMarkdown((string)($dmcaFields['url_help'] ?? ''), $siteContentTokens) ?></div>
             </div>
             <div class="form-group">
-                <label for="description">Detailed Description</label>
+                <label for="description"><?= htmlspecialchars((string)($dmcaFields['description_label'] ?? 'Detailed Description')) ?></label>
                 <textarea name="description" id="description" rows="6" class="dmca-textarea" required><?= htmlspecialchars($_POST['description'] ?? '') ?></textarea>
             </div>
             <div class="form-group">
-                <label for="signature">Electronic Signature</label>
-                <p class="dmca-help">Typing your full name here acts as your digital signature.</p>
+                <label for="signature"><?= htmlspecialchars((string)($dmcaFields['signature_label'] ?? 'Electronic Signature')) ?></label>
+                <div class="dmca-help"><?= SiteContentService::renderMarkdown((string)($dmcaFields['signature_help'] ?? ''), $siteContentTokens) ?></div>
                 <input type="text" name="signature" id="signature" value="<?= htmlspecialchars($_POST['signature'] ?? '') ?>" required>
             </div>
             <div class="dmca-confirm-box">
                 <label class="dmca-confirm-label">
                     <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                        <strong class="dmca-confirm-title" style="margin: 0;">Confirmation:</strong>
+                        <strong class="dmca-confirm-title" style="margin: 0;"><?= htmlspecialchars((string)($dmcaFields['confirmation_title'] ?? 'Confirmation:')) ?></strong>
                         <input type="checkbox" required class="dmca-confirm-checkbox" style="margin: 0;">
                     </div>
-                    <span style="display:block;">I have a good faith belief that the use of the material is not authorized by the copyright owner, its agent, or the law.</span>
+                    <div style="display:block;"><?= SiteContentService::renderMarkdown((string)($dmcaFields['confirmation_body'] ?? ''), $siteContentTokens) ?></div>
                 </label>
             </div>
             <?php include __DIR__ . '/../partials/captcha.php'; ?>
-            <button type="submit" class="btn">Submit Takedown Notice</button>
+            <button type="submit" class="btn"><?= htmlspecialchars((string)($dmcaPage['submit_label'] ?? 'Submit Takedown Notice')) ?></button>
         </form>
     </div>
     </div>

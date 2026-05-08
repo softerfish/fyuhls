@@ -14,7 +14,7 @@ use PDO;
  */
 class SchemaService
 {
-    const SCHEMA_VERSION = '2.2.0';
+    const SCHEMA_VERSION = '2.3.0';
 
     private $db;
     private array $logs = [];
@@ -66,6 +66,8 @@ class SchemaService
                     'username_lookup' => "CHAR(64) NULL",
                     'email' => "VARCHAR(255) NOT NULL /* Encrypted */",
                     'email_lookup' => "CHAR(64) NULL",
+                    'pending_email' => "VARCHAR(255) NULL /* Encrypted */",
+                    'pending_email_lookup' => "CHAR(64) NULL",
                     'password' => "VARCHAR(255) NOT NULL",
                     'role' => "ENUM('guest', 'user', 'admin') NOT NULL DEFAULT 'user'",
                     'package_id' => "INT UNSIGNED NOT NULL DEFAULT 2",
@@ -73,6 +75,8 @@ class SchemaService
                     'status' => "ENUM('active', 'banned', 'pending') NOT NULL DEFAULT 'active'",
                     'email_verified' => "TINYINT(1) UNSIGNED NOT NULL DEFAULT 0",
                     'verification_token' => "VARCHAR(255) NULL",
+                    'email_change_token' => "VARCHAR(255) NULL",
+                    'email_change_expires' => "DATETIME NULL",
                     'reset_token' => "VARCHAR(255) NULL",
                     'reset_expires' => "DATETIME NULL",
                     'storage_used' => "BIGINT UNSIGNED NOT NULL DEFAULT 0",
@@ -94,9 +98,11 @@ class SchemaService
                     'public_id' => "UNIQUE INDEX public_id (public_id)",
                     'username_lookup_idx' => "INDEX username_lookup_idx (username_lookup)",
                     'email_lookup_idx' => "INDEX email_lookup_idx (email_lookup)",
+                    'pending_email_lookup_idx' => "INDEX pending_email_lookup_idx (pending_email_lookup)",
                     'username_idx' => "UNIQUE INDEX username_idx (username)",
                     'email_idx' => "UNIQUE INDEX email_idx (email)",
-                    'status_idx' => "INDEX status_idx (status)"
+                    'status_idx' => "INDEX status_idx (status)",
+                    'email_change_token_idx' => "INDEX email_change_token_idx (email_change_token)"
                 ],
                 'foreign_keys' => [
                     'users_package_fk' => "FOREIGN KEY (`package_id`) REFERENCES `packages`(`id`)",
@@ -483,6 +489,80 @@ class SchemaService
                 ],
                 'primary' => 'id'
             ],
+            'support_tickets' => [
+                'columns' => [
+                    'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+                    'public_id' => "VARCHAR(32) NOT NULL",
+                    'ticket_type' => "VARCHAR(32) NOT NULL DEFAULT 'support'",
+                    'user_id' => "BIGINT UNSIGNED NULL",
+                    'status' => "ENUM('open','waiting_user','waiting_staff','closed') NOT NULL DEFAULT 'open'",
+                    'priority' => "ENUM('normal','high') NOT NULL DEFAULT 'normal'",
+                    'subject' => "TEXT NOT NULL /* Encrypted */",
+                    'submitter_name' => "TEXT NULL /* Encrypted */",
+                    'submitter_email' => "TEXT NULL /* Encrypted */",
+                    'source' => "VARCHAR(32) NOT NULL DEFAULT 'account'",
+                    'metadata_json' => "TEXT NULL /* Encrypted */",
+                    'related_file_id' => "BIGINT UNSIGNED NULL",
+                    'ip_address' => "VARCHAR(255) NULL /* Encrypted */",
+                    'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                    'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+                    'last_reply_at' => "DATETIME NULL",
+                    'last_user_reply_at' => "DATETIME NULL",
+                    'last_staff_reply_at' => "DATETIME NULL",
+                    'closed_at' => "DATETIME NULL",
+                    'closed_by_user_id' => "BIGINT UNSIGNED NULL",
+                    'closed_by_admin_id' => "BIGINT UNSIGNED NULL"
+                ],
+                'primary' => 'id',
+                'indexes' => [
+                    'support_tickets_public_id_unique' => "UNIQUE KEY support_tickets_public_id_unique (public_id)",
+                    'support_tickets_user_status_idx' => "INDEX support_tickets_user_status_idx (user_id, status, updated_at)",
+                    'support_tickets_type_status_updated_idx' => "INDEX support_tickets_type_status_updated_idx (ticket_type, status, updated_at)",
+                    'support_tickets_status_updated_idx' => "INDEX support_tickets_status_updated_idx (status, updated_at)",
+                    'support_tickets_priority_status_idx' => "INDEX support_tickets_priority_status_idx (priority, status, updated_at)"
+                ],
+                'foreign_keys' => [
+                    'support_tickets_user_fk' => "FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE"
+                ]
+            ],
+            'support_ticket_messages' => [
+                'columns' => [
+                    'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+                    'ticket_id' => "BIGINT UNSIGNED NOT NULL",
+                    'author_type' => "ENUM('user','admin','system') NOT NULL",
+                    'author_user_id' => "BIGINT UNSIGNED NULL",
+                    'message_type' => "ENUM('intake','reply','note') NOT NULL DEFAULT 'reply'",
+                    'body' => "TEXT NOT NULL /* Encrypted */",
+                    'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ],
+                'primary' => 'id',
+                'indexes' => [
+                    'support_ticket_messages_ticket_idx' => "INDEX support_ticket_messages_ticket_idx (ticket_id, created_at)",
+                    'support_ticket_messages_author_idx' => "INDEX support_ticket_messages_author_idx (author_user_id, created_at)"
+                ],
+                'foreign_keys' => [
+                    'support_ticket_messages_ticket_fk' => "FOREIGN KEY (`ticket_id`) REFERENCES `support_tickets`(`id`) ON DELETE CASCADE"
+                ]
+            ],
+            'support_ticket_events' => [
+                'columns' => [
+                    'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+                    'ticket_id' => "BIGINT UNSIGNED NOT NULL",
+                    'event_type' => "VARCHAR(50) NOT NULL",
+                    'actor_type' => "ENUM('user','admin','system') NOT NULL DEFAULT 'system'",
+                    'actor_user_id' => "BIGINT UNSIGNED NULL",
+                    'payload_json' => "TEXT NULL /* Encrypted */",
+                    'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ],
+                'primary' => 'id',
+                'indexes' => [
+                    'support_ticket_events_ticket_idx' => "INDEX support_ticket_events_ticket_idx (ticket_id, created_at)",
+                    'support_ticket_events_type_idx' => "INDEX support_ticket_events_type_idx (event_type, created_at)"
+                ],
+                'foreign_keys' => [
+                    'support_ticket_events_ticket_fk' => "FOREIGN KEY (`ticket_id`) REFERENCES `support_tickets`(`id`) ON DELETE CASCADE"
+                ]
+            ],
             'dmca_reports' => [
                 'columns' => [
                     'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
@@ -718,6 +798,68 @@ class SchemaService
                     'description' => "TEXT NULL"
                 ],
                 'primary' => 'template_key'
+            ],
+            'site_content' => [
+                'columns' => [
+                    'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+                    'page_key' => "VARCHAR(64) NOT NULL",
+                    'block_key' => "VARCHAR(64) NOT NULL",
+                    'locale' => "VARCHAR(10) NOT NULL DEFAULT 'en'",
+                    'content_type' => "ENUM('object', 'list', 'markdown', 'text') NOT NULL DEFAULT 'object'",
+                    'content_json' => "LONGTEXT NOT NULL",
+                    'updated_by' => "BIGINT UNSIGNED NULL",
+                    'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                    'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+                ],
+                'primary' => 'id',
+                'indexes' => [
+                    'site_content_lookup' => "UNIQUE INDEX site_content_lookup (page_key, block_key, locale)",
+                    'site_content_page_locale' => "INDEX site_content_page_locale (page_key, locale)"
+                ],
+                'foreign_keys' => [
+                    'site_content_updated_by_fk' => "FOREIGN KEY (`updated_by`) REFERENCES `users`(`id`) ON DELETE SET NULL"
+                ]
+            ],
+            'site_content_revisions' => [
+                'columns' => [
+                    'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+                    'page_key' => "VARCHAR(64) NOT NULL",
+                    'locale' => "VARCHAR(10) NOT NULL DEFAULT 'en'",
+                    'snapshot_json' => "LONGTEXT NOT NULL",
+                    'change_reason' => "VARCHAR(32) NOT NULL DEFAULT 'save'",
+                    'restored_from_revision_id' => "BIGINT UNSIGNED NULL",
+                    'created_by' => "BIGINT UNSIGNED NULL",
+                    'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ],
+                'primary' => 'id',
+                'indexes' => [
+                    'site_content_revisions_page_locale' => "INDEX site_content_revisions_page_locale (page_key, locale, created_at)",
+                    'site_content_revisions_created_by' => "INDEX site_content_revisions_created_by (created_by)"
+                ],
+                'foreign_keys' => [
+                    'site_content_revisions_created_by_fk' => "FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON DELETE SET NULL"
+                ]
+            ],
+            'site_content_preview_tokens' => [
+                'columns' => [
+                    'id' => "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+                    'token_hash' => "CHAR(64) NOT NULL",
+                    'page_key' => "VARCHAR(64) NOT NULL",
+                    'locale' => "VARCHAR(10) NOT NULL DEFAULT 'en'",
+                    'payload_json' => "LONGTEXT NOT NULL",
+                    'created_by' => "BIGINT UNSIGNED NOT NULL",
+                    'expires_at' => "DATETIME NOT NULL",
+                    'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ],
+                'primary' => 'id',
+                'indexes' => [
+                    'site_content_preview_tokens_hash' => "UNIQUE INDEX site_content_preview_tokens_hash (token_hash)",
+                    'site_content_preview_tokens_expiry' => "INDEX site_content_preview_tokens_expiry (expires_at)",
+                    'site_content_preview_tokens_creator' => "INDEX site_content_preview_tokens_creator (created_by, page_key)"
+                ],
+                'foreign_keys' => [
+                    'site_content_preview_tokens_created_by_fk' => "FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON DELETE CASCADE"
+                ]
             ]
         ];
 

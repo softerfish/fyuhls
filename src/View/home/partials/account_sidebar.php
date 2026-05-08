@@ -11,6 +11,7 @@ $isPaymentsArea = str_contains($requestUri, '/payments');
 $isRecentArea = str_contains($requestUri, '/recent');
 $isSharedArea = str_contains($requestUri, '/shared');
 $isNotificationsArea = str_contains($requestUri, '/notifications');
+$isTicketsArea = str_contains($requestUri, '/tickets');
 $isAllFilesArea = (!isset($isTrash) || !$isTrash)
     && !$isSettingsArea
     && !$isRewardsArea
@@ -19,7 +20,8 @@ $isAllFilesArea = (!isset($isTrash) || !$isTrash)
     && !$isPaymentsArea
     && !$isRecentArea
     && !$isSharedArea
-    && !$isNotificationsArea;
+    && !$isNotificationsArea
+    && !$isTicketsArea;
 
 $pkgNameStr = 'Free Plan';
 $expiryStr = 'Lifetime Free Account';
@@ -51,6 +53,35 @@ foreach ($allPackages as $sidebarPkg) {
     if (($sidebarPkg['level_type'] ?? '') === 'paid') {
         $planLink = '/plans';
         break;
+    }
+}
+
+$unreadNotificationCount = 0;
+$openTicketCount = 0;
+$trashItemCount = 0;
+if ($currentUserId > 0) {
+    try {
+        $unreadNotificationCount = count(\App\Service\NotificationService::getUnread($currentUserId));
+    } catch (\Throwable $e) {
+        $unreadNotificationCount = 0;
+    }
+
+    try {
+        $userTickets = \App\Service\TicketService::getUserTickets($currentUserId);
+        foreach ($userTickets as $ticket) {
+            if (($ticket['status'] ?? '') !== 'closed') {
+                $openTicketCount++;
+            }
+        }
+    } catch (\Throwable $e) {
+        $openTicketCount = 0;
+    }
+
+    try {
+        $trashItemCount = count(\App\Model\File::getDeletedByUser($currentUserId))
+            + count(\App\Model\Folder::getDeletedByUser($currentUserId));
+    } catch (\Throwable $e) {
+        $trashItemCount = 0;
     }
 }
 
@@ -117,23 +148,33 @@ foreach ($allPackages as $sidebarPkg) {
         </div>
         <?php endif; ?>
 
-        <h3 class="dashboard-account-title">Account</h3>
+        <h3 class="dashboard-account-title">Files</h3>
         <ul class="dashboard-nav">
             <li data-nav-url="/" class="<?= $isAllFilesArea ? 'active' : '' ?>">All Files</li>
             <li data-nav-url="/recent" class="<?= $isRecentArea ? 'active' : '' ?>">Recent</li>
             <li data-nav-url="/shared" class="<?= $isSharedArea ? 'active' : '' ?>">Shared</li>
-            <li data-nav-url="/notifications" class="<?= $isNotificationsArea ? 'active' : '' ?>">Notifications</li>
             <li class="<?= (isset($isTrash) && $isTrash) ? 'active' : '' ?> sidebar-trash-item dashboard-trash-item">
-                <span data-nav-url="/trash" class="dashboard-trash-link">Trash</span>
+                <span data-nav-url="/trash" class="dashboard-trash-link">Trash<?php if ($trashItemCount > 0): ?><span class="dashboard-nav-count"><?= number_format($trashItemCount) ?></span><?php endif; ?></span>
             </li>
+        </ul>
+
+        <h3 class="dashboard-account-title">Account</h3>
+        <ul class="dashboard-nav">
+            <li data-nav-url="/notifications" class="<?= $isNotificationsArea ? 'active' : '' ?>">Notifications<?php if ($unreadNotificationCount > 0): ?><span class="dashboard-nav-count"><?= number_format($unreadNotificationCount) ?></span><?php endif; ?></li>
+            <li data-nav-url="/tickets" class="<?= $isTicketsArea ? 'active' : '' ?>">Tickets<?php if ($openTicketCount > 0): ?><span class="dashboard-nav-count"><?= number_format($openTicketCount) ?></span><?php endif; ?></li>
+            <li data-nav-url="/settings" class="<?= $isSettingsArea ? 'active' : '' ?>">Settings</li>
+            <li data-nav-url="/payments" class="<?= $isPaymentsArea ? 'active' : '' ?>">Payments</li>
+        </ul>
+
+        <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
+        <h3 class="dashboard-account-title">Earnings</h3>
+        <ul class="dashboard-nav">
             <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
                 <li data-nav-url="/rewards" class="<?= $isRewardsArea ? 'active' : '' ?>">My Rewards</li>
-                <?php if (\App\Service\FeatureService::affiliateEnabled()): ?>
-                    <li data-nav-url="/affiliate" class="<?= $isAffiliateArea ? 'active' : '' ?>">Affiliate</li>
-                <?php endif; ?>
+                <li data-nav-url="/affiliate" class="<?= $isAffiliateArea ? 'active' : '' ?>">Affiliate</li>
             <?php endif; ?>
-            <li data-nav-url="/payments" class="<?= $isPaymentsArea ? 'active' : '' ?>">Payments</li>
-            <li data-nav-url="/settings" class="<?= $isSettingsArea ? 'active' : '' ?>">Settings</li>
         </ul>
+        <?php endif; ?>
     </div>
 </div>
+

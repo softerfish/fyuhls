@@ -20,6 +20,7 @@ $templates = $db->query("SELECT * FROM email_templates ORDER BY template_key ASC
 $templateGroups = [
     'Account' => [
         'confirm_email',
+        'confirm_email_change',
         'welcome_email',
         'forgot_password',
         'package_changed',
@@ -44,6 +45,17 @@ $templateGroups = [
         'contact_form_responder',
         'dmca_form_responder',
         'admin_notification',
+    ],
+    'Tickets' => [
+        'ticket_opened_admin',
+        'ticket_opened_user',
+        'ticket_staff_replied',
+        'ticket_user_replied',
+        'ticket_waiting_user_reminder',
+        'ticket_closed',
+        'contact_submitted_admin',
+        'abuse_report_submitted_admin',
+        'dmca_report_submitted_admin',
     ],
     'Payments' => [
         'payment_pending',
@@ -86,9 +98,20 @@ foreach ($templates as $templateRow) {
         <details class="config-help-panel">
             <summary>How this works</summary>
             <div class="config-help-panel__body">
-                <p>Fyuhls queues most outbound email and lets cron process it in batches. That means SMTP settings, cron health, and your provider's rate limits all shape how quickly messages leave the system.</p>
+                <p>Fyuhls queues most outbound email and lets cron process it in batches. That means SMTP settings, cron health, and your provider's rate limits all shape how quickly messages leave the system.</p>           
             </div>
         </details>
+
+<div class="email-sponsor-callout mb-4">
+                    <div class="email-sponsor-callout__eyebrow">Sponsor</div>
+                    <div class="email-sponsor-callout__title">
+                        Get your email into users inbox: <a href="https://www.hostinger.com/?REFERRALCODE=PHXCORRECHKN" target="_blank" rel="noopener noreferrer">Hostinger Business Email</a>
+                    </div>
+                    <p class="email-sponsor-callout__text">
+                        Packages start at $0.39/month before coupon, and using the supplied link can get you an additional 20% off.
+                        <a href="https://www.hostinger.com/?REFERRALCODE=PHXCORRECHKN" target="_blank" rel="noopener noreferrer">Signup now</a>.
+                    </p>
+                </div>
 
 <div class="row g-4">
     <!-- Queue Stats -->
@@ -180,62 +203,29 @@ foreach ($templates as $templateRow) {
 </div>
 </form>
 <?php renderAdminCardEnd(); ?>
-
-<!-- Template Edit Modal -->
-<div class="modal fade" id="templateModal" tabindex="-1" aria-hidden="true">
-<div class="modal-dialog modal-lg">
-<div class="modal-content border-0 shadow">
-<form method="POST" action="/admin/configuration/save">
-<?= \App\Core\Csrf::field() ?>
-<input type="hidden" name="section" value="email_template">
-<input type="hidden" name="template_key" id="tplKey">
-<div class="modal-header border-bottom-0">
-<h5 class="modal-title fw-bold" id="tplTitle">Edit Template</h5>
-<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-</div>
-<div class="modal-body p-4">
-<div class="mb-3">
-    <label class="form-label fw-bold">Subject Line</label>
-    <input type="text" class="form-control" name="subject" id="tplSubject" required>
-</div>
-<div class="mb-3">
-    <label class="form-label fw-bold">Email Body</label>
-    <textarea class="form-control font-monospace small" name="body" id="tplBody" rows="12" required></textarea>
-    <div class="mt-2 extra-small text-muted">
-        Available variables include <code>{username}</code>, <code>{site_name}</code>, <code>{site_url}</code>, <code>{support_email}</code>, <code>{email}</code>, <code>{current_year}</code>, plus template-specific values like <code>{confirm_link}</code>, <code>{reset_link}</code>, <code>{subject}</code>, <code>{event_type}</code>, <code>{details}</code>, <code>{file_name}</code>, <code>{expiry_date}</code>, <code>{usage_percent}</code>, <code>{threshold}</code>, <code>{max_storage}</code>, <code>{old_package}</code>, <code>{new_package}</code>, <code>{amount}</code>, <code>{method}</code>, <code>{admin_note}</code>, <code>{gateway}</code>, <code>{package_name}</code>, <code>{login_ip}</code>, and <code>{login_time}</code>.
-    </div>
-</div>
-</div>
-<div class="modal-footer border-top-0">
-<button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-<button type="submit" class="btn btn-primary px-4">Update Template</button>
-</div>
-</form>
-</div>
-</div>
 </div>
 
-    <!-- Quick Tools -->
-    <div class="col-lg-4" id="email-tools">
-        <div class="card border-0 shadow-sm mb-4 config-section-card">
-            <div class="card-header bg-white fw-bold py-3">Send Test Email</div>
-            <div class="card-body">
-                <p class="small text-muted">Verify your SMTP configuration by sending a real email to yourself.</p>
-                <div class="input-group mb-3">
-                    <input type="email" id="testEmailAddr" class="form-control form-control-sm" placeholder="your@email.com">
-                    <button class="btn btn-sm btn-dark" type="button" id="sendTestEmailBtn">Send</button>
-                </div>
-                <div id="testResult" class="email-test-result small mt-2"></div>
+<!-- Quick Tools -->
+<div class="col-lg-4" id="email-tools">
+    <div class="card border-0 shadow-sm mb-4 config-section-card">
+        <div class="card-header bg-white fw-bold py-3">Send Test Email</div>
+        <div class="card-body">
+            <p class="small text-muted">Verify your SMTP configuration by sending a real email to yourself.</p>
+            <div class="input-group mb-3">
+                <input type="email" id="testEmailAddr" class="form-control form-control-sm" placeholder="your@email.com">
+                <button class="btn btn-sm btn-dark" type="button" id="sendTestEmailBtn">Send</button>
             </div>
-        </div>
-
-        <div class="config-soft-callout config-soft-callout--info config-section-card">
-            <h6 class="fw-bold mb-2 small text-uppercase">Enterprise Note</h6>
-            <p class="extra-small mb-0">
-                    For high-volume sites (thousands of emails/day), ensure your <strong>Cron Heartbeat</strong> is set to run every minute. This allows the <code>MailQueueService</code> to process batches steadily without overwhelming your SMTP provider.
-            </p>
+            <div id="testResult" class="email-test-result small mt-2"></div>
         </div>
     </div>
+
+    <div class="config-soft-callout config-soft-callout--info config-section-card">
+        <h6 class="fw-bold mb-2 small text-uppercase">Enterprise Note</h6>
+        <p class="extra-small mb-0">
+            For high-volume sites (thousands of emails/day), ensure your <strong>Cron Heartbeat</strong> is set to run every minute. This allows the <code>MailQueueService</code> to process batches steadily without overwhelming your SMTP provider.
+        </p>
+    </div>
+</div>
 </div>
 
 <div id="email-templates"></div>
@@ -280,12 +270,83 @@ foreach ($templates as $templateRow) {
 </div>
 </div>
 
+<!-- Template Edit Modal -->
+<div class="modal fade" id="templateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow">
+            <form method="POST" action="/admin/configuration/save">
+                <?= \App\Core\Csrf::field() ?>
+                <input type="hidden" name="section" value="email_template">
+                <input type="hidden" name="template_key" id="tplKey">
+                <div class="modal-header border-bottom-0">
+                    <h5 class="modal-title fw-bold" id="tplTitle">Edit Template</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Subject Line</label>
+                        <input type="text" class="form-control" name="subject" id="tplSubject" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Email Body</label>
+                        <textarea class="form-control font-monospace small" name="body" id="tplBody" rows="12" required></textarea>
+                        <div class="mt-2 extra-small text-muted">
+                            Available variables include <code>{username}</code>, <code>{site_name}</code>, <code>{site_url}</code>, <code>{support_email}</code>, <code>{email}</code>, <code>{current_year}</code>, plus template-specific values like <code>{confirm_link}</code>, <code>{new_email}</code>, <code>{reset_link}</code>, <code>{subject}</code>, <code>{event_type}</code>, <code>{details}</code>, <code>{file_name}</code>, <code>{expiry_date}</code>, <code>{usage_percent}</code>, <code>{threshold}</code>, <code>{max_storage}</code>, <code>{old_package}</code>, <code>{new_package}</code>, <code>{amount}</code>, <code>{method}</code>, <code>{admin_note}</code>, <code>{gateway}</code>, <code>{package_name}</code>, <code>{login_ip}</code>, <code>{login_time}</code>, <code>{ticket_id}</code>, <code>{ticket_subject}</code>, <code>{ticket_status}</code>, <code>{ticket_type}</code>, <code>{ticket_url}</code>, <code>{user_name}</code>, <code>{user_email}</code>, <code>{reply_message}</code>, and <code>{support_inbox_email}</code>.
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary px-4">Update Template</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <style>
 .email-auth-hidden{display:none}
 .email-rate-limit{max-width:300px}
 .email-template-group{width:140px}
 .email-template-subject{min-width:280px; white-space:normal; word-break:break-word}
 .email-test-result{display:none}
+.email-sponsor-callout{
+    margin-top:1rem;
+    padding:1rem 1.125rem;
+    border:1px solid rgba(37,99,235,.18);
+    border-radius:14px;
+    background:linear-gradient(180deg, rgba(239,246,255,.96) 0%, rgba(248,250,252,.96) 100%);
+    box-shadow:0 10px 24px rgba(15,23,42,.06);
+}
+.email-sponsor-callout__eyebrow{
+    margin-bottom:.35rem;
+    font-size:.72rem;
+    font-weight:700;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:#1d4ed8;
+}
+.email-sponsor-callout__title{
+    margin-bottom:.4rem;
+    font-size:1rem;
+    font-weight:700;
+    color:#0f172a;
+}
+.email-sponsor-callout__title a,
+.email-sponsor-callout__text a{
+    color:#1d4ed8;
+    text-decoration:none;
+}
+.email-sponsor-callout__title a:hover,
+.email-sponsor-callout__text a:hover{
+    text-decoration:underline;
+}
+.email-sponsor-callout__text{
+    margin:0;
+    font-size:.92rem;
+    line-height:1.55;
+    color:#334155;
+}
 </style>
 
 <script>

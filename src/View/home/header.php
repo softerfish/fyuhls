@@ -1,6 +1,7 @@
 <?php
 $showRewards = \App\Service\FeatureService::rewardsEnabled();
-$showAffiliate = \App\Service\FeatureService::affiliateEnabled();
+$showAffiliate = $showRewards;
+$pageLocale = $pageLocale ?? \App\Service\SiteContentService::requestLocale();
 
 // read site name from DB, fall back to config, fall back to 'fyuhls'
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'fyuhls'));
@@ -20,7 +21,7 @@ $generatedHead = \App\Service\SeoService::buildHead([
 $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1';
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?= htmlspecialchars((string)$pageLocale) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -119,10 +120,9 @@ $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1
         <a href="/" class="home-logo"><?= htmlspecialchars($siteName) ?></a>
         
         <div class="home-nav">
-            <a href="/api" class="home-nav-link">API</a>
-            <a href="/faq" class="home-nav-link">FAQ</a>
+            <a href="<?= htmlspecialchars(\App\Service\SiteContentService::localizeUrl('/faq', $pageLocale)) ?>" class="home-nav-link">FAQ</a>
             <?php if ($showAffiliate): ?>
-                <a href="/affiliate" class="home-nav-link">Affiliate</a>
+                <a href="<?= htmlspecialchars(\App\Service\SiteContentService::localizeUrl('/affiliate', $pageLocale)) ?>" class="home-nav-link">Affiliate</a>
             <?php endif; ?>
             
             <?php if (\App\Core\Auth::check()): ?>
@@ -152,9 +152,9 @@ $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1
                     <button type="submit" class="home-logout-btn">Logout</button>
                 </form>
             <?php else: ?>
-                <a href="/login" class="home-nav-link">Login</a>
+                <a href="<?= htmlspecialchars(\App\Service\SiteContentService::localizeUrl('/login', $pageLocale)) ?>" class="home-nav-link">Login</a>
                 <?php if ($allowRegistrations): ?>
-                    <a href="/register" class="home-signup-link">Sign Up</a>
+                    <a href="<?= htmlspecialchars(\App\Service\SiteContentService::localizeUrl('/register', $pageLocale)) ?>" class="home-signup-link">Sign Up</a>
                 <?php endif; ?>
             <?php endif; ?>
         </div>

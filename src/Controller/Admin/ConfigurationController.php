@@ -1360,7 +1360,7 @@ class ConfigurationController
                     `item_type` VARCHAR(50) NULL,
                     `item_id` BIGINT UNSIGNED NULL,
                     `details` TEXT NULL,
-                    `ip_address` VARCHAR(45) NULL,
+                    `ip_address` VARCHAR(255) NULL,
                     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (`id`),
                     INDEX `admin_id` (`admin_id`),

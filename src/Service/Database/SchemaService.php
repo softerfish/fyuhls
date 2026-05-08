@@ -390,7 +390,7 @@ class SchemaService
                     'item_type' => "VARCHAR(50) NULL",
                     'item_id' => "BIGINT UNSIGNED NULL",
                     'details' => "TEXT NULL /* Encrypted */",
-                    'ip_address' => "VARCHAR(45) NULL /* Encrypted */",
+                    'ip_address' => "VARCHAR(255) NULL /* Encrypted */",
                     'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
                 ],
                 'primary' => 'id',

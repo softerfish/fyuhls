@@ -1,4 +1,4 @@
-# fyuhls v0.2.0: High-Performance File Hosting Platform
+# fyuhls v0.2.1: High-Performance File Hosting Platform
 
 Does the project look interesting or has it helped you out at all? A star for the project helps a lot.
 

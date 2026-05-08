@@ -790,7 +790,7 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
 <?php renderAdminCardEnd(); ?>
 
 <?php renderAdminCardStart('Storage & Reservations', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
-    <p class="status-section-intro">This section is for quota bookkeeping and reservation cleanup. It is the place to look when storage limits feel wrong, space stays â€œreservedâ€ too long, or uploads appear detached from quota state.</p>
+    <p class="status-section-intro">This section is for quota bookkeeping and reservation cleanup. It is the place to look when storage limits feel wrong, space stays "reserved" too long, or uploads appear detached from quota state.</p>
 
     <div class="status-metric-grid mb-4">
         <div class="status-check-card"><div class="status-check-label">Active Reservations</div><div class="status-check-value <?= !empty($uploadStats['active_reservations']) ? 'status-warn' : 'status-good' ?>"><?= (int)($uploadStats['active_reservations'] ?? 0) ?></div><div class="status-check-copy">Quota currently held open for upload work that may still complete.</div></div>
@@ -800,7 +800,7 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
 
     <div class="status-note-card status-note-card--operator mb-4">
         <div class="status-note-label">Operator Note</div>
-        <p class="status-note-copy">If users report â€œquota fullâ€ or space not returning after failed uploads, start here. Reservations tell you whether the problem is active work still in progress or cleanup that never finished.</p>
+        <p class="status-note-copy">If users report "quota full" or space not returning after failed uploads, start here. Reservations tell you whether the problem is active work still in progress or cleanup that never finished.</p>
     </div>
 
     <div class="status-section-tools mb-4">

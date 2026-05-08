@@ -138,7 +138,7 @@ class ApiToken
                 `status` ENUM('active', 'revoked') NOT NULL DEFAULT 'active',
                 `expires_at` DATETIME NULL,
                 `last_used_at` DATETIME NULL,
-                `last_used_ip` VARCHAR(64) NULL,
+                `last_used_ip` VARCHAR(255) NULL,
                 `revoked_at` DATETIME NULL,
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -148,5 +148,11 @@ class ApiToken
                 KEY `api_tokens_user_status` (`user_id`, `status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
+
+        try {
+            $db->exec("ALTER TABLE `api_tokens` MODIFY COLUMN `last_used_ip` VARCHAR(255) NULL");
+        } catch (\Throwable $e) {
+            // Leave schema repair to the main sync path if this runtime heal cannot apply cleanly.
+        }
     }
 }

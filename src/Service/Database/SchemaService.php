@@ -323,7 +323,7 @@ class SchemaService
                     'status' => "ENUM('active', 'revoked') NOT NULL DEFAULT 'active'",
                     'expires_at' => "DATETIME NULL",
                     'last_used_at' => "DATETIME NULL",
-                    'last_used_ip' => "VARCHAR(64) NULL /* Encrypted */",
+                    'last_used_ip' => "VARCHAR(255) NULL /* Encrypted */",
                     'revoked_at' => "DATETIME NULL",
                     'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
                     'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"

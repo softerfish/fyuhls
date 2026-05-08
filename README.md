@@ -8,6 +8,7 @@ Does the project look interesting or has it helped you out at all? A star for th
 > If you find bugs or broken flows, please send them through the built-in Bug Report area using the sanitized error log export so the issue can be reviewed safely and reproduced faster. You can also e-mail logs to **fyuhls.script@gmail.com** and I will support best I can when available. Keep in mind, this is a passion project, not a full time job. 
 
 Note: This project may use affiliate links occasionally. Any revenue earned helps keep this script free and actively maintained, at no extra cost to you.
+
 Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a modern PHP 8.2+ MVC architecture, fyuhls is aimed at operators who want a self-hosted file hosting platform with real control over storage, packages, uploads, downloads, monetization, diagnostics, and admin operations.
 
 Main Page: [https://privacyglance.com](https://privacyglance.com) (demo here with user/pass: `tester` / `tester`)
@@ -34,12 +35,14 @@ Main Page: [https://privacyglance.com](https://privacyglance.com) (demo here wit
 - **Direct Multipart Upload Pipeline**: Large uploads use direct-to-storage multipart sessions instead of PHP-side chunk assembly, with resumable sessions, quota reservations, and signed part URLs.
 - **Public API + Personal API Tokens**: Account-bound API tokens support multipart uploads, managed upload shortcuts, owner-scoped file metadata, and application-controlled download links.
 - **Public Link Checker**: An optional footer-linked link checker can validate batches of local file links, summarize available vs unavailable results, and optionally support copy-to-account behavior for signed-in users.
-- **Core Rewards + Two-Factor Security**: Rewards (PPD/PPS/Affiliate) and TOTP-based two-factor authentication are built into the script and can be enabled or disabled from the admin area.
+- **Creator Rewards + Two-Factor Security**: Creator rewards (PPD/PPS/Hybrid plus referrals when enabled) and TOTP-based two-factor authentication are built into the script and can be enabled or disabled from the admin area.
 - **Centralized Email System**: Professional transaction emails (Verification, Password Resets, Payments) with a built-in Mail Queue and Template Editor.
+- **Site Content Editor**: Edit key public-facing pages like Homepage, FAQ, Creator Rewards, and API copy from the admin area without touching theme files.
+- **Shared Tickets + Requests Queue**: Logged-in support tickets and unified Contact, Abuse, and DMCA handling flow into one admin queue with replies, notes, and moderation actions.
 - **Smart Task Scheduler**: A centralized "Heartbeat" manager handles cleanup, security syncs, and maintenance from a single server cron.
 - **Trusted Proxy + Security Controls**: Built-in proxy/IP hardening, Cloudflare trusted proxy syncing, and admin-controlled VPN/proxy protection modes (`None`, `Enforcement`, and `Intelligence`) so operators can choose between doing nothing, hard-blocking, or collecting proxy intelligence for fraud scoring without blocking the visitor.
 - **High-Performance Delivery**: Signed download redirects, optional CDN redirects for public object-storage files, and native support for X-Accel-Redirect (Nginx), X-SendFile (Apache), and X-LiteSpeed-Location (LiteSpeed).
-- **Sanitized Support Exports**: Admins can generate a plain JSON support bundle with secrets and sensitive values redacted before sharing.
+- **Ops-Focused Admin Tooling**: Sanitized support exports, a triage-first System Status page, and cleaner admin docs/resources help operators diagnose issues faster.
 
 **Estimated installation time:** 15 minutes
 
@@ -131,7 +134,7 @@ Find your `php.ini` file (run `php --ini` at the server command line to locate i
 ### 1A - Extract the zip file on your computer
 1. Find the `.zip` file you downloaded.
 2. Right-click it and choose **Extract All**.
-3. You should see folders like `public`, `src`, `config`, `storage`, `vendor`, and `main`.
+3. You should see folders like `public`, `src`, `config`, `storage`, `themes`, and `vendor`.
 
 ### 1B - Create an Application Folder
 > **Important:** Do NOT upload the files into `public_html` directly. The files need to go in a folder **above** `public_html` for maximum security.
@@ -142,18 +145,18 @@ In your server's home directory (e.g., `/home/yourusername/domain.com/`), create
 Upload the **entire contents** of the extracted folder into `/home/yourusername/domain.com/FOLDER MADE ABOVE/`. When done, your structure should look like this:
 ```
 /home/yourusername/domain.com/fyuhls/
-									public/   <-- this is the only folder your visitors should access
-									src/
-									database/
-									config/
-									storage/
-									themes/
-									vendor/
-									README.md
-									composer.json
-									composer.lock
-									LICENSE
-									nginx.conf.example
+									 public/   <-- this is the only folder your visitors should access
+									 src/
+									 database/
+									 config/
+									 storage/
+									 themes/
+									 vendor/
+									 README.md
+									 composer.json
+									 composer.lock
+									 LICENSE
+									 nginx.conf.example
 									
 ```
 
@@ -211,6 +214,8 @@ Most day-to-day setup now lives in **Admin > Config Hub**.
 6. Open **Link Checker** to control whether the public footer tool is enabled, how many links it can process at once, how aggressively it is rate-limited, and whether signed-in users may copy eligible public files into their own account from the checker.
 7. Open **SEO** to manage titles, metadata templates, sitemap/robots output, and verification codes.
 8. Open **Requests** to manage Contact, Abuse, and DMCA requests from one inbox, including DMCA file-removal processing directly from the request detail view.
+9. Open **Tickets** to configure support inbox behavior, reminder timing, rate limits, and support email notifications.
+10. Open **Site Content** to edit public-facing Homepage, FAQ, Creator Rewards, and API copy without touching theme files.
 
 ### Public API
 Fyuhls includes a public API with a dedicated frontend reference page, an OpenAPI document, and longer wiki documentation.
@@ -246,13 +251,13 @@ Large-file production deployments should use the current default architecture:
 
 This keeps PHP out of the bulk file-transfer path for high-volume environments.
 
-### Rewards and Monetization
-Rewards, affiliate, and payout settings are now part of the core script.
+### Creator Rewards and Monetization
+Creator rewards, referrals, and payout settings are now part of the core script.
 1. Go to **Admin > Config Hub > Monetization**.
 2. Enable the reward models you want to use (`PPD`, `PPS`, and/or `Hybrid`).
 3. Set your payout methods, rates, thresholds, and anti-abuse rules.
-4. Users can switch between the enabled earning models from the account-side affiliate/rewards area, and referral behavior follows the active monetization setup for the install.
-5. If you do not want rewards or affiliate features visible on the site, disable them there and the frontend options will be hidden.
+4. Users can switch between the enabled earning models from the account-side Creator Rewards and rewards dashboard area, and referral behavior follows the active monetization setup for the install.
+5. If you do not want creator rewards or referral features visible on the site, disable them there and the frontend options will be hidden.
 
 ### Email
 Configure your SMTP settings to enable account verification, password resets, and user notifications.
@@ -283,6 +288,15 @@ The export is:
 - sanitized
 - secret-redacted
 - downloaded as a plain `.json` file, not a zip archive
+
+### Public Copy and Help Content
+Use **Admin > Site Content** when you want to update public-facing copy without editing theme files directly.
+
+Good examples include:
+- Homepage marketing copy
+- FAQ categories and answers
+- Creator Rewards page messaging
+- Public API intro and helper text
 
 ### Admin Help
 fyuhls now keeps operator help in two places:

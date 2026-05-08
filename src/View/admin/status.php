@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 include 'header.php';
 include __DIR__ . '/partials/shell_helpers.php';
 
@@ -219,7 +219,6 @@ renderAdminPageHeader(
     .status-triage-heading {
         display:flex;
         align-items:center;
-        gap:.6rem;
         font-size:.95rem;
         font-weight:800;
         text-transform:uppercase;
@@ -238,8 +237,7 @@ renderAdminPageHeader(
     .status-ops-card--healthy { border-color:rgba(34,197,94,.20); background:#f7fff9; }
     .status-section-intro { color:var(--text-muted); margin-bottom:1rem; line-height:1.65; }
     .status-domain-band { margin-bottom:1.5rem; }
-    .status-domain-title { display:flex; align-items:center; gap:.7rem; font-weight:800; margin-bottom:.35rem; }
-    .status-domain-title i { color:#2563eb; }
+    .status-domain-title { font-weight:800; margin-bottom:.35rem; }
     .status-action-card {
         padding:1rem 1.1rem;
         display:flex;
@@ -427,7 +425,7 @@ renderAdminPageHeader(
     <p class="status-section-intro">This top section is for deciding what needs attention right now. If nothing looks urgent, the deeper sections below are still available for inspection and support prep.</p>
     <div class="status-domain-grid">
         <div class="status-triage-column status-triage-critical">
-            <div class="status-triage-heading"><i class="bi bi-exclamation-octagon-fill"></i><span>Critical Issues</span></div>
+            <div class="status-triage-heading"><span>Critical Issues</span></div>
             <?php if (empty($triageCritical)): ?>
                 <div class="status-ops-card status-ops-card--healthy">
                     <div class="status-ops-title">No critical issues detected</div>
@@ -444,7 +442,7 @@ renderAdminPageHeader(
             <?php endif; ?>
         </div>
         <div class="status-triage-column status-triage-warning">
-            <div class="status-triage-heading"><i class="bi bi-exclamation-triangle-fill"></i><span>Warnings</span></div>
+            <div class="status-triage-heading"><span>Warnings</span></div>
             <?php if (empty($triageWarnings)): ?>
                 <div class="status-ops-card status-ops-card--healthy">
                     <div class="status-ops-title">No active warnings</div>
@@ -461,7 +459,7 @@ renderAdminPageHeader(
             <?php endif; ?>
         </div>
         <div class="status-triage-column status-triage-healthy">
-            <div class="status-triage-heading"><i class="bi bi-check-circle-fill"></i><span>Healthy Signals</span></div>
+            <div class="status-triage-heading"><span>Healthy Signals</span></div>
             <?php foreach ($triageHealthy as $issue): ?>
                 <div class="status-ops-card status-ops-card--healthy">
                     <div class="status-ops-title"><?= htmlspecialchars($issue['title']) ?></div>
@@ -506,101 +504,6 @@ renderAdminPageHeader(
             <div class="fw-semibold">Open Support Center</div>
             <div class="small text-muted">Prepare a sanitized bundle when the deeper diagnostics still are not enough.</div>
         </a>
-    </div>
-<?php renderAdminCardEnd(); ?>
-
-<?php renderAdminCardStart('App Health', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
-    <div class="status-domain-band">
-        <div class="status-domain-title"><i class="bi bi-heart-pulse"></i><span>Core environment checks</span></div>
-        <p class="status-section-intro">These checks answer whether the app can perform basic local work before you chase narrower workflow bugs.</p>
-        <div class="status-note-card status-note-card--operator mb-4">
-            <div class="status-note-label">Operator Note</div>
-            <p class="status-note-copy">Treat this section like the “is the ground solid?” check. If uploads path, GD, or FFmpeg are unhealthy, fix those basics before debugging ticket reports, delivery complaints, or thumbnail issues one by one.</p>
-        </div>
-        <div class="status-health-grid">
-            <div class="status-check-card">
-                <div class="status-check-label">Uploads Path</div>
-                <div class="status-check-value <?= ($writable ?? '') === 'ok' ? 'status-good' : 'status-bad' ?>"><?= ($writable ?? '') === 'ok' ? 'Writable' : 'Not writable' ?></div>
-                <div class="status-check-copy">If this is not writable, local upload and file-manipulation paths will fail early.</div>
-            </div>
-            <div class="status-check-card">
-                <div class="status-check-label">Image Thumbnails</div>
-                <div class="status-check-value <?= !empty($gdOk) ? 'status-good' : 'status-warn' ?>"><?= !empty($gdOk) ? 'GD installed' : 'GD missing' ?></div>
-                <div class="status-check-copy">Missing GD means image thumbnails and some image tooling will stop working.</div>
-            </div>
-            <div class="status-check-card">
-                <div class="status-check-label">Video Thumbnails</div>
-                <div class="status-check-value <?= !empty($ffmpegOk) ? 'status-good' : 'status-warn' ?>"><?= !empty($ffmpegOk) ? 'FFmpeg ready' : 'Not configured' ?></div>
-                <div class="status-check-copy">If FFmpeg is not ready, video previews and processing stay unavailable.</div>
-            </div>
-            <div class="status-check-card">
-                <div class="status-check-label">Rate-Limit Blocks</div>
-                <div class="status-check-value <?= $blocked > 0 ? 'status-warn' : 'status-good' ?>"><?= number_format((int)$blocked) ?></div>
-                <div class="status-check-copy">This shows how many download limit rows crossed the current block threshold.</div>
-            </div>
-        </div>
-    </div>
-
-    <?php if (!empty($runtimeSecurityNotices)): ?>
-        <div class="status-domain-band">
-            <div class="status-domain-title"><i class="bi bi-shield-exclamation"></i><span>Runtime security notices</span></div>
-            <p class="status-section-intro">These are not ordinary warnings. They usually mean the install is carrying forward an unsafe or incomplete security state.</p>
-            <div class="status-domain-grid">
-                <?php foreach ($runtimeSecurityNotices as $notice): ?>
-                    <div class="status-note-card border border-warning-subtle">
-                        <div class="status-note-label text-warning-emphasis"><?= htmlspecialchars((string)($notice['title'] ?? 'Security notice')) ?></div>
-                        <p class="status-note-copy mb-2"><?= htmlspecialchars((string)($notice['message'] ?? '')) ?></p>
-                        <?php if (!empty($notice['config_path'])): ?>
-                            <div class="status-small-copy mb-2"><strong>Hidden config path:</strong> <code><?= htmlspecialchars((string)$notice['config_path']) ?></code></div>
-                        <?php endif; ?>
-                        <?php if (!empty($notice['suggested_value'])): ?>
-                            <div class="status-small-copy"><strong>Suggested replacement app_key:</strong> <code><?= htmlspecialchars((string)$notice['suggested_value']) ?></code></div>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <div class="status-domain-band">
-        <div class="status-domain-title"><i class="bi bi-pc-display"></i><span>Host environment</span></div>
-        <p class="status-section-intro">This is the passive host picture: useful for capacity and compatibility questions, but usually not the first place to debug a workflow bug.</p>
-        <div class="status-host-grid">
-            <div class="status-check-card">
-                <div class="status-check-label">System Specs</div>
-                <div class="status-small-copy" style="line-height:1.9;">
-                    <strong>OS:</strong> <?= htmlspecialchars((string)($metrics['os'] ?? 'Unknown')) ?><br>
-                    <strong>Web Server:</strong> <?= htmlspecialchars((string)($metrics['server_software'] ?? 'Unknown')) ?><br>
-                    <strong>PHP Version:</strong> <?= htmlspecialchars((string)($metrics['php_version'] ?? 'Unknown')) ?>
-                </div>
-            </div>
-            <div class="status-check-card">
-                <div class="status-check-label">Disk Usage</div>
-                <div class="status-progress-wrap mb-0">
-                    <div class="status-progress-head">
-                        <span>Usage</span>
-                        <span><?= htmlspecialchars((string)($metrics['disk']['percent'] ?? '0')) ?>%</span>
-                    </div>
-                    <div class="status-progress-track">
-                        <div class="status-progress-bar js-status-progress <?= (($metrics['disk']['percent'] ?? 0) > 90) ? 'status-progress-bar--danger' : 'status-progress-bar--normal' ?>" data-progress="<?= htmlspecialchars((string)($metrics['disk']['percent'] ?? '0')) ?>"></div>
-                    </div>
-                    <div class="status-progress-note"><?= htmlspecialchars((string)($metrics['disk']['readable_used'] ?? '0 B')) ?> used of <?= htmlspecialchars((string)($metrics['disk']['readable_total'] ?? '0 B')) ?></div>
-                </div>
-            </div>
-            <div class="status-check-card">
-                <div class="status-check-label">CPU and Memory</div>
-                <div class="status-mini-grid">
-                    <div>
-                        <div class="status-mini-label">CPU Load</div>
-                        <div class="status-metric"><?= htmlspecialchars((string)($metrics['cpu'] ?? 'N/A')) ?></div>
-                    </div>
-                    <div>
-                        <div class="status-mini-label">RAM Usage</div>
-                        <div class="status-metric"><?= htmlspecialchars((string)($metrics['ram']['percent'] ?? 'N/A')) ?><?= isset($metrics['ram']['percent']) ? '%' : '' ?></div>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 <?php renderAdminCardEnd(); ?>
 
@@ -689,6 +592,103 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
     <?php endif; ?>
 <?php renderAdminCardEnd(); ?>
 
+<?php renderAdminCardStart('App Health', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
+    <div class="status-domain-band">
+        <div class="status-domain-title"><span>Core environment checks</span></div>
+        <p class="status-section-intro">These checks answer whether the app can perform basic local work before you chase narrower workflow bugs.</p>
+        <div class="status-note-card status-note-card--operator mb-4">
+            <div class="status-note-label">Operator Note</div>
+            <p class="status-note-copy">Treat this section like the "is the ground solid?" check. If uploads path, GD, or FFmpeg are unhealthy, fix those basics before debugging ticket reports, delivery complaints, or thumbnail issues one by one.</p>
+        </div>
+        <div class="status-health-grid">
+            <div class="status-check-card">
+                <div class="status-check-label">Uploads Path</div>
+                <div class="status-check-value <?= ($writable ?? '') === 'ok' ? 'status-good' : 'status-bad' ?>"><?= ($writable ?? '') === 'ok' ? 'Writable' : 'Not writable' ?></div>
+                <div class="status-check-copy">If this is not writable, local upload and file-manipulation paths will fail early.</div>
+            </div>
+            <div class="status-check-card">
+                <div class="status-check-label">Image Thumbnails</div>
+                <div class="status-check-value <?= !empty($gdOk) ? 'status-good' : 'status-warn' ?>"><?= !empty($gdOk) ? 'GD installed' : 'GD missing' ?></div>
+                <div class="status-check-copy">Missing GD means image thumbnails and some image tooling will stop working.</div>
+            </div>
+            <div class="status-check-card">
+                <div class="status-check-label">Video Thumbnails</div>
+                <div class="status-check-value <?= !empty($ffmpegOk) ? 'status-good' : 'status-warn' ?>"><?= !empty($ffmpegOk) ? 'FFmpeg ready' : 'Not configured' ?></div>
+                <div class="status-check-copy">If FFmpeg is not ready, video previews and processing stay unavailable.</div>
+            </div>
+            <div class="status-check-card">
+                <div class="status-check-label">Rate-Limit Blocks</div>
+                <div class="status-check-value <?= $blocked > 0 ? 'status-warn' : 'status-good' ?>"><?= number_format((int)$blocked) ?></div>
+                <div class="status-check-copy">This shows how many download limit rows crossed the current block threshold.</div>
+            </div>
+        </div>
+    </div>
+
+    <?php if (!empty($runtimeSecurityNotices)): ?>
+        <div class="status-domain-band">
+            <div class="status-domain-title"><span>Runtime security notices</span></div>
+            <p class="status-section-intro">These are not ordinary warnings. They usually mean the install is carrying forward an unsafe or incomplete security state.</p>
+            <div class="status-domain-grid">
+                <?php foreach ($runtimeSecurityNotices as $notice): ?>
+                    <div class="status-note-card border border-warning-subtle">
+                        <div class="status-note-label text-warning-emphasis"><?= htmlspecialchars((string)($notice['title'] ?? 'Security notice')) ?></div>
+                        <p class="status-note-copy mb-2"><?= htmlspecialchars((string)($notice['message'] ?? '')) ?></p>
+                        <?php if (!empty($notice['config_path'])): ?>
+                            <div class="status-small-copy mb-2"><strong>Hidden config path:</strong> <code><?= htmlspecialchars((string)$notice['config_path']) ?></code></div>
+                        <?php endif; ?>
+                        <?php if (!empty($notice['suggested_value'])): ?>
+                            <div class="status-small-copy"><strong>Suggested replacement app_key:</strong> <code><?= htmlspecialchars((string)$notice['suggested_value']) ?></code></div>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <div class="status-domain-band">
+        <div class="status-domain-title"><span>Host environment</span></div>
+        <p class="status-section-intro">This is the passive host picture: useful for capacity and compatibility questions, but usually not the first place to debug a workflow bug.</p>
+        <div class="status-host-grid">
+            <div class="status-check-card">
+                <div class="status-check-label">System Specs</div>
+                <div class="status-small-copy" style="line-height:1.9;">
+                    <strong>OS:</strong> <?= htmlspecialchars((string)($metrics['os'] ?? 'Unknown')) ?><br>
+                    <strong>Web Server:</strong> <?= htmlspecialchars((string)($metrics['server_software'] ?? 'Unknown')) ?><br>
+                    <strong>PHP Version:</strong> <?= htmlspecialchars((string)($metrics['php_version'] ?? 'Unknown')) ?>
+                </div>
+            </div>
+            <div class="status-check-card">
+                <div class="status-check-label">Disk Usage</div>
+                <div class="status-progress-wrap mb-0">
+                    <div class="status-progress-head">
+                        <span>Usage</span>
+                        <span><?= htmlspecialchars((string)($metrics['disk']['percent'] ?? '0')) ?>%</span>
+                    </div>
+                    <div class="status-progress-track">
+                        <div class="status-progress-bar js-status-progress <?= (($metrics['disk']['percent'] ?? 0) > 90) ? 'status-progress-bar--danger' : 'status-progress-bar--normal' ?>" data-progress="<?= htmlspecialchars((string)($metrics['disk']['percent'] ?? '0')) ?>"></div>
+                    </div>
+                    <div class="status-progress-note"><?= htmlspecialchars((string)($metrics['disk']['readable_used'] ?? '0 B')) ?> used of <?= htmlspecialchars((string)($metrics['disk']['readable_total'] ?? '0 B')) ?></div>
+                </div>
+            </div>
+            <div class="status-check-card">
+                <div class="status-check-label">CPU and Memory</div>
+                <div class="status-mini-grid">
+                    <div>
+                        <div class="status-mini-label">CPU Load</div>
+                        <div class="status-metric"><?= htmlspecialchars((string)($metrics['cpu'] ?? 'N/A')) ?></div>
+                    </div>
+                    <div>
+                        <div class="status-mini-label">RAM Usage</div>
+                        <div class="status-metric"><?= htmlspecialchars((string)($metrics['ram']['percent'] ?? 'N/A')) ?><?= isset($metrics['ram']['percent']) ? '%' : '' ?></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+<?php renderAdminCardEnd(); ?>
+
+
+
 <?php renderAdminCardStart('Upload Pipeline', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <p class="status-section-intro">This section is about whether uploads are moving cleanly from browser to stored object. Problems here usually become quota drift, stuck sessions, or support tickets later.</p>
     <div class="status-metric-grid mb-4">
@@ -707,7 +707,7 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
 
     <div class="status-note-card status-note-card--technical mb-4">
         <div class="status-note-label">Technical Detail</div>
-        <p class="status-note-copy">“Checksum backlog” means stored objects exist but their integrity bookkeeping has not fully caught up yet. “Stuck completing” usually means the upload made it through part delivery but stalled during finalization or metadata write-back.</p>
+        <p class="status-note-copy">"Checksum backlog" means stored objects exist but their integrity bookkeeping has not fully caught up yet. "Stuck completing" usually means the upload made it through part delivery but stalled during finalization or metadata write-back.</p>
     </div>
 
     <div class="status-section-tools mb-4">
@@ -790,7 +790,7 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
 <?php renderAdminCardEnd(); ?>
 
 <?php renderAdminCardStart('Storage & Reservations', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
-    <p class="status-section-intro">This section is for quota bookkeeping and reservation cleanup. It is the place to look when storage limits feel wrong, space stays “reserved” too long, or uploads appear detached from quota state.</p>
+    <p class="status-section-intro">This section is for quota bookkeeping and reservation cleanup. It is the place to look when storage limits feel wrong, space stays â€œreservedâ€ too long, or uploads appear detached from quota state.</p>
 
     <div class="status-metric-grid mb-4">
         <div class="status-check-card"><div class="status-check-label">Active Reservations</div><div class="status-check-value <?= !empty($uploadStats['active_reservations']) ? 'status-warn' : 'status-good' ?>"><?= (int)($uploadStats['active_reservations'] ?? 0) ?></div><div class="status-check-copy">Quota currently held open for upload work that may still complete.</div></div>
@@ -800,7 +800,7 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
 
     <div class="status-note-card status-note-card--operator mb-4">
         <div class="status-note-label">Operator Note</div>
-        <p class="status-note-copy">If users report “quota full” or space not returning after failed uploads, start here. Reservations tell you whether the problem is active work still in progress or cleanup that never finished.</p>
+        <p class="status-note-copy">If users report â€œquota fullâ€ or space not returning after failed uploads, start here. Reservations tell you whether the problem is active work still in progress or cleanup that never finished.</p>
     </div>
 
     <div class="status-section-tools mb-4">
@@ -1068,3 +1068,4 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <?php include 'footer.php'; ?>
+

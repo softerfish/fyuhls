@@ -5,6 +5,7 @@
 ### Upgrade and Migration Fixes
 - Fixed the encryption migration path for `admin_activity_log.ip_address` by expanding the column to encrypted-safe length before rewriting legacy plaintext IP data, which prevents `SQLSTATE[22001]` / `1406 Data too long for column 'ip_address'` errors during Security > Migration on upgraded installs.
 - Updated the admin activity log self-healing table definition to match the encrypted schema so fresh table creation and repaired installs stay aligned with the migration-safe column size.
+- Expanded the same upgrade-path protection to encrypted API token usage IPs and the download rate-limit helper table so older installs do not keep narrow legacy IP column sizes after upgrading.
 
 ## v0.2.0
 

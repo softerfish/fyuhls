@@ -300,11 +300,17 @@ class DownloadManager
         }
 
         $db->exec("CREATE TABLE IF NOT EXISTS `download_limits` (
-            `ip_address` VARCHAR(45) NOT NULL,
+            `ip_address` VARCHAR(255) NOT NULL,
             `window_start` BIGINT UNSIGNED NOT NULL,
             `attempt_count` INT UNSIGNED NOT NULL DEFAULT 1,
             PRIMARY KEY (`ip_address`, `window_start`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        try {
+            $db->exec("ALTER TABLE `download_limits` MODIFY COLUMN `ip_address` VARCHAR(255) NOT NULL");
+        } catch (\Throwable $e) {
+            // Existing installs can still fall back to deep schema repair if the live ALTER fails here.
+        }
 
         self::$rateLimitTableReady = true;
     }

@@ -34,10 +34,11 @@ class DownloadPageService
 
         $thumbnailUrl = null;
         $isImageFile = str_starts_with($this->resolveDisplayMimeType($file), 'image/');
-        if ($isImageFile && !empty($file['file_hash']) && !empty($file['storage_path'])) {
-            $pathParts = explode('/', trim((string)$file['storage_path'], '/'));
-            if (count($pathParts) >= 3) {
-                $thumbnailUrl = $baseUrl . '/thumbnail/' . rawurlencode($pathParts[0]) . '/' . rawurlencode($pathParts[1]) . '/' . rawurlencode((string)$file['file_hash']) . '.jpg';
+        if ($isImageFile && !empty($file['storage_path'])) {
+            $thumbnailPath = \App\Model\StoredFile::buildThumbnailVariantPathFromStoragePath((string)$file['storage_path']);
+            if ($thumbnailPath !== null) {
+                $normalized = trim(substr($thumbnailPath, strlen('thumbnails/')), '/');
+                $thumbnailUrl = $baseUrl . '/thumbnail/' . implode('/', array_map('rawurlencode', explode('/', $normalized)));
             }
         }
 

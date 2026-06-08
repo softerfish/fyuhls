@@ -7,12 +7,21 @@ use App\Service\Storage\LocalStorage;
 use App\Service\Storage\ConfigurableLocalStorage;
 use App\Service\Storage\S3StorageProvider;
 use App\Service\Storage\ServerProviderFactory;
+use App\Service\Storage\StoragePathGuard;
 use Aws\S3\S3Client;
 use PDO;
 
 class StorageManager {
+    public const MISSING_FILE_SERVER_MESSAGE = 'The referenced storage node is unavailable until an administrator repairs file storage.';
+
     private static array $providers = [];
     private static ?StorageProvider $activeProvider = null;
+    private static $providerFactoryForTests = null;
+
+    public static function setProviderFactoryForTests(?callable $factory): void
+    {
+        self::$providerFactoryForTests = $factory;
+    }
 
     public static function register(string $key, StorageProvider $provider): void {
         self::$providers[$key] = $provider;
@@ -53,9 +62,13 @@ class StorageManager {
      *   1. Active server marked is_default = 1 and not full
      *   2. Active server with most remaining capacity
      *   3. Any active server
-     *   4. Local fallback
+     *
+     * Upload placement must fail closed when no configured server can safely
+     * accept the object. Silent fallback to unmanaged local storage causes
+     * placement drift and bypasses file-server accounting/capacity policy.
      */
-    public static function resolveFromDb(PDO $db): array {
+    public static function resolveFromDb(PDO $db, int $requiredBytes = 0, bool $includeReservedCapacity = false): array {
+        $requiredBytes = max(0, $requiredBytes);
         try {
             // grab active servers, default first, then sorted by remaining space
             $rows = $db->query("
@@ -70,16 +83,51 @@ class StorageManager {
                 \App\Core\Logger::warning('[StorageManager] No active file servers found in database. Check status columns.');
             }
 
+            $activeServerCount = count($rows);
+            $activeDefaultCount = count(array_filter($rows, static fn(array $server): bool => (int)($server['is_default'] ?? 0) === 1));
+            if ($activeServerCount > 1 && $activeDefaultCount !== 1) {
+                \App\Core\Logger::error('[StorageManager] Upload target selection is ambiguous', [
+                    'active_server_count' => $activeServerCount,
+                    'active_default_count' => $activeDefaultCount,
+                ]);
+                throw new \RuntimeException('Storage upload target configuration is ambiguous. Choose exactly one active default storage server before accepting new uploads.');
+            }
+
             foreach ($rows as $server) {
-                // skip servers that are full
-                if ($server['max_capacity_bytes'] > 0
-                    && (float)$server['current_usage_bytes'] >= (float)$server['max_capacity_bytes']) {
-                    \App\Core\Logger::warning("[StorageManager] Skipping full server", ['id' => $server['id'], 'usage' => $server['current_usage_bytes'], 'max' => $server['max_capacity_bytes']]);
+                $serverId = (int)($server['id'] ?? 0);
+                $maxCapacity = (int)($server['max_capacity_bytes'] ?? 0);
+                $currentUsage = (int)($server['current_usage_bytes'] ?? 0);
+
+                if ($maxCapacity > 0) {
+                    $reservedBytes = 0;
+                    if ($includeReservedCapacity && $serverId > 0 && class_exists(\App\Model\QuotaReservation::class)) {
+                        $reservedBytes = \App\Model\QuotaReservation::activeReservedBytesForServer($serverId);
+                    }
+
+                    if (($currentUsage + $reservedBytes + $requiredBytes) > $maxCapacity) {
+                        \App\Core\Logger::warning('[StorageManager] Skipping server without enough free capacity', [
+                            'id' => $serverId,
+                            'usage' => $currentUsage,
+                            'reserved' => $reservedBytes,
+                            'required' => $requiredBytes,
+                            'max' => $maxCapacity,
+                        ]);
+                        continue;
+                    }
+                }
+
+                try {
+                    $key = self::keyForServer($server);
+                    $provider = self::makeProvider($server);
+                } catch (\Throwable $e) {
+                    \App\Core\Logger::warning('[StorageManager] Skipping invalid storage server during upload selection', [
+                        'id' => $serverId,
+                        'type' => (string)($server['server_type'] ?? 'unknown'),
+                        'error' => $e->getMessage(),
+                    ]);
                     continue;
                 }
 
-                $key      = self::keyForServer($server);
-                $provider = self::makeProvider($server);
                 self::register($key, $provider);
 
                 \App\Core\Logger::info('Storage node selected for upload', [
@@ -95,11 +143,58 @@ class StorageManager {
             \App\Core\Logger::error('[StorageManager] resolveFromDb failed', ['error' => $e->getMessage()]);
         }
 
-        // hard fallback - local storage
-        error_log('[StorageManager] Falling back to local storage (no suitable server found or query failed)');
-        $local = new LocalStorage();
-        self::register('local', $local);
-        return ['local', $local, null];
+        throw new \RuntimeException('No configured storage server is currently available for new uploads.');
+    }
+
+    public static function acquireServerCapacityLock(PDO $db, int $fileServerId, int $timeoutSeconds = 5): bool
+    {
+        if ($fileServerId <= 0) {
+            return true;
+        }
+
+        $stmt = $db->prepare("SELECT GET_LOCK(?, ?)");
+        $stmt->execute(['fyuhls_file_server_capacity_' . $fileServerId, max(1, $timeoutSeconds)]);
+        return (int)$stmt->fetchColumn() === 1;
+    }
+
+    public static function releaseServerCapacityLock(PDO $db, int $fileServerId): void
+    {
+        if ($fileServerId <= 0) {
+            return;
+        }
+
+        try {
+            $stmt = $db->prepare("SELECT RELEASE_LOCK(?)");
+            $stmt->execute(['fyuhls_file_server_capacity_' . $fileServerId]);
+        } catch (\Throwable $e) {
+        }
+    }
+
+    public static function assertServerHasCapacity(PDO $db, ?int $fileServerId, int $requiredBytes, bool $includeReservedCapacity = true): void
+    {
+        $fileServerId = (int)$fileServerId;
+        $requiredBytes = max(0, $requiredBytes);
+        if ($fileServerId <= 0 || $requiredBytes <= 0) {
+            return;
+        }
+
+        $stmt = $db->prepare("SELECT current_usage_bytes, max_capacity_bytes FROM file_servers WHERE id = ? LIMIT 1");
+        $stmt->execute([$fileServerId]);
+        $server = $stmt->fetch();
+        if (!$server || (int)($server['max_capacity_bytes'] ?? 0) <= 0) {
+            return;
+        }
+
+        $reservedBytes = 0;
+        if ($includeReservedCapacity && class_exists(\App\Model\QuotaReservation::class)) {
+            $reservedBytes = \App\Model\QuotaReservation::activeReservedBytesForServer($fileServerId);
+        }
+
+        $currentUsage = (int)($server['current_usage_bytes'] ?? 0);
+        $maxCapacity = (int)($server['max_capacity_bytes'] ?? 0);
+        if (($currentUsage + $reservedBytes + $requiredBytes) > $maxCapacity) {
+            throw new \Exception('The selected storage node does not have enough free capacity.');
+        }
     }
 
     /**
@@ -107,7 +202,14 @@ class StorageManager {
      */
     public static function getProviderById(?int $serverId, PDO $db): StorageProvider {
         if (!$serverId) {
-            return new LocalStorage();
+            try {
+                return new LocalStorage();
+            } catch (\Throwable $e) {
+                Logger::warning('[StorageManager] Default local storage provider is unavailable.', [
+                    'error' => $e->getMessage(),
+                ]);
+                throw new \RuntimeException(self::MISSING_FILE_SERVER_MESSAGE, 0, $e);
+            }
         }
 
         // check cache first
@@ -123,10 +225,21 @@ class StorageManager {
         $server = $stmt->fetch();
 
         if (!$server) {
-            return new LocalStorage();
+            Logger::warning('[StorageManager] Existing object references a missing storage node.', [
+                'server_id' => $serverId,
+            ]);
+            throw new \RuntimeException(self::MISSING_FILE_SERVER_MESSAGE);
         }
 
-        $provider = self::makeProvider($server);
+        try {
+            $provider = self::makeProvider($server);
+        } catch (\Throwable $e) {
+            Logger::warning('[StorageManager] Existing object references an invalid storage node configuration.', [
+                'server_id' => $serverId,
+                'error' => $e->getMessage(),
+            ]);
+            throw new \RuntimeException(self::MISSING_FILE_SERVER_MESSAGE, 0, $e);
+        }
         self::register(self::keyForServer($server), $provider);
         return $provider;
     }
@@ -136,10 +249,21 @@ class StorageManager {
      */
     public static function recordUsage(PDO $db, int $fileServerId, int $bytes): void {
         try {
-            $db->prepare("UPDATE file_servers SET current_usage_bytes = current_usage_bytes + ? WHERE id = ?")
-               ->execute([$bytes, $fileServerId]);
+            self::recordUsageOrFail($db, $fileServerId, $bytes);
         } catch (\Exception $e) {
             error_log('[StorageManager] recordUsage failed: ' . $e->getMessage());
+        }
+    }
+
+    public static function recordUsageOrFail(PDO $db, int $fileServerId, int $bytes): void {
+        if ($fileServerId <= 0 || $bytes <= 0) {
+            return;
+        }
+
+        $stmt = $db->prepare("UPDATE file_servers SET current_usage_bytes = current_usage_bytes + ? WHERE id = ?");
+        $stmt->execute([$bytes, $fileServerId]);
+        if ($stmt->rowCount() !== 1) {
+            throw new \RuntimeException('Storage usage could not be recorded because the target file server is missing.');
         }
     }
 
@@ -148,10 +272,21 @@ class StorageManager {
      */
     public static function releaseUsage(PDO $db, int $fileServerId, int $bytes): void {
         try {
-            $db->prepare("UPDATE file_servers SET current_usage_bytes = GREATEST(0, current_usage_bytes - ?) WHERE id = ?")
-               ->execute([$bytes, $fileServerId]);
+            self::releaseUsageOrFail($db, $fileServerId, $bytes);
         } catch (\Exception $e) {
             error_log('[StorageManager] releaseUsage failed: ' . $e->getMessage());
+        }
+    }
+
+    public static function releaseUsageOrFail(PDO $db, int $fileServerId, int $bytes): void {
+        if ($fileServerId <= 0 || $bytes <= 0) {
+            return;
+        }
+
+        $stmt = $db->prepare("UPDATE file_servers SET current_usage_bytes = GREATEST(0, current_usage_bytes - ?) WHERE id = ?");
+        $stmt->execute([$bytes, $fileServerId]);
+        if ($stmt->rowCount() !== 1) {
+            throw new \RuntimeException('Storage usage could not be released because the target file server is missing.');
         }
     }
 
@@ -160,6 +295,13 @@ class StorageManager {
     }
 
     private static function makeProvider(array $server): StorageProvider {
+        if (is_callable(self::$providerFactoryForTests)) {
+            $provider = (self::$providerFactoryForTests)($server);
+            if ($provider instanceof StorageProvider) {
+                return $provider;
+            }
+        }
+
         if (class_exists(ServerProviderFactory::class)) {
             return ServerProviderFactory::make($server);
         }
@@ -185,19 +327,11 @@ class StorageManager {
             try {
                 $path = \App\Service\EncryptionService::decrypt($path);
             } catch (\Exception $e) {
-                \App\Core\Logger::warning('[StorageManager] Local storage path decryption failed for fallback provider.', [
-                    'server_id' => (int)($server['id'] ?? 0),
-                ]);
+                throw new \RuntimeException('Local storage path could not be decrypted for fallback provider.', 0, $e);
             }
         }
 
-        $path = preg_replace('/^(\/?public\/)/i', '', $path);
-
-        if (!self::isAbsolutePath($path)) {
-            $path = ltrim($path, '/\\');
-            $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
-            $path = $root . '/' . $path;
-        }
+        $path = StoragePathGuard::normalizeLocalRootPath((string)$path);
 
         return new ConfigurableLocalStorage($path, $server['public_url'] ?? '');
     }
@@ -214,9 +348,7 @@ class StorageManager {
             try {
                 $bucket = \App\Service\EncryptionService::decrypt($bucket);
             } catch (\Exception $e) {
-                \App\Core\Logger::warning('[StorageManager] Bucket decryption failed for fallback provider.', [
-                    'server_id' => (int)($server['id'] ?? 0),
-                ]);
+                throw new \RuntimeException('Storage bucket name could not be decrypted for fallback provider.', 0, $e);
             }
         }
 
@@ -232,9 +364,8 @@ class StorageManager {
             $endpoint .= '.r2.cloudflarestorage.com';
         }
 
-        if ($endpoint && !str_starts_with($endpoint, 'http')) {
-            $endpoint = 'https://' . $endpoint;
-        }
+        $endpoint = StoragePathGuard::normalizeS3Endpoint((string)$endpoint);
+        $bucket = StoragePathGuard::normalizeBucketName((string)$bucket);
 
         $isR2 = str_contains((string)$endpoint, 'r2.cloudflarestorage.com');
         $clientConfig = [
@@ -274,25 +405,18 @@ class StorageManager {
         try {
             $decrypted = \App\Service\EncryptionService::decrypt($rawConfig);
         } catch (\Exception $e) {
-            \App\Core\Logger::warning('[StorageManager] Storage config decryption failed for fallback provider.', [
-                'server_id' => (int)($server['id'] ?? 0),
-            ]);
-            return [];
+            throw new \RuntimeException('Storage configuration could not be decrypted for fallback provider.', 0, $e);
         }
 
         if (!is_string($decrypted) || $decrypted === '') {
-            return [];
+            throw new \RuntimeException('Storage configuration is empty for fallback provider.');
         }
 
         $decoded = json_decode($decrypted, true);
-        return is_array($decoded) ? $decoded : [];
-    }
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('Storage configuration is invalid for fallback provider.');
+        }
 
-    private static function isAbsolutePath(string $path): bool {
-        return $path !== '' && (
-            preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1 ||
-            str_starts_with($path, '\\\\') ||
-            str_starts_with($path, '/')
-        );
+        return $decoded;
     }
 }

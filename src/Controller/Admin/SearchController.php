@@ -4,15 +4,28 @@ namespace App\Controller\Admin;
 
 use App\Core\Database;
 use App\Core\Auth;
+use App\Core\Logger;
+use App\Model\User;
+use App\Service\AdminUserNavigationService;
 use App\Service\EncryptionService;
 use App\Service\EncryptedSearchService;
 use App\Core\View;
 
 class SearchController
 {
+    private function canSearchUsers(): bool
+    {
+        return Auth::hasCapability('users.manage');
+    }
+
+    private function canSearchFiles(): bool
+    {
+        return Auth::hasCapability('files.moderate');
+    }
+
     private function checkAuth()
     {
-        Auth::requireAdmin();
+        Auth::requireAnyCapability(['users.manage', 'files.moderate']);
     }
 
     public function search()
@@ -26,31 +39,37 @@ class SearchController
         }
 
         $db = Database::getInstance()->getConnection();
+        $canSearchUsers = $this->canSearchUsers();
+        $canSearchFiles = $this->canSearchFiles();
 
         // 1. Direct ID / Short ID Check (Numerical or fixed-length exact identifiers)
         if (is_numeric($query)) {
-            $stmt = $db->prepare("SELECT id FROM users WHERE id = ?");
-            $stmt->execute([$query]);
-            if ($stmt->fetch()) {
-                header("Location: /admin/users/edit/" . $query);
-                exit;
+            if ($canSearchUsers) {
+                $stmt = $db->prepare("SELECT id FROM users WHERE id = ?");
+                $stmt->execute([$query]);
+                if ($stmt->fetch()) {
+                    header("Location: " . AdminUserNavigationService::destinationForUserEdit((int)$query));
+                    exit;
+                }
             }
 
-            $stmt = $db->prepare("SELECT id, filename FROM files WHERE id = ?");
-            $stmt->execute([$query]);
-            $file = $stmt->fetch();
-            if ($file) {
-                $filename = $query;
-                try {
-                    $filename = EncryptionService::decrypt($file['filename']);
-                } catch (\Throwable $e) {
+            if ($canSearchFiles) {
+                $stmt = $db->prepare("SELECT id, filename FROM files WHERE id = ?");
+                $stmt->execute([$query]);
+                $file = $stmt->fetch();
+                if ($file) {
+                    $filename = $query;
+                    try {
+                        $filename = EncryptionService::decrypt($file['filename']);
+                    } catch (\Throwable $e) {
+                    }
+                    header("Location: /admin/files?q=" . urlencode($filename));
+                    exit;
                 }
-                header("Location: /admin/files?q=" . urlencode($filename));
-                exit;
             }
         }
 
-        if (strlen($query) >= 8 && strlen($query) <= 16) {
+        if ($canSearchFiles && strlen($query) >= 8 && strlen($query) <= 16) {
             $stmt = $db->prepare("SELECT id, filename, short_id FROM files WHERE short_id = ?");
             $stmt->execute([$query]);
             $file = $stmt->fetch();
@@ -70,20 +89,24 @@ class SearchController
             }
         }
 
-        // 2. Deterministic Search (encrypted data requires exact matches)
-        $encryptedQuery = EncryptionService::encrypt($query);
+        // 2. Exact hash-backed search for user credentials.
+        $users = [];
+        if ($canSearchUsers) {
+            $lookupHash = User::credentialLookupHash($query);
+            if ($lookupHash !== '') {
+                $stmt = $db->prepare("SELECT id, username, email FROM users WHERE email_lookup = ? OR username_lookup = ?");
+                $stmt->execute([$lookupHash, $lookupHash]);
+                $users = $stmt->fetchAll();
+            }
+        }
 
-        $stmt = $db->prepare("SELECT id, username, email FROM users WHERE email = ? OR username = ?");
-        $stmt->execute([$encryptedQuery, $encryptedQuery]);
-        $users = $stmt->fetchAll();
-
-        $stmt = $db->prepare("SELECT id, filename, short_id FROM files WHERE filename = ?");
-        $stmt->execute([$encryptedQuery]);
-        $files = $stmt->fetchAll();
+        // Files still fall back to the bounded decrypt search because filenames do
+        // not yet have a dedicated blind-index column.
+        $files = [];
 
         // 3. Logic: If exactly one result, redirect. Otherwise, show results.
         if (count($users) === 1 && count($files) === 0) {
-            header("Location: /admin/users/edit/" . $users[0]['id']);
+            header("Location: " . AdminUserNavigationService::destinationForUserEdit((int)$users[0]['id']));
             exit;
         }
 
@@ -96,26 +119,29 @@ class SearchController
         }
 
         if (empty($users) && empty($files)) {
-            $users = EncryptedSearchService::searchUsers($query);
-            $files = EncryptedSearchService::searchFiles($query);
+            if ($canSearchUsers) {
+                $users = EncryptedSearchService::searchUsers($query);
+            }
+            if ($canSearchFiles) {
+                $files = EncryptedSearchService::searchFiles($query);
+            }
         }
 
         if (count($users) === 1 && count($files) === 0) {
-            header("Location: /admin/users/edit/" . $users[0]['id']);
+            header("Location: " . AdminUserNavigationService::destinationForUserEdit((int)$users[0]['id']));
             exit;
         }
 
         // 4. Diagnostic Logging (If 0 results, log it so admin can see what they are struggling to find)
         if (empty($users) && empty($files)) {
-            $logFile = defined('BASE_PATH') ? BASE_PATH . '/storage/logs/admin_search.log' : dirname(__DIR__, 3) . '/storage/logs/admin_search.log';
-            $logDir = dirname($logFile);
-            if (!is_dir($logDir)) {
-                @mkdir($logDir, 0755, true);
-            }
-            // Strip complex characters but allow emails/usernames
-            $sanitized = substr(preg_replace('/[^a-zA-Z0-9_@.-]/', '', $query), 0, 50);
-            $logEntry = "[" . date('Y-m-d H:i:s') . "] Type: Miss | Query: {$sanitized}\n";
-            @file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+            Logger::info('admin search miss', [
+                'query_sha256' => hash('sha256', $query),
+                'query_length' => strlen($query),
+                'query_is_numeric' => is_numeric($query),
+                'query_has_at_sign' => str_contains($query, '@'),
+                'can_search_users' => $canSearchUsers,
+                'can_search_files' => $canSearchFiles,
+            ]);
         }
 
         View::render('admin/search_results.php', [

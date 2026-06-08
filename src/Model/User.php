@@ -5,13 +5,16 @@ namespace App\Model;
 use App\Core\Database;
 use App\Core\Config;
 use App\Service\EncryptionService;
+use App\Service\Database\SchemaService;
 use PDO;
 
 class User {
     private static bool $runtimeColumnsReady = false;
     private const FALLBACK_SCAN_BATCH_SIZE = 250;
-    private const FALLBACK_SCAN_MAX_ROWS = 5000;
-    
+    private const FALLBACK_SCAN_LOG_THRESHOLD = 5000;
+    private const TOKEN_HASH_PREFIX = 'sha256:';
+    private const CREDENTIAL_LOCK_TIMEOUT_SECONDS = 5;
+
     /**
      * Find a user by their internal ID
      */
@@ -41,10 +44,10 @@ class User {
      *
      * New installs use blind-index lookup columns so login no longer depends on
      * deterministic ciphertext. Older installs fall back to legacy deterministic
-     * lookup and then to a decrypt-and-compare recovery scan, backfilling the
-     * lookup columns on success.
+     * lookup and then to a decrypt-and-compare recovery scan without mutating
+     * account rows during ordinary runtime requests.
      */
-    public static function findByCredentials(string $usernameOrEmail): ?array {
+    public static function findByCredentials(string $usernameOrEmail, int $excludeUserId = 0): ?array {
         $db = Database::getInstance()->getConnection();
         self::ensureRuntimeColumns($db);
 
@@ -55,27 +58,39 @@ class User {
 
         $lookupHash = self::buildCredentialLookupHash($normalized);
         if ($lookupHash !== '') {
-            $stmt = $db->prepare("SELECT * FROM users WHERE username_lookup = ? OR email_lookup = ? LIMIT 1");
-            $stmt->execute([$lookupHash, $lookupHash]);
+            $sql = "SELECT * FROM users WHERE (username_lookup = ? OR email_lookup = ?)";
+            $params = [$lookupHash, $lookupHash];
+            if ($excludeUserId > 0) {
+                $sql .= " AND id <> ?";
+                $params[] = $excludeUserId;
+            }
+            $sql .= " LIMIT 1";
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
             $user = $stmt->fetch();
             if ($user) {
-                self::backfillLookupColumnsForUser($db, $user);
                 return self::decryptRow($user);
             }
         }
 
         $legacyEnc = self::encryptLegacyLookupValue($normalized);
         if ($legacyEnc !== null) {
-            $stmt = $db->prepare("SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1");
-            $stmt->execute([$legacyEnc, $legacyEnc]);
+            $sql = "SELECT * FROM users WHERE (username = ? OR email = ?)";
+            $params = [$legacyEnc, $legacyEnc];
+            if ($excludeUserId > 0) {
+                $sql .= " AND id <> ?";
+                $params[] = $excludeUserId;
+            }
+            $sql .= " LIMIT 1";
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
             $user = $stmt->fetch();
             if ($user) {
-                self::backfillLookupColumnsForUser($db, $user);
                 return self::decryptRow($user);
             }
         }
 
-        $matchedUser = self::findByFallbackDecryptScan($db, $normalized, $usernameOrEmail);
+        $matchedUser = self::findByFallbackDecryptScan($db, $normalized, $usernameOrEmail, $excludeUserId);
         if ($matchedUser !== null) {
             return self::decryptRow($matchedUser);
         }
@@ -95,7 +110,7 @@ class User {
         $email = (string)($data['email'] ?? '');
         $usernameLookup = self::buildCredentialLookupHash($username);
         $emailLookup = self::buildCredentialLookupHash($email);
-        
+
         $sql = "INSERT INTO users (public_id, username, email, username_lookup, email_lookup, password, role, package_id, referrer_id, referrer_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $db->prepare($sql);
         $stmt->execute([
@@ -119,6 +134,66 @@ class User {
         return $userId;
     }
 
+    /**
+     * @return array<int, string>
+     */
+    public static function lockCredentialValues(PDO $db, array $values, int $timeoutSeconds = self::CREDENTIAL_LOCK_TIMEOUT_SECONDS): array
+    {
+        $lockKeys = [];
+        $stmt = $db->prepare("SELECT GET_LOCK(?, ?)");
+
+        try {
+            foreach (self::credentialLockKeys($values) as $lockKey) {
+                $stmt->execute([$lockKey, $timeoutSeconds]);
+                if ((int)$stmt->fetchColumn() !== 1) {
+                    throw new \RuntimeException('Could not acquire the account credential integrity lock.');
+                }
+                $lockKeys[] = $lockKey;
+            }
+        } catch (\Throwable $e) {
+            self::releaseCredentialLocks($db, $lockKeys);
+            throw $e;
+        }
+
+        return $lockKeys;
+    }
+
+    /**
+     * @param array<int, string> $lockKeys
+     */
+    public static function releaseCredentialLocks(PDO $db, array $lockKeys): void
+    {
+        if ($lockKeys === []) {
+            return;
+        }
+
+        $stmt = $db->prepare("SELECT RELEASE_LOCK(?)");
+        foreach (array_reverse($lockKeys) as $lockKey) {
+            $stmt->execute([$lockKey]);
+        }
+    }
+
+    public static function assertCredentialsAvailable(PDO $db, ?string $username, ?string $email, int $excludeUserId = 0): void
+    {
+        self::ensureRuntimeColumns($db);
+
+        $normalizedUsername = self::normalizeCredentialValue($username);
+        if ($normalizedUsername !== '') {
+            $existingUser = self::findByCredentials($normalizedUsername, $excludeUserId);
+            if ($existingUser) {
+                throw new \RuntimeException('Username or email already taken.');
+            }
+        }
+
+        $normalizedEmail = self::normalizeCredentialValue($email);
+        if ($normalizedEmail !== '') {
+            $existingEmailOwner = self::findByEmailOrPendingEmail($normalizedEmail, $excludeUserId);
+            if ($existingEmailOwner) {
+                throw new \RuntimeException('That email address is already in use or waiting to be confirmed.');
+            }
+        }
+    }
+
     public static function decryptRow(array $user): array {
         if (!EncryptionService::isReady()) return $user;
 
@@ -139,99 +214,84 @@ class User {
             return;
         }
 
-        self::ensurePublicIdColumnExists($db);
-        self::ensureCredentialLookupColumnsExist($db);
-        self::ensurePendingEmailColumnsExist($db);
-        self::ensureReferrerSourceColumnExists($db);
-        self::backfillMissingCredentialLookups($db);
+        SchemaService::ensureTables(['users'], false);
         self::$runtimeColumnsReady = true;
     }
 
-    private static function ensurePublicIdColumnExists($db): void {
-        try {
-            $db->query("SELECT public_id FROM users LIMIT 1");
-        } catch (\PDOException $e) {
-            // Column missing, add it
-            $db->exec("ALTER TABLE users ADD COLUMN public_id VARCHAR(16) AFTER id");
-            $db->exec("CREATE UNIQUE INDEX public_id_idx ON users(public_id)");
-            
-            // Seed existing users with public IDs
-            $stmt = $db->query("SELECT id FROM users WHERE public_id IS NULL OR public_id = ''");
-            $users = $stmt->fetchAll();
-            $update = $db->prepare("UPDATE users SET public_id = ? WHERE id = ?");
-            foreach ($users as $u) {
-                $pid = 'u_' . bin2hex(random_bytes(6));
-                $update->execute([$pid, $u['id']]);
+    private static function hashStoredOneTimeToken(string $token): string
+    {
+        return self::TOKEN_HASH_PREFIX . hash('sha256', $token);
+    }
+
+    private static function migrateLegacyOneTimeTokens($db): void
+    {
+        foreach (['verification_token', 'email_change_token', 'reset_token'] as $column) {
+            try {
+                $stmt = $db->prepare("SELECT id, {$column} FROM users WHERE {$column} IS NOT NULL AND {$column} <> '' AND {$column} NOT LIKE ?");
+                $stmt->execute([self::TOKEN_HASH_PREFIX . '%']);
+            } catch (\PDOException $e) {
+                continue;
+            }
+
+            $update = $db->prepare("UPDATE users SET {$column} = ? WHERE id = ?");
+            foreach ($stmt->fetchAll() as $row) {
+                $rawToken = trim((string)($row[$column] ?? ''));
+                if ($rawToken === '') {
+                    continue;
+                }
+
+                $update->execute([self::hashStoredOneTimeToken($rawToken), (int)$row['id']]);
             }
         }
     }
 
-    private static function ensureCredentialLookupColumnsExist($db): void {
+    private static function migrateLegacyTrustedDeviceTokens($db): void
+    {
         try {
-            $db->query("SELECT username_lookup FROM users LIMIT 1");
+            $stmt = $db->query("SELECT id, trust_token FROM user_two_factor_devices WHERE trust_token IS NOT NULL AND trust_token <> ''");
         } catch (\PDOException $e) {
-            $db->exec("ALTER TABLE users ADD COLUMN username_lookup CHAR(64) NULL AFTER username");
+            return;
         }
 
-        try {
-            $db->query("SELECT email_lookup FROM users LIMIT 1");
-        } catch (\PDOException $e) {
-            $db->exec("ALTER TABLE users ADD COLUMN email_lookup CHAR(64) NULL AFTER email");
-        }
+        $update = $db->prepare("UPDATE user_two_factor_devices SET trust_token = ? WHERE id = ?");
+        foreach ($stmt->fetchAll() as $row) {
+            $token = trim((string)($row['trust_token'] ?? ''));
+            if ($token === '' || preg_match('/^[a-f0-9]{64}$/i', $token)) {
+                continue;
+            }
 
-        try {
-            $db->exec("CREATE INDEX users_username_lookup_idx ON users(username_lookup)");
-        } catch (\PDOException $e) {
-        }
-
-        try {
-            $db->exec("CREATE INDEX users_email_lookup_idx ON users(email_lookup)");
-        } catch (\PDOException $e) {
+            $update->execute([hash('sha256', $token), (int)$row['id']]);
         }
     }
 
-    private static function ensurePendingEmailColumnsExist($db): void {
-        try {
-            $db->query("SELECT pending_email FROM users LIMIT 1");
-        } catch (\PDOException $e) {
-            $db->exec("ALTER TABLE users ADD COLUMN pending_email VARCHAR(255) NULL AFTER email");
+    private static function backfillMissingPublicIds($db): void {
+        $stmt = $db->query("SELECT id FROM users WHERE public_id IS NULL OR public_id = ''");
+        $users = $stmt ? ($stmt->fetchAll() ?: []) : [];
+        if ($users === []) {
+            return;
         }
 
-        try {
-            $db->query("SELECT pending_email_lookup FROM users LIMIT 1");
-        } catch (\PDOException $e) {
-            $db->exec("ALTER TABLE users ADD COLUMN pending_email_lookup CHAR(64) NULL AFTER pending_email");
-        }
-
-        try {
-            $db->query("SELECT email_change_token FROM users LIMIT 1");
-        } catch (\PDOException $e) {
-            $db->exec("ALTER TABLE users ADD COLUMN email_change_token VARCHAR(255) NULL AFTER verification_token");
-        }
-
-        try {
-            $db->query("SELECT email_change_expires FROM users LIMIT 1");
-        } catch (\PDOException $e) {
-            $db->exec("ALTER TABLE users ADD COLUMN email_change_expires DATETIME NULL AFTER email_change_token");
-        }
-
-        try {
-            $db->exec("CREATE INDEX users_pending_email_lookup_idx ON users(pending_email_lookup)");
-        } catch (\PDOException $e) {
-        }
-
-        try {
-            $db->exec("CREATE INDEX users_email_change_token_idx ON users(email_change_token)");
-        } catch (\PDOException $e) {
+        $update = $db->prepare("UPDATE users SET public_id = ? WHERE id = ?");
+        foreach ($users as $u) {
+            $pid = 'u_' . bin2hex(random_bytes(6));
+            $update->execute([$pid, $u['id']]);
         }
     }
 
-    private static function ensureReferrerSourceColumnExists($db): void {
-        try {
-            $db->query("SELECT referrer_source FROM users LIMIT 1");
-        } catch (\PDOException $e) {
-            $db->exec("ALTER TABLE users ADD COLUMN referrer_source VARCHAR(20) NULL AFTER referrer_id");
+    private static function backfillProtectedSuperAdmin($db): void {
+        $db->exec("UPDATE users SET is_super_admin = 0 WHERE is_super_admin = 1 AND (role <> 'admin' OR status <> 'active')");
+
+        $stmt = $db->query("SELECT id FROM users WHERE role = 'admin' AND status = 'active' AND is_super_admin = 1 ORDER BY created_at ASC, id ASC");
+        $protectedIds = $stmt ? ($stmt->fetchAll(PDO::FETCH_COLUMN) ?: []) : [];
+        if (count($protectedIds) === 1) {
+            return;
         }
+
+        error_log(
+            'Protected super admin review required: runtime compatibility repair detected '
+            . count($protectedIds)
+            . ' active protected admin account(s). Review the users table manually instead of auto-assigning ownership during upgrade.'
+        );
     }
 
     private static function normalizeCredentialValue(?string $value): string {
@@ -261,6 +321,27 @@ class User {
         return self::buildCredentialLookupHash($value);
     }
 
+    /**
+     * @return array<int, string>
+     */
+    private static function credentialLockKeys(array $values): array
+    {
+        $keys = [];
+        foreach ($values as $value) {
+            $normalized = self::normalizeCredentialValue((string)$value);
+            if ($normalized === '') {
+                continue;
+            }
+
+            $lookupHash = self::buildCredentialLookupHash($normalized);
+            $keys[] = 'user_credential:' . ($lookupHash !== '' ? $lookupHash : sha1($normalized));
+        }
+
+        $keys = array_values(array_unique($keys));
+        sort($keys);
+        return $keys;
+    }
+
     public static function findByEmailOrPendingEmail(string $email, int $excludeUserId = 0): ?array
     {
         $db = Database::getInstance()->getConnection();
@@ -273,7 +354,7 @@ class User {
 
         $lookupHash = self::buildCredentialLookupHash($normalized);
         if ($lookupHash !== '') {
-            $sql = "SELECT * FROM users WHERE (email_lookup = ? OR pending_email_lookup = ?)";
+            $sql = "SELECT * FROM users WHERE (email_lookup = ? OR (pending_email_lookup = ? AND (email_change_expires IS NULL OR email_change_expires > NOW())))";
             $params = [$lookupHash, $lookupHash];
             if ($excludeUserId > 0) {
                 $sql .= " AND id <> ?";
@@ -285,8 +366,6 @@ class User {
             $stmt->execute($params);
             $user = $stmt->fetch();
             if ($user) {
-                self::backfillLookupColumnsForUser($db, $user);
-                self::backfillPendingEmailLookupForUser($db, $user);
                 return self::decryptRow($user);
             }
         }
@@ -355,20 +434,17 @@ class User {
         }
     }
 
-    private static function findByFallbackDecryptScan($db, string $normalized, string $rawInput): ?array
+    private static function findByFallbackDecryptScan($db, string $normalized, string $rawInput, int $excludeUserId = 0): ?array
     {
         $rowsScanned = 0;
         $lastId = 0;
 
-        while ($rowsScanned < self::FALLBACK_SCAN_MAX_ROWS) {
-            $remaining = self::FALLBACK_SCAN_MAX_ROWS - $rowsScanned;
-            $batchSize = min(self::FALLBACK_SCAN_BATCH_SIZE, $remaining);
-
+        while (true) {
             $stmt = $db->prepare("
                 SELECT * FROM users
                 WHERE id > ?
                 ORDER BY id ASC
-                LIMIT {$batchSize}
+                LIMIT " . self::FALLBACK_SCAN_BATCH_SIZE . "
             ");
             $stmt->execute([$lastId]);
             $rows = $stmt->fetchAll() ?: [];
@@ -380,12 +456,15 @@ class User {
                 $rowsScanned++;
                 $lastId = max($lastId, (int)($row['id'] ?? 0));
 
+                if ($excludeUserId > 0 && (int)($row['id'] ?? 0) === $excludeUserId) {
+                    continue;
+                }
+
                 $username = self::normalizeCredentialValue(EncryptionService::decrypt((string)($row['username'] ?? '')));
                 $email = self::normalizeCredentialValue(EncryptionService::decrypt((string)($row['email'] ?? '')));
                 if ($username === $normalized || $email === $normalized) {
-                    self::backfillLookupColumnsForUser($db, $row);
-                    if ($rowsScanned > self::FALLBACK_SCAN_BATCH_SIZE) {
-                        \App\Core\Logger::warning('Credential lookup required bounded decrypt scan match', [
+                    if ($rowsScanned > self::FALLBACK_SCAN_LOG_THRESHOLD) {
+                        \App\Core\Logger::warning('Credential lookup required a full decrypt scan compatibility match', [
                             'input_length' => strlen($rawInput),
                             'rows_scanned' => $rowsScanned,
                         ]);
@@ -396,10 +475,10 @@ class User {
         }
 
         if ($rowsScanned > 0) {
-            \App\Core\Logger::warning('Credential lookup exhausted bounded decrypt scan without a match', [
+            \App\Core\Logger::warning('Credential lookup exhausted decrypt scan without a match', [
                 'input_length' => strlen($rawInput),
                 'rows_scanned' => $rowsScanned,
-                'scan_truncated' => $rowsScanned >= self::FALLBACK_SCAN_MAX_ROWS,
+                'scan_truncated' => false,
             ]);
         }
 
@@ -411,10 +490,7 @@ class User {
         $rowsScanned = 0;
         $lastId = 0;
 
-        while ($rowsScanned < self::FALLBACK_SCAN_MAX_ROWS) {
-            $remaining = self::FALLBACK_SCAN_MAX_ROWS - $rowsScanned;
-            $batchSize = min(self::FALLBACK_SCAN_BATCH_SIZE, $remaining);
-
+        while (true) {
             $sql = "
                 SELECT * FROM users
                 WHERE id > ?
@@ -426,7 +502,7 @@ class User {
             }
             $sql .= "
                 ORDER BY id ASC
-                LIMIT {$batchSize}
+                LIMIT " . self::FALLBACK_SCAN_BATCH_SIZE . "
             ";
 
             $stmt = $db->prepare($sql);
@@ -441,12 +517,14 @@ class User {
                 $lastId = max($lastId, (int)($row['id'] ?? 0));
 
                 $email = self::normalizeCredentialValue(EncryptionService::decrypt((string)($row['email'] ?? '')));
-                $pendingEmail = self::normalizeCredentialValue(EncryptionService::decrypt((string)($row['pending_email'] ?? '')));
+                $pendingEmail = null;
+                $pendingEmailExpires = (string)($row['email_change_expires'] ?? '');
+                if ($pendingEmailExpires === '' || strtotime($pendingEmailExpires) > time()) {
+                    $pendingEmail = self::normalizeCredentialValue(EncryptionService::decrypt((string)($row['pending_email'] ?? '')));
+                }
                 if ($email === $normalized || $pendingEmail === $normalized) {
-                    self::backfillLookupColumnsForUser($db, $row);
-                    self::backfillPendingEmailLookupForUser($db, $row);
-                    if ($rowsScanned > self::FALLBACK_SCAN_BATCH_SIZE) {
-                        \App\Core\Logger::warning('Email uniqueness check required bounded decrypt scan match', [
+                    if ($rowsScanned > self::FALLBACK_SCAN_LOG_THRESHOLD) {
+                        \App\Core\Logger::warning('Email uniqueness check required a full decrypt scan compatibility match', [
                             'input_length' => strlen($rawInput),
                             'rows_scanned' => $rowsScanned,
                         ]);
@@ -457,10 +535,10 @@ class User {
         }
 
         if ($rowsScanned > 0) {
-            \App\Core\Logger::warning('Email uniqueness check exhausted bounded decrypt scan without a match', [
+            \App\Core\Logger::warning('Email uniqueness check exhausted decrypt scan without a match', [
                 'input_length' => strlen($rawInput),
                 'rows_scanned' => $rowsScanned,
-                'scan_truncated' => $rowsScanned >= self::FALLBACK_SCAN_MAX_ROWS,
+                'scan_truncated' => false,
             ]);
         }
 

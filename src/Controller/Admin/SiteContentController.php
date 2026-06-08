@@ -12,7 +12,7 @@ class SiteContentController
 {
     private function checkAuth(): void
     {
-        Auth::requireAdmin();
+        Auth::requireCapability('site_content.manage');
     }
 
     private function ensureWritable(): void

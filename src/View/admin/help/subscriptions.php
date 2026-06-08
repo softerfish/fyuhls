@@ -14,6 +14,7 @@
         <li><strong>Reminder emails:</strong> Expiry-warning mail depends on the email system and cron being healthy.</li>
         <li><strong>Downgrades:</strong> Once premium expires, the user falls back through the normal package path instead of staying permanently upgraded.</li>
         <li><strong>Manual adjustments:</strong> If you extend or repair an account manually, keep the user record and the billing story aligned.</li>
+        <li><strong>Manual subscription creation:</strong> The Add Subscription flow creates a one-time admin-side record only. It does not start Stripe or PayPal billing and it never enables auto-renew.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Troubleshooting</h6>

@@ -1,6 +1,7 @@
 <?php
 include 'header.php';
 include __DIR__ . '/partials/shell_helpers.php';
+$canManageMonitoringLimit = !empty($canManageMonitoringLimit);
 renderAdminPageHeader('Storage Health Monitoring', '', '<a href="/admin" class="btn btn-outline-secondary btn-sm">&larr; Back to Dashboard</a>');
 ob_start();
 ?>
@@ -78,16 +79,20 @@ ob_start();
         <div class="card bg-light border-0 shadow-sm">
             <div class="card-body p-4">
                 <h6 class="fw-bold mb-3"><i class="bi bi-gear-fill me-2 text-secondary"></i>Log Configuration</h6>
-                <form method="POST" action="/admin/configuration/save" class="row g-2">
-                    <?= \App\Core\Csrf::field() ?>
-                    <div class="col-8">
-                        <label class="extra-small text-muted d-block mb-1">Max Logs to Display</label>
-                        <input type="number" name="monitoring_log_limit" class="form-control form-control-sm" value="<?= \App\Model\Setting::get('monitoring_log_limit', '50') ?>">
-                    </div>
-                    <div class="col-4 d-flex align-items-end">
-                        <button type="submit" class="btn btn-secondary btn-sm w-100">Save</button>
-                    </div>
-                </form>
+                <?php if ($canManageMonitoringLimit): ?>
+                    <form method="POST" action="/admin/configuration/save" class="row g-2">
+                        <?= \App\Core\Csrf::field() ?>
+                        <div class="col-8">
+                            <label class="extra-small text-muted d-block mb-1">Max Logs to Display</label>
+                            <input type="number" name="monitoring_log_limit" class="form-control form-control-sm" value="<?= \App\Model\Setting::get('monitoring_log_limit', '50') ?>">
+                        </div>
+                        <div class="col-4 d-flex align-items-end">
+                            <button type="submit" class="btn btn-secondary btn-sm w-100">Save</button>
+                        </div>
+                    </form>
+                <?php else: ?>
+                    <p class="extra-small text-muted mb-0">Viewing this history does not grant configuration-edit access. Monitoring retention and display limits stay behind full Configuration access.</p>
+                <?php endif; ?>
             </div>
         </div>
     </div>

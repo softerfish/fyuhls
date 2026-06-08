@@ -84,7 +84,7 @@ class SiteContentService
                             'intro' => ['type' => 'markdown', 'label' => 'Intro copy'],
                             'primary_cta_label' => ['type' => 'text', 'label' => 'Primary button label'],
                             'guest_cta_label' => ['type' => 'text', 'label' => 'Guest upload button label'],
-                            'features_cta_label' => ['type' => 'text', 'label' => 'Features button label'],
+                            'features_cta_label' => ['type' => 'text', 'label' => 'Plans button label'],
                             'meta_registration_open' => ['type' => 'text', 'label' => 'Meta: registrations open'],
                             'meta_registration_closed' => ['type' => 'text', 'label' => 'Meta: registrations closed'],
                             'meta_downloads_require_account' => ['type' => 'text', 'label' => 'Meta: downloads require account'],
@@ -96,11 +96,11 @@ class SiteContentService
                         ],
                         'default' => [
                             'kicker' => 'Hosted by {site_name}',
-                            'title' => 'Share files with rules that match your site.',
-                            'intro' => 'Upload, organize, and deliver files from a responsive web interface with package-based limits, configurable download rules, and optional creator rewards.',
+                            'title' => 'Upload large files, share download links, and keep everything in one place.',
+                            'intro' => 'Create an account to manage your files, keep folders organized, unlock larger upload limits, and access creator rewards when they are enabled on this site.',
                             'primary_cta_label' => 'Create Account',
                             'guest_cta_label' => 'Guest Upload',
-                            'features_cta_label' => 'See Features',
+                            'features_cta_label' => 'View Plans',
                             'meta_registration_open' => 'Registrations are open',
                             'meta_registration_closed' => 'Registrations are currently closed',
                             'meta_downloads_require_account' => 'Downloads require an account',
@@ -131,13 +131,13 @@ class SiteContentService
                             'bullet_tier_summary' => ['type' => 'markdown', 'label' => 'Bullet: tier summary'],
                         ],
                         'default' => [
-                            'title' => 'Why Use {site_name}',
+                            'title' => 'What this file host offers right now',
                             'account_levels_label' => 'Account Levels',
-                            'account_levels_summary_paid' => 'Starts simple and scales into premium access',
-                            'account_levels_summary_free' => 'Built around the current access levels on this site',
-                            'access_style_label' => 'Access Style',
-                            'access_style_summary_member' => 'Email confirmation helps keep accounts cleaner',
-                            'access_style_summary_guest' => 'Account signup stays lightweight for new users',
+                            'account_levels_summary_paid' => 'Start with the current entry plan, then move into larger paid limits when you need them',
+                            'account_levels_summary_free' => 'Built around the current guest and free access setup on this site',
+                            'access_style_label' => 'Download Access',
+                            'access_style_summary_member' => 'Downloads currently run through signed-in member accounts',
+                            'access_style_summary_guest' => 'Guest visitors can still reach public download pages under the current rules',
                             'bullet_free_package' => 'Get started with uploads up to **{free_package_upload_limit}** and **{free_package_storage_limit}** of storage on the current **{free_package_name}** plan.',
                             'bullet_remote_upload_enabled' => 'Import files from a remote URL as well as through standard browser uploads on supported plans.',
                             'bullet_remote_upload_disabled' => 'Upload directly from your browser with the same package-based controls used across the site.',
@@ -145,6 +145,76 @@ class SiteContentService
                             'bullet_guest_upload_disabled' => 'Uploads currently require a signed-in account before files can be added.',
                             'bullet_creator_summary' => '{creator_summary}',
                             'bullet_tier_summary' => '{tier_summary}',
+                        ],
+                    ],
+                    'trust_section' => [
+                        'label' => 'Trust strip section',
+                        'type' => 'object',
+                        'fields' => [
+                            'title' => ['type' => 'text', 'label' => 'Section title'],
+                            'intro' => ['type' => 'markdown', 'label' => 'Section intro'],
+                        ],
+                        'default' => [
+                            'title' => 'What visitors can expect right now',
+                            'intro' => 'These quick highlights pull from the live plan mix and current site settings, so the public page matches the service people are actually signing up for.',
+                        ],
+                    ],
+                    'trust_cards' => [
+                        'label' => 'Trust strip cards',
+                        'type' => 'list',
+                        'item_label' => 'Trust card',
+                        'item_fields' => [
+                            'id' => ['type' => 'hidden'],
+                            'label' => ['type' => 'text', 'label' => 'Eyebrow label'],
+                            'title' => ['type' => 'text', 'label' => 'Card title'],
+                            'body' => ['type' => 'markdown', 'label' => 'Card body'],
+                        ],
+                        'default' => [
+                            ['id' => 'plans', 'label' => 'Plans', 'title' => 'Live account levels', 'body' => '{plan_mix_summary}'],
+                            ['id' => 'imports', 'label' => 'Imports', 'title' => 'Remote URL upload', 'body' => '{remote_upload_offer_summary}'],
+                            ['id' => 'rewards', 'label' => 'Rewards', 'title' => 'Creator rewards', 'body' => '{creator_offer_summary}'],
+                            ['id' => 'api', 'label' => 'Automation', 'title' => 'API access', 'body' => '{api_offer_summary}'],
+                        ],
+                    ],
+                    'preview_section' => [
+                        'label' => 'Product preview section',
+                        'type' => 'object',
+                        'fields' => [
+                            'title' => ['type' => 'text', 'label' => 'Section title'],
+                            'intro' => ['type' => 'markdown', 'label' => 'Section intro'],
+                        ],
+                        'default' => [
+                            'title' => 'See what members get after signup',
+                            'intro' => 'The preview below mirrors the current package mix, file-management flow, and account tools that open up after registration.',
+                        ],
+                    ],
+                    'account_section' => [
+                        'label' => 'Why create an account section',
+                        'type' => 'object',
+                        'fields' => [
+                            'title' => ['type' => 'text', 'label' => 'Section title'],
+                            'intro' => ['type' => 'markdown', 'label' => 'Section intro'],
+                        ],
+                        'default' => [
+                            'title' => 'Why create an account',
+                            'intro' => 'An account gives users a real home for uploads, folders, saved links, and larger limits whenever they need to move beyond the public guest flow.',
+                        ],
+                    ],
+                    'account_cards' => [
+                        'label' => 'Why create an account cards',
+                        'type' => 'list',
+                        'item_label' => 'Account benefit card',
+                        'item_fields' => [
+                            'id' => ['type' => 'hidden'],
+                            'label' => ['type' => 'text', 'label' => 'Eyebrow label'],
+                            'title' => ['type' => 'text', 'label' => 'Card title'],
+                            'body' => ['type' => 'markdown', 'label' => 'Card body'],
+                        ],
+                        'default' => [
+                            ['id' => 'workspace', 'label' => 'Files', 'title' => 'Keep uploads and folders organized', 'body' => 'Move from one-off links into a real file dashboard where uploads, folders, and account tools stay together.'],
+                            ['id' => 'limits', 'label' => 'Limits', 'title' => 'Start with the current entry plan', 'body' => '{member_setup_summary}'],
+                            ['id' => 'rewards', 'label' => 'Rewards', 'title' => 'Unlock creator tools when available', 'body' => '{creator_offer_summary}'],
+                            ['id' => 'automation', 'label' => 'Imports', 'title' => 'Use API and remote upload tools', 'body' => '{api_offer_summary}'],
                         ],
                     ],
                     'features_section' => [
@@ -155,8 +225,8 @@ class SiteContentService
                             'intro' => ['type' => 'markdown', 'label' => 'Section intro'],
                         ],
                         'default' => [
-                            'title' => 'Built around the rules your admin sets',
-                            'intro' => 'These highlights reflect live configuration and package settings instead of fixed marketing promises.',
+                            'title' => 'More than a basic upload form',
+                            'intro' => 'These deeper highlights show the account, delivery, and creator tools built into the file host after someone gets past the first signup decision.',
                         ],
                     ],
                     'feature_cards' => [
@@ -175,7 +245,7 @@ class SiteContentService
                             ['id' => 'download_controls', 'icon' => 'Access', 'label' => 'Access', 'title' => 'Download Controls', 'body' => '{downloads_access_summary}'],
                             ['id' => 'onboarding_security', 'icon' => 'Security', 'label' => 'Security', 'title' => 'Onboarding Security', 'body' => '{verification_summary}'],
                             ['id' => 'creator_monetization', 'icon' => 'Rewards', 'label' => 'Rewards', 'title' => 'Creator Monetization', 'body' => '{creator_feature_summary}'],
-                            ['id' => 'api_tokens', 'icon' => 'API', 'label' => 'API', 'title' => 'Public API and Tokens', 'body' => 'Personal API tokens, managed upload flows, multipart session control, file metadata access, and application-signed download links are built into the platform.'],
+                            ['id' => 'api_tokens', 'icon' => 'API', 'label' => 'API', 'title' => 'Public API and Tokens', 'body' => 'Personal API tokens, managed upload flows, multipart session control, file metadata access, and application-signed download links are built into the file host.'],
                             ['id' => 'multipart', 'icon' => 'Multipart', 'label' => 'Multipart', 'title' => 'Large-File Upload Path', 'body' => 'Fyuhls supports resumable multipart upload sessions for object storage, so larger installs can move file bytes directly to storage instead of routing everything through PHP.'],
                             ['id' => 'fraud', 'icon' => 'Fraud', 'label' => 'Fraud', 'title' => 'Rewards Fraud Review', 'body' => 'When rewards are enabled, admins can hold earnings, inspect suspicious traffic, and review uploader or network risk signals from a dedicated fraud console.'],
                             ['id' => 'ops', 'icon' => 'Ops', 'label' => 'Ops', 'title' => 'Live Operations', 'body' => 'Admins can monitor current downloads, review system status, export sanitized support bundles, and manage storage or delivery behavior without leaving the control surface.'],
@@ -218,7 +288,25 @@ class SiteContentService
                         ],
                         'default' => [
                             'title' => 'Account Levels',
-                            'intro' => 'The plan cards below are generated from the current package configuration.',
+                            'intro' => 'The plan cards below are generated from the current live package configuration, so visitors see the same file limits, upgrade path, and download experience the site is actually offering.',
+                        ],
+                    ],
+                    'conversion_cta' => [
+                        'label' => 'Final signup call to action',
+                        'type' => 'object',
+                        'fields' => [
+                            'title' => ['type' => 'text', 'label' => 'Section title'],
+                            'intro' => ['type' => 'markdown', 'label' => 'Section intro'],
+                            'primary_open_label' => ['type' => 'text', 'label' => 'Primary button label (registrations open)'],
+                            'primary_closed_label' => ['type' => 'text', 'label' => 'Primary button label (registrations closed)'],
+                            'secondary_label' => ['type' => 'text', 'label' => 'Secondary button label'],
+                        ],
+                        'default' => [
+                            'title' => 'Ready to start?',
+                            'intro' => 'Create an account to manage your files, compare live plan limits, and move into larger account tiers whenever you need more room.',
+                            'primary_open_label' => 'Create Account',
+                            'primary_closed_label' => 'Login',
+                            'secondary_label' => 'Read FAQ',
                         ],
                     ],
                 ],
@@ -703,45 +791,7 @@ class SiteContentService
         $pdo = Database::getInstance()->getConnection();
         $pdo->beginTransaction();
         try {
-            foreach ($defs[$pageKey]['blocks'] as $blockKey => $blockDef) {
-                $contentType = $blockDef['type'] === 'list' ? 'list' : 'object';
-                $contentJson = json_encode($snapshot[$blockKey], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                $stmt = $pdo->prepare("
-                    INSERT INTO site_content (page_key, block_key, locale, content_type, content_json, updated_by)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE content_type = VALUES(content_type), content_json = VALUES(content_json), updated_by = VALUES(updated_by)
-                ");
-                $stmt->execute([$pageKey, $blockKey, $locale, $contentType, $contentJson, $adminId]);
-            }
-
-            $revisionStmt = $pdo->prepare("
-                INSERT INTO site_content_revisions (page_key, locale, snapshot_json, change_reason, restored_from_revision_id, created_by)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ");
-            $revisionStmt->execute([
-                $pageKey,
-                $locale,
-                json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                $reason,
-                $restoredFromRevisionId,
-                $adminId,
-            ]);
-
-            $pruneStmt = $pdo->prepare("
-                DELETE FROM site_content_revisions
-                WHERE page_key = ? AND locale = ?
-                  AND id NOT IN (
-                      SELECT id FROM (
-                          SELECT id
-                          FROM site_content_revisions
-                          WHERE page_key = ? AND locale = ?
-                          ORDER BY created_at DESC, id DESC
-                          LIMIT " . self::MAX_REVISIONS_PER_PAGE_LOCALE . "
-                      ) AS retained_revisions
-                  )
-            ");
-            $pruneStmt->execute([$pageKey, $locale, $pageKey, $locale]);
-
+            self::savePageSnapshotWithConnection($pdo, $pageKey, $snapshot, $adminId, $locale, $reason, $restoredFromRevisionId);
             $pdo->commit();
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -749,6 +799,49 @@ class SiteContentService
             }
             throw $e;
         }
+    }
+
+    private static function savePageSnapshotWithConnection(\PDO $pdo, string $pageKey, array $snapshot, int $adminId, string $locale, string $reason = 'save', ?int $restoredFromRevisionId = null): void
+    {
+        $defs = self::definitions();
+        foreach ($defs[$pageKey]['blocks'] as $blockKey => $blockDef) {
+            $contentType = $blockDef['type'] === 'list' ? 'list' : 'object';
+            $contentJson = json_encode($snapshot[$blockKey], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $stmt = $pdo->prepare("
+                INSERT INTO site_content (page_key, block_key, locale, content_type, content_json, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE content_type = VALUES(content_type), content_json = VALUES(content_json), updated_by = VALUES(updated_by)
+            ");
+            $stmt->execute([$pageKey, $blockKey, $locale, $contentType, $contentJson, $adminId]);
+        }
+
+        $revisionStmt = $pdo->prepare("
+            INSERT INTO site_content_revisions (page_key, locale, snapshot_json, change_reason, restored_from_revision_id, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        $revisionStmt->execute([
+            $pageKey,
+            $locale,
+            json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            $reason,
+            $restoredFromRevisionId,
+            $adminId,
+        ]);
+
+        $pruneStmt = $pdo->prepare("
+            DELETE FROM site_content_revisions
+            WHERE page_key = ? AND locale = ?
+              AND id NOT IN (
+                  SELECT id FROM (
+                      SELECT id
+                      FROM site_content_revisions
+                      WHERE page_key = ? AND locale = ?
+                      ORDER BY created_at DESC, id DESC
+                      LIMIT " . self::MAX_REVISIONS_PER_PAGE_LOCALE . "
+                  ) AS retained_revisions
+              )
+        ");
+        $pruneStmt->execute([$pageKey, $locale, $pageKey, $locale]);
     }
 
     public static function createPreviewToken(string $pageKey, array $input, int $adminId, ?string $locale = null): string
@@ -959,13 +1052,28 @@ class SiteContentService
             throw new \RuntimeException('Import payload does not contain any pages.');
         }
 
-        $imported = [];
+        $normalizedPages = [];
         foreach ($pages as $pageKey => $snapshot) {
             if (!isset(self::definitions()[$pageKey]) || !is_array($snapshot)) {
                 continue;
             }
-            self::savePage((string)$pageKey, $snapshot, $adminId, $locale, 'import');
-            $imported[] = (string)$pageKey;
+            $normalizedPages[(string)$pageKey] = self::normalizePagePayload((string)$pageKey, $snapshot);
+        }
+
+        $imported = [];
+        $pdo = Database::getInstance()->getConnection();
+        $pdo->beginTransaction();
+        try {
+            foreach ($normalizedPages as $pageKey => $snapshot) {
+                self::savePageSnapshotWithConnection($pdo, $pageKey, $snapshot, $adminId, $locale, 'import');
+                $imported[] = $pageKey;
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
         }
 
         return [
@@ -1590,7 +1698,7 @@ class SiteContentService
         }
 
         if (str_starts_with($url, '/')) {
-            return preg_match('#^/[A-Za-z0-9/_\\-.?=&%+#]*$#', $url) === 1 ? $url : null;
+            return preg_match('~^/[A-Za-z0-9/_.?=&%+\-#]*$~', $url) === 1 ? $url : null;
         }
 
         if (preg_match('#^https://#i', $url) === 1) {
@@ -1640,17 +1748,17 @@ class SiteContentService
 
         $creatorSummary = $rewardsEnabled
             ? ($affiliateEnabled
-                ? 'Eligible users can unlock both creator rewards and affiliate referrals from the same account system.'
-                : 'Eligible users can unlock creator rewards alongside the site\'s storage and sharing tools.')
-            : 'Share files with package-based rules, access controls, and a cleaner workflow for everyday hosting.';
+                ? 'Eligible users can unlock both creator rewards and affiliate referrals from the same account area.'
+                : 'Eligible users can unlock creator rewards alongside the site\'s upload and sharing tools.')
+            : 'Share files with package-based rules, account controls, and a cleaner download workflow.';
 
         $tierSummary = $paidPackage
-            ? ($paidPackage['name'] . ' is available for users who need more speed, storage, or fewer restrictions.')
+            ? ($paidPackage['name'] . ' is available for users who need more speed, larger upload limits, or fewer restrictions.')
             : 'Everything here is currently focused on the site\'s active access tiers without a paid upgrade step.';
 
         $downloadsAccessSummary = $requireAccountToDownload
             ? 'This site currently requires a registered account before downloads can begin.'
-            : 'This site currently allows guest access to downloads, subject to package and security rules.';
+            : 'This site currently allows guest access to download pages, subject to package and security rules.';
 
         $verificationSummary = $requireVerification
             ? 'New accounts must confirm their email address before they can start using the platform.'
@@ -1660,7 +1768,31 @@ class SiteContentService
             ? ($affiliateEnabled
                 ? 'Eligible users can access rewards and affiliate tools from their account area.'
                 : 'Eligible users can access rewards and payout tools from their account area.')
-            : 'Rewards are currently unavailable, so accounts focus on storage, sharing, and downloads.';
+            : 'Rewards are currently unavailable, so accounts focus on storage, file links, and downloads.';
+
+        $planMixSummary = $hasPaidPlan
+            ? 'This site currently offers **' . count($packages) . '** live account levels, including **' . (string)($paidPackage['name'] ?? 'the current paid tier') . '** for users who need more room, larger uploads, or fewer restrictions.'
+            : 'This site currently offers **' . count($packages) . '** live account levels built around the active guest and free plan mix.';
+
+        $remoteUploadOfferSummary = $supportsRemoteUpload
+            ? 'Remote URL imports are available on supported plans, so users can fetch files directly into their account instead of re-uploading everything from a device.'
+            : 'The current plan mix focuses on browser uploads right now, without remote URL imports enabled.';
+
+        $apiOfferSummary = 'Personal API tokens, managed upload flows, multipart session control, and application-signed downloads are built into the file host.';
+
+        $creatorOfferSummary = $rewardsEnabled
+            ? ($affiliateEnabled
+                ? 'Eligible users can access creator rewards and affiliate referrals from the same account area.'
+                : 'Eligible users can access creator rewards and payout tracking from their account area.')
+            : 'Creator rewards are currently off, so accounts stay focused on uploads, links, and delivery.';
+
+        $memberSetupSummary = isset($freePackage['name'])
+            ? 'The current **' . (string)$freePackage['name'] . '** plan starts with **' . self::formatBytes((int)($freePackage['max_upload_size'] ?? 0), true) . '** uploads and **' . self::formatBytes((int)($freePackage['max_storage_bytes'] ?? 0), true) . '** of storage.'
+            : 'The current live account setup is driven by the package limits configured on this site.';
+
+        $guestAccessSummary = $guestUploadsAllowed
+            ? 'Guests can still use the public upload route before committing to a full account.'
+            : 'Uploads currently begin from signed-in member accounts instead of guest sessions.';
 
         $uploadLimitSummary = [];
         $retentionSummary = [];
@@ -1688,6 +1820,12 @@ class SiteContentService
             'referral_commission_percent' => (string)Setting::get('referral_commission_percent', '50'),
             'creator_summary' => $creatorSummary,
             'tier_summary' => $tierSummary,
+            'plan_mix_summary' => $planMixSummary,
+            'remote_upload_offer_summary' => $remoteUploadOfferSummary,
+            'api_offer_summary' => $apiOfferSummary,
+            'creator_offer_summary' => $creatorOfferSummary,
+            'member_setup_summary' => $memberSetupSummary,
+            'guest_access_summary' => $guestAccessSummary,
             'downloads_access_summary' => $downloadsAccessSummary,
             'verification_summary' => $verificationSummary,
             'creator_feature_summary' => $creatorFeatureSummary,
@@ -1783,15 +1921,11 @@ class SiteContentService
             return;
         }
 
-        try {
-            $pdo = Database::getInstance()->getConnection();
-            $exists = $pdo->query("SHOW TABLES LIKE 'site_content'")->fetchColumn();
-            if ($exists === false) {
-                (new \App\Service\Database\SchemaService())->sync(true);
-            }
-        } catch (\Throwable $e) {
-            // Let downstream reads fall back or writes throw the original DB error.
-        }
+        \App\Service\Database\SchemaService::ensureTables([
+            'site_content',
+            'site_content_revisions',
+            'site_content_preview_tokens',
+        ], false);
 
         self::$schemaEnsured = true;
     }

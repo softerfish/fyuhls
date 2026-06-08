@@ -2,7 +2,6 @@
 
 namespace App\Controller\Api;
 
-use App\Model\Setting;
 use App\Service\FeatureService;
 use App\Service\RateLimiterService;
 use App\Service\RewardFraudService;
@@ -11,14 +10,14 @@ use App\Service\SecurityService;
 
 /**
  * RewardsApiController - High-Scale Multi-Server Reporting
- * 
+ *
  * Allows remote file servers to securely report download successes to the main node.
  */
 class RewardsApiController
 {
     /**
      * dropReceipt
-     * 
+     *
      * Endpoint: POST /api/rewards/receipt
      */
     public function dropReceipt()
@@ -41,13 +40,6 @@ class RewardsApiController
         if (!RateLimiterService::check('rewards_receipt', 'ip:' . $clientIp, 120, 60)) {
             http_response_code(429);
             echo json_encode(['error' => 'Too many receipt requests. Please retry shortly.']);
-            exit;
-        }
-
-        $masterKey = Setting::get('remote_server_api_key', '');
-        if (empty($masterKey)) {
-            http_response_code(401);
-            echo json_encode(['error' => 'Remote reward reporting is not configured.']);
             exit;
         }
 

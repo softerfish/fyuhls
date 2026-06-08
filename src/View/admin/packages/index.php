@@ -31,14 +31,25 @@ if (!function_exists('formatPackageBytes')) {
     }
 }
 
+if (!function_exists('formatPackageTerm')) {
+    function formatPackageTerm(int $days): string
+    {
+        return \App\Service\PaymentService::formatTermLabel($days);
+    }
+}
+
 $totalPackages = count($packages);
 $paidPackages = count(array_filter($packages, static fn ($pkg) => (string)($pkg['level_type'] ?? '') === 'paid'));
 $totalAssignedUsers = array_sum($userCounts);
 $plansWithAdsDisabled = count(array_filter($packages, static fn ($pkg) => empty($pkg['show_ads'])));
+$viewerIsSuperAdmin = \App\Core\Auth::isSuperAdmin();
 
 ob_start();
 ?>
-<div class="text-muted small">Start from an existing plan, then clone and adjust it when you need a new tier.</div>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div class="text-muted small">Start from an existing plan, then clone and adjust it when you need a new tier.</div>
+    <a href="/admin/package/create" class="btn btn-sm btn-primary shadow-sm">Create Package</a>
+</div>
 <?php
 $pageActions = ob_get_clean();
 renderAdminPageHeader('Packages', 'Control the user-facing plans that shape uploads, downloads, rewards, and checkout behavior.', $pageActions);
@@ -96,6 +107,20 @@ renderAdminPageHeader('Packages', 'Control the user-facing plans that shape uplo
                     $experienceParts[] = !empty($pkg['allow_remote_upload']) ? 'Remote upload' : 'Browser upload only';
                     $experienceParts[] = !empty($pkg['allow_direct_links']) ? 'Direct links' : 'Download page only';
                     $assignedUsers = (int)($userCounts[$pkgId] ?? 0);
+                    $billingOptions = is_array($pkg['billing_options'] ?? null) ? $pkg['billing_options'] : [];
+                    $activeBillingOptions = array_values(array_filter($billingOptions, static fn(array $option): bool => !empty($option['is_active'])));
+                    $defaultBillingOption = $activeBillingOptions[0] ?? $billingOptions[0] ?? null;
+                    $displayBillingOptions = $activeBillingOptions ?: $billingOptions;
+                    $renewableOptionCount = count(array_filter($displayBillingOptions, static fn(array $option): bool => !empty($option['renewal_enabled'])));
+                    $oneTimeOptionCount = count($displayBillingOptions) - $renewableOptionCount;
+                    $billingSummary = 'Free';
+                    if ($isPaid && $defaultBillingOption !== null) {
+                        $billingSummary = '$' . number_format((float)($defaultBillingOption['price'] ?? 0), 2) . ' / ' . formatPackageTerm((int)($defaultBillingOption['term_days'] ?? 30));
+                    }
+                    $renewalSummary = $renewableOptionCount > 0 && $oneTimeOptionCount > 0
+                        ? 'Mixed renewal options'
+                        : (($defaultBillingOption !== null && !empty($defaultBillingOption['renewal_enabled'])) ? 'Auto-renew available' : 'One-time only');
+                    $isSystemPackage = in_array((string)($pkg['level_type'] ?? ''), ['guest', 'admin'], true);
                     ?>
                     <tr>
                         <td>
@@ -106,7 +131,13 @@ renderAdminPageHeader('Packages', 'Control the user-facing plans that shape uplo
                             <span class="badge text-bg-light border text-uppercase"><?= htmlspecialchars((string)$pkg['level_type']) ?></span>
                         </td>
                         <td>
-                            <?= $isPaid ? '$' . number_format((float)($pkg['price'] ?? 0), 2) : 'Free' ?>
+                            <?= htmlspecialchars($billingSummary) ?>
+                            <?php if ($isPaid): ?>
+                                <div class="small text-muted">
+                                    <?= count($displayBillingOptions) ?> billing option<?= count($displayBillingOptions) === 1 ? '' : 's' ?>
+                                    | <?= htmlspecialchars($renewalSummary) ?>
+                                </div>
+                            <?php endif; ?>
                         </td>
                         <td><?= htmlspecialchars(formatPackageBytes((int)($pkg['max_storage_bytes'] ?? 0), 'gb')) ?></td>
                         <td><?= htmlspecialchars(formatPackageBytes((int)($pkg['max_upload_size'] ?? 0), 'mb')) ?></td>
@@ -124,11 +155,21 @@ renderAdminPageHeader('Packages', 'Control the user-facing plans that shape uplo
                         </td>
                         <td class="text-end">
                             <div class="d-flex flex-wrap justify-content-end gap-2">
-                                <a href="/admin/package/edit/<?= $pkgId ?>" class="btn btn-sm btn-primary">Edit</a>
-                                <form method="POST" action="/admin/package/clone/<?= $pkgId ?>" class="d-inline" data-confirm-message="Clone this package into a new plan?">
-                                    <?= \App\Core\Csrf::field() ?>
-                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Clone</button>
-                                </form>
+                                <?php if (!$isSystemPackage || $viewerIsSuperAdmin): ?>
+                                    <a href="/admin/package/edit/<?= $pkgId ?>" class="btn btn-sm btn-primary">Edit</a>
+                                <?php else: ?>
+                                    <span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true">Protected</span>
+                                <?php endif; ?>
+                                <?php if (!$isSystemPackage): ?>
+                                    <form method="POST" action="/admin/package/clone/<?= $pkgId ?>" class="d-inline" data-confirm-message="Clone this package into a new plan?">
+                                        <?= \App\Core\Csrf::field() ?>
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Clone</button>
+                                    </form>
+                                    <form method="POST" action="/admin/package/delete/<?= $pkgId ?>" class="d-inline" data-confirm-message="Delete this package? This only works when nothing still depends on it.">
+                                        <?= \App\Core\Csrf::field() ?>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                    </form>
+                                <?php endif; ?>
                             </div>
                         </td>
                     </tr>

@@ -29,7 +29,7 @@ $tabs = [
     <div class="card-body p-0">
         <div class="d-flex border-bottom overflow-auto">
             <?php foreach ($tabs as $key => $tab): ?>
-                <a href="?tab=<?= $key ?>" 
+                <a href="?tab=<?= $key ?>"
                    class="px-4 py-3 text-decoration-none fw-bold small transition-all <?= $activeTab === $key ? 'text-primary border-bottom border-primary border-3 bg-light' : 'text-muted' ?>"
                    class="add-server-tab-link px-4 py-3 text-decoration-none fw-bold small transition-all <?= $activeTab === $key ? 'text-primary border-bottom border-primary border-3 bg-light' : 'text-muted' ?>">
                     <i class="bi <?= $tab['icon'] ?> me-2"></i><?= $tab['label'] ?>
@@ -58,11 +58,20 @@ $tabs = [
 
                     <div class="mb-4">
                         <label class="form-label fw-bold small">Status</label>
-                        <select name="status" class="form-select">
+                        <select name="status" id="storageServerStatus" class="form-select">
                             <option value="active">Active (Accepting Uploads)</option>
                             <option value="read-only">Read-Only (Downloads Only)</option>
                             <option value="disabled">Disabled</option>
                         </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="make_default" id="makeDefaultUploadTarget" value="1">
+                            <label class="form-check-label fw-bold small" for="makeDefaultUploadTarget">Make this the default upload target</label>
+                        </div>
+                        <div class="text-muted extra-small mt-1">New uploads go to the storage server marked as default. Turn this on when you want Fyuhls to stop using Main Local Storage for new files.</div>
+                        <div class="text-muted extra-small mt-1 d-none" id="makeDefaultUploadTargetHint">Only active storage servers can be the default upload target.</div>
                     </div>
 
                     <?php if (in_array($activeTab, ['b2', 'r2', 'wasabi', 's3'], true)): ?>
@@ -136,7 +145,7 @@ $tabs = [
                             </div>
                         </div>
                     <?php endif; ?>
-                    
+
                     <?php if ($activeTab === 'r2'): ?>
                         <div class="mb-3">
                             <label class="form-label fw-bold small">R2 Bucket Name</label>
@@ -232,11 +241,11 @@ $tabs = [
 
                         <div class="mb-4">
                             <label class="form-label fw-bold small">Public Download URL (Optional)</label>
-                        <?php 
+                        <?php
                         $currentHost = $trustedBaseUrl !== '' ? $trustedBaseUrl : 'https://yourdomain.com';
                         $suggestedUrl = '';
                         $placeholder = "e.g. https://storage.yourdomain.com/";
-                        
+
                         if ($activeTab === 'local') {
                             $suggestedUrl = $currentHost . "/storage/uploads/";
                         } elseif ($activeTab === 'b2') {
@@ -279,11 +288,11 @@ $tabs = [
                                     <li><code>https://your-bucket.your-provider.com/</code></li>
                                 <?php endif; ?>
                             </ul>
-                            
+
                             <strong>Impact on Rewards (PPD):</strong>
                             <ul class="mb-0 ps-3">
-                                <li><strong>Direct public URL provided:</strong> PPD can still be enabled, but it usually counts when the download starts because completion is harder for Fyuhls to verify.</li>
-                                <li><strong>Best control:</strong> Leave the URL empty and let Fyuhls serve or hand off the file through the app-controlled path.</li>
+                                <li><strong>Direct public URL provided:</strong> PPD can still be enabled, but lighter redirect-style delivery becomes easier and ordinary file completion proof is usually weaker unless Fyuhls falls back to PHP or uses the Nginx completion-log path.</li>
+                                <li><strong>Best control:</strong> Leave the URL empty if you want Fyuhls to keep tighter control over how downloads are issued. That does not force every object download through PHP, but it avoids advertising a separate public base URL and leaves more of the delivery choice with Fyuhls.</li>
                             </ul>
                         </div>
                     </div>
@@ -584,6 +593,32 @@ Invoke-RestMethod -Method Post -Uri ($apiUrl + "/b2api/v3/b2_update_bucket") -He
 
 <?php include dirname(__DIR__) . '/footer.php'; ?>
 
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const statusSelect = document.getElementById('storageServerStatus');
+    const defaultCheckbox = document.getElementById('makeDefaultUploadTarget');
+    const defaultHint = document.getElementById('makeDefaultUploadTargetHint');
+
+    if (!statusSelect || !defaultCheckbox) {
+        return;
+    }
+
+    const syncDefaultTargetAvailability = () => {
+        const active = statusSelect.value === 'active';
+        defaultCheckbox.disabled = !active;
+        if (!active) {
+            defaultCheckbox.checked = false;
+        }
+        if (defaultHint) {
+            defaultHint.classList.toggle('d-none', active);
+        }
+    };
+
+    statusSelect.addEventListener('change', syncDefaultTargetAvailability);
+    syncDefaultTargetAvailability();
+});
+</script>
+
 <?php if ($activeTab === 'b2'): ?>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -707,7 +742,10 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        if (!confirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?')) {
+        if (!(await window.adminConfirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?', {
+            title: 'Apply Upload CORS',
+            confirmLabel: 'Apply CORS'
+        }))) {
             return;
         }
 
@@ -868,7 +906,10 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        if (!confirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?')) {
+        if (!(await window.adminConfirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?', {
+            title: 'Apply Upload CORS',
+            confirmLabel: 'Apply CORS'
+        }))) {
             return;
         }
 

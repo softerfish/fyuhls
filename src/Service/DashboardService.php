@@ -3,18 +3,30 @@
 namespace App\Service;
 
 use App\Core\Database;
+use App\Core\Logger;
 use App\Core\PluginManager;
 use App\Model\Setting;
+use App\Service\Database\SchemaService;
 use PDO;
 
 class DashboardService
 {
     private $db;
+    private bool $statsSchemaAvailable = true;
+    private ?string $statsSchemaError = null;
 
     public function __construct()
     {
         $this->db = Database::getInstance()->getConnection();
-        $this->ensureStatsSchema();
+        try {
+            $this->ensureStatsSchema(false);
+        } catch (\Throwable $e) {
+            $this->statsSchemaAvailable = false;
+            $this->statsSchemaError = $e->getMessage();
+            Logger::warning('dashboard stats cache unavailable; using live fallback', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -25,13 +37,18 @@ class DashboardService
     {
         $stats = $this->getSystemStats();
         $history = $this->getStatsHistory(30);
-        
+
         return [
             'stats' => $stats,
             'history' => $history,
             'cron_healthy' => $this->isCronHealthy(),
             'last_cron_run' => Setting::get('last_cron_run_timestamp', 0),
             'widgets' => $this->getWidgetData(),
+            'stats_cache_degraded' => !$this->statsSchemaAvailable,
+            'stats_cache_warning' => $this->statsSchemaAvailable
+                ? null
+                : 'Dashboard summary cache is unavailable right now. Totals below are live fallback values until System Stats Refresh succeeds.',
+            'stats_cache_error' => $this->statsSchemaError,
         ];
     }
 
@@ -54,7 +71,7 @@ class DashboardService
 
         // --- GHOST STATS FALLBACK (Anti-Stampede 60s Cache) ---
         $cacheFile = defined('BASE_PATH') ? BASE_PATH . '/storage/cache/dashboard_fallback.json' : dirname(__DIR__, 2) . '/storage/cache/dashboard_fallback.json';
-        
+
         if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 60) {
             $cached = json_decode(file_get_contents($cacheFile), true);
             if ($cached) return $cached;
@@ -71,12 +88,12 @@ class DashboardService
         if ($fp && flock($fp, LOCK_EX | LOCK_NB)) {
             // We got the lock, calculate live
             $liveStats = $this->calculateLiveStats();
-            
+
             @file_put_contents($cacheFile, json_encode($liveStats));
             flock($fp, LOCK_UN);
             fclose($fp);
             @unlink($lockFile);
-            
+
             return $liveStats;
         } else {
             // Couldn't get lock, meaning someone else is calculating it right now.
@@ -91,7 +108,7 @@ class DashboardService
                 }
                 $waited++;
             }
-            
+
             // If all else fails (extreme edge case), return a 0'd out shell
             return [
                 'total_files' => 0, 'total_users' => 0, 'total_storage_bytes' => 0,
@@ -105,15 +122,15 @@ class DashboardService
         try {
             $totalUsers = (int)$this->db->query("SELECT COUNT(*) FROM users")->fetchColumn();
             $totalFiles = (int)$this->db->query("SELECT COUNT(*) FROM files WHERE status = 'active'")->fetchColumn();
-            
+
             // Check if stored_files exists before joining
             $totalStorage = 0;
             $tableCheck = $this->db->query("SHOW TABLES LIKE 'stored_files'")->fetch();
             if ($tableCheck) {
                 $totalStorage = (float)$this->db->query("
-                    SELECT SUM(sf.file_size) 
-                    FROM files f 
-                    JOIN stored_files sf ON f.stored_file_id = sf.id 
+                    SELECT SUM(sf.file_size)
+                    FROM files f
+                    JOIN stored_files sf ON f.stored_file_id = sf.id
                     WHERE f.status = 'active'
                 ")->fetchColumn();
             }
@@ -141,7 +158,7 @@ class DashboardService
                 'total_storage_bytes' => $totalStorage,
                 'pending_withdrawals' => $pendingWithdrawals,
                 'pending_reports' => $pendingReports,
-                'is_live' => true 
+                'is_live' => true
             ];
         } catch (\Exception $e) {
             return [
@@ -156,19 +173,21 @@ class DashboardService
      */
     public function refreshSystemStats(): void
     {
-        $this->ensureStatsSchema();
+        $this->ensureStatsSchema(true);
+        $this->statsSchemaAvailable = true;
+        $this->statsSchemaError = null;
         $live = $this->calculateLiveStats();
-        
+
         $sql = "INSERT INTO system_stats (id, total_files, total_users, total_storage_bytes, pending_withdrawals, pending_reports)
                 VALUES (1, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE 
+                ON DUPLICATE KEY UPDATE
                 total_files = VALUES(total_files),
                 total_users = VALUES(total_users),
                 total_storage_bytes = VALUES(total_storage_bytes),
                 pending_withdrawals = VALUES(pending_withdrawals),
                 pending_reports = VALUES(pending_reports),
                 last_updated = CURRENT_TIMESTAMP";
-        
+
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             $live['total_files'],
@@ -187,12 +206,12 @@ class DashboardService
         $today = date('Y-m-d');
         $startOfDay = date('Y-m-d 00:00:00');
         $endOfDay = date('Y-m-d 23:59:59');
-        
+
         // Count today's uploads (Index-friendly range query)
         $stmt = $this->db->prepare("SELECT COUNT(*) FROM files WHERE created_at >= ? AND created_at <= ?");
         $stmt->execute([$startOfDay, $endOfDay]);
         $uploadsToday = (int)$stmt->fetchColumn();
-        
+
         // Count today's active download IPs (approximate)
         $stmt = $this->db->prepare("SELECT COUNT(DISTINCT ip_address) FROM active_downloads WHERE started_at >= ? AND started_at <= ?");
         $stmt->execute([$startOfDay, $endOfDay]);
@@ -200,11 +219,11 @@ class DashboardService
 
         $sql = "INSERT INTO stats_history (date, uploads_count, downloads_count, active_users)
                 VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE 
+                ON DUPLICATE KEY UPDATE
                 uploads_count = VALUES(uploads_count),
                 downloads_count = VALUES(downloads_count),
                 active_users = VALUES(active_users)";
-        
+
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$today, $uploadsToday, $downloadsToday, $stats['total_users']]);
     }
@@ -302,7 +321,7 @@ class DashboardService
         }
 
         if ($this->tableExists('subscriptions')) {
-            $data['active_subscriptions'] = (int)$this->fetchValue("SELECT COUNT(*) FROM subscriptions WHERE status = 'active'");
+            $data['active_subscriptions'] = (int)$this->fetchValue("SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND expires_at > NOW()");
         }
 
         if ($this->tableExists('transactions')) {
@@ -463,7 +482,7 @@ class DashboardService
         $data['pending_verification'] = (int)($row['pending_verification'] ?? 0);
 
         if ($this->tableExists('subscriptions')) {
-            $data['active_premium'] = (int)$this->fetchValue("SELECT COUNT(*) FROM subscriptions WHERE status = 'active'");
+            $data['active_premium'] = (int)$this->fetchValue("SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND expires_at > NOW()");
         }
 
         $signups = $this->fetchAll("
@@ -581,6 +600,10 @@ class DashboardService
         ");
 
         foreach ($tasks as $task) {
+            if (!FeatureService::cronTaskEnabled((string)($task['task_key'] ?? ''))) {
+                continue;
+            }
+
             $overdue = empty($task['last_run_at']);
             if (!$overdue) {
                 $lastRun = strtotime((string)$task['last_run_at']);
@@ -700,7 +723,7 @@ class DashboardService
 
     private function getSupportDiagnostics(): array
     {
-        $logFile = defined('BASE_PATH') ? BASE_PATH . '/storage/logs/app.log' : dirname(__DIR__, 2) . '/storage/logs/app.log';
+        $logFile = Logger::logFilePath();
         $recentErrors = 0;
         if (file_exists($logFile)) {
             $lines = array_slice(@file($logFile) ?: [], -200);
@@ -872,22 +895,15 @@ class DashboardService
         return is_string($decrypted) ? $decrypted : '';
     }
 
-    private function ensureStatsSchema(): void
+    private function ensureStatsSchema(bool $allowRepair): void
     {
-        try {
-            $this->db->exec("
-                CREATE TABLE IF NOT EXISTS `system_stats` (
-                    `id` TINYINT UNSIGNED NOT NULL,
-                    `total_files` BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                    `total_users` BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                    `total_storage_bytes` BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                    `pending_withdrawals` BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                    `pending_reports` BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                    `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            ");
-        } catch (\Throwable $e) {
+        if ($allowRepair) {
+            SchemaService::withRepairWindow(static function (): void {
+                SchemaService::ensureTables(['system_stats'], true);
+            });
+            return;
         }
+
+        SchemaService::ensureTables(['system_stats'], false);
     }
 }

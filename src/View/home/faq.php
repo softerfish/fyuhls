@@ -5,6 +5,7 @@ $pageLocale = SiteContentService::requestLocale();
 $siteContent = SiteContentService::page('faq', $pageLocale);
 $siteContentTokens = SiteContentService::tokenContext();
 $extraHead = ($extraHead ?? '') . SiteContentService::previewHeadHtml('faq', $pageLocale);
+$faqRewardsEnabled = \App\Service\FeatureService::rewardsEnabled();
 
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $title = "FAQ - {$siteName}";
@@ -34,7 +35,9 @@ $categoryMeta = [
     ],
     'creator_rewards' => [
         'label' => 'Creator Rewards',
-        'description' => 'How earnings qualify and when payouts become ready.',
+        'description' => $faqRewardsEnabled
+            ? 'How earnings qualify and when payouts become ready.'
+            : 'Whether creator rewards are active and when payouts become available.',
     ],
     'safety' => [
         'label' => 'Privacy & Abuse',

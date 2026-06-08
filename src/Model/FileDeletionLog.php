@@ -3,6 +3,8 @@
 namespace App\Model;
 
 use App\Core\Database;
+use App\Core\Logger;
+use App\Service\Database\SchemaService;
 
 class FileDeletionLog
 {
@@ -10,7 +12,7 @@ class FileDeletionLog
 
     public static function boot(): void
     {
-        self::ensureTable();
+        self::assertTableAvailableForMutation();
     }
 
     public static function record(
@@ -20,13 +22,18 @@ class FileDeletionLog
         ?string $deleteReason,
         ?int $deletedByUserId,
         string $deletedByRole,
-        ?string $deletedByLabel = null
+        ?string $deletedByLabel = null,
+        bool $deleteFileEarnings = false,
+        bool $deleteFileEarningsAuthorized = false,
+        ?int $rewardsReviewerId = null
     ): void {
         if ($uploaderUserId <= 0) {
             return;
         }
 
-        self::ensureTable();
+        if (!self::tableAvailable()) {
+            return;
+        }
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("
             INSERT INTO file_deletion_log (
@@ -36,8 +43,11 @@ class FileDeletionLog
                 delete_reason,
                 deleted_by_user_id,
                 deleted_by_role,
-                deleted_by_label
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                deleted_by_label,
+                delete_file_earnings,
+                delete_file_earnings_authorized,
+                rewards_reviewer_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $uploaderUserId,
@@ -47,7 +57,39 @@ class FileDeletionLog
             $deletedByUserId,
             $deletedByRole,
             $deletedByLabel !== null && $deletedByLabel !== '' ? \App\Service\EncryptionService::encrypt($deletedByLabel) : null,
+            $deleteFileEarnings ? 1 : 0,
+            $deleteFileEarningsAuthorized ? 1 : 0,
+            $rewardsReviewerId,
         ]);
+    }
+
+    public static function findLatestByOriginalFileId(int $originalFileId): ?array
+    {
+        if ($originalFileId <= 0) {
+            return null;
+        }
+
+        if (!self::tableAvailable()) {
+            return null;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            SELECT *
+            FROM file_deletion_log
+            WHERE original_file_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$originalFileId]);
+        $row = $stmt->fetch();
+
+        if (!$row) {
+            return null;
+        }
+
+        $rows = self::decryptRows([$row]);
+        return $rows[0] ?? null;
     }
 
     public static function getByUploader(int $userId, int $limit = 25): array
@@ -56,7 +98,9 @@ class FileDeletionLog
             return [];
         }
 
-        self::ensureTable();
+        if (!self::tableAvailable()) {
+            return [];
+        }
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("
             SELECT *
@@ -78,7 +122,9 @@ class FileDeletionLog
             return [];
         }
 
-        self::ensureTable();
+        if (!self::tableAvailable()) {
+            return [];
+        }
         $db = Database::getInstance()->getConnection();
         $page = max(1, $page);
         $perPage = max(1, min(100, $perPage));
@@ -111,7 +157,9 @@ class FileDeletionLog
             return 0;
         }
 
-        self::ensureTable();
+        if (!self::tableAvailable()) {
+            return 0;
+        }
         $db = Database::getInstance()->getConnection();
         [$whereSql, $params] = self::scopeClause($scope);
         $stmt = $db->prepare("
@@ -136,7 +184,9 @@ class FileDeletionLog
             return false;
         }
 
-        self::ensureTable();
+        if (!self::tableAvailable()) {
+            return false;
+        }
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("SELECT 1 FROM file_deletion_log WHERE original_file_id = ? LIMIT 1");
         $stmt->execute([$originalFileId]);
@@ -183,24 +233,27 @@ class FileDeletionLog
             return;
         }
 
-        $db = Database::getInstance()->getConnection();
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS `file_deletion_log` (
-                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `uploader_user_id` BIGINT UNSIGNED NOT NULL,
-                `original_file_id` BIGINT UNSIGNED NULL,
-                `original_filename` TEXT NOT NULL,
-                `delete_reason` TEXT NULL,
-                `deleted_by_user_id` BIGINT UNSIGNED NULL,
-                `deleted_by_role` VARCHAR(32) NOT NULL DEFAULT 'user',
-                `deleted_by_label` TEXT NULL,
-                `deleted_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (`id`),
-                INDEX `file_deletion_uploader_idx` (`uploader_user_id`, `deleted_at`),
-                INDEX `file_deletion_actor_idx` (`deleted_by_user_id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
-
+        SchemaService::ensureTables(['file_deletion_log'], false);
         self::$tableChecked = true;
+    }
+
+    private static function assertTableAvailableForMutation(): void
+    {
+        if (!self::tableAvailable()) {
+            throw new \RuntimeException('File deletion history is temporarily unavailable until an administrator repairs the database schema.');
+        }
+    }
+
+    private static function tableAvailable(): bool
+    {
+        try {
+            self::ensureTable();
+            return true;
+        } catch (\Throwable $e) {
+            Logger::warning('file deletion log schema unavailable', [
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
     }
 }

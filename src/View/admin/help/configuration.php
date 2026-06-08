@@ -13,7 +13,7 @@
     <div class="mb-4">
         <div class="fw-bold small text-primary mb-1">Main Tabs</div>
         <ul class="extra-small text-muted ps-3">
-            <li><strong>General:</strong> Site name, notifications, registration policy, maintenance, demo mode, footer branding, and FFmpeg support.</li>
+            <li><strong>General:</strong> Site name, notifications, registration policy, maintenance, demo mode, footer branding, image-thumbnail GD readiness, and FFmpeg video-thumbnail support.</li>
             <li><strong>Security:</strong> ProxyCheck mode and scope, whitelist entries, 2FA, captcha, Cloudflare trust, encryption migration, and schema health.</li>
             <li><strong>Email:</strong> SMTP, queue rate, test tools, and templates.</li>
             <li><strong>Tickets:</strong> Support inbox address, email triggers, rate limits, and waiting-on-user reminder controls.</li>

@@ -3,26 +3,28 @@
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">When To Use This Page</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Use it when:</strong> You need to change limits, waits, pricing, ad behavior, remote-upload access, or reward participation for a specific plan.</li>
+        <li class="mb-2"><strong>Use it when:</strong> You need to change limits, waits, pricing, billing durations, auto-renew availability, ad behavior, remote-upload access, or reward participation for a specific plan.</li>
         <li class="mb-2"><strong>Use Config Hub instead when:</strong> You need to change site-wide rewards rules, affiliate settings, VPN policy, ticket settings, or global upload and download defaults.</li>
         <li><strong>What it does not do:</strong> It does not replace SMTP, monetization master switches, or global security controls.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">What Is On The Page</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Package index:</strong> Compare plans side by side, including price, storage, upload size, bandwidth, rewards mode, ads, and assigned-user counts.</li>
+        <li class="mb-2"><strong>Package index:</strong> Compare plans side by side, including starting price, billing-option count, default term, auto-renew posture, storage, upload size, bandwidth, rewards mode, ads, and assigned-user counts.</li>
         <li class="mb-2"><strong>Clone:</strong> Duplicate a normal package to create a new tier faster. Singleton system plans such as <code>guest</code> and <code>admin</code> cannot be cloned.</li>
+        <li class="mb-2"><strong>Delete:</strong> Remove a normal package only when no users, subscriptions, transactions, or coupon targets still depend on it.</li>
         <li class="mb-2"><strong>Edit page summary:</strong> The top chips surface the most important plan details before you scroll into the full form.</li>
         <li><strong>Customer preview card:</strong> Shows the package the way a buyer or upgrader is more likely to think about it.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Edit Screen Sections</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Overview:</strong> Name, level, price, and high-level plan identity.</li>
+        <li class="mb-2"><strong>Overview:</strong> Name, level, and accepted file types. Paid-plan checkout pricing is now driven by Billing Options instead of one fixed package price box.</li>
+        <li class="mb-2"><strong>Billing Options:</strong> Add as many checkout choices as you want for one paid package. Each row has its own label, price, day count, auto-renew flag, and active/inactive state. Day counts are freeform for one-time purchases. Auto-renew rows still need recurring lengths that Stripe and PayPal can both honor.</li>
         <li class="mb-2"><strong>Storage &amp; Uploads:</strong> Single-file upload size, total storage, and upload-related limits.</li>
         <li class="mb-2"><strong>Downloads &amp; Delivery:</strong> Wait time, bandwidth, speed, concurrency, and direct-link behavior.</li>
         <li class="mb-2"><strong>Rewards &amp; Payout:</strong> Whether the plan participates in PPD or PPS when those systems are enabled globally.</li>
-        <li><strong>Ads &amp; Restrictions:</strong> Plan-level experience flags such as ad behavior and related capability switches.</li>
+        <li><strong>Ads &amp; Restrictions:</strong> Plan-level experience flags such as ad behavior, while AdBlock and VPN/proxy enforcement stay in the broader monetization and security settings.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Recommended Workflow</h6>
@@ -30,7 +32,7 @@
         <li><strong>Read the summary chips first:</strong> Confirm you are editing the right package before changing limits.</li>
         <li><strong>Change one family of settings at a time:</strong> Limits, rewards participation, and pricing have different downstream effects.</li>
         <li><strong>Keep plan math coherent:</strong> Very large single-upload sizes should still make sense against storage and daily bandwidth.</li>
-        <li><strong>Use clones for new tiers:</strong> It is usually safer than rebuilding a plan from scratch.</li>
+        <li><strong>Use clones for new tiers:</strong> It is usually safer than rebuilding a plan from scratch, especially when you want to keep the same storage and rewards rules but offer different billing choices.</li>
         <li><strong>Test with a real account after major changes:</strong> Especially when you change waits, concurrency, rewards participation, or checkout-facing pricing.</li>
     </ol>
 

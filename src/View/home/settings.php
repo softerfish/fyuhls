@@ -153,13 +153,26 @@ $extraHead = '
 include __DIR__ . '/header.php';
 include __DIR__ . '/partials/account_sidebar_styles.php';
 
-$settingsPlanType = strtolower((string)($user['package_level_type'] ?? 'free'));
-$settingsIsPaidPlan = $settingsPlanType === 'paid';
-$settingsPlanStatus = !empty($user['premium_expiry'])
-    ? 'Premium until ' . date('M d, Y', strtotime($user['premium_expiry']))
-    : ($settingsIsPaidPlan ? 'Paid account active' : 'Lifetime free account');
+$settingsPlanType = \App\Service\AccountPlanStatusService::levelType($user, null);
+$settingsIsPaidPlan = \App\Service\AccountPlanStatusService::isPaidAccessLevel($user, null) && $settingsPlanType !== 'admin';
+$settingsPlanStatus = \App\Service\AccountPlanStatusService::statusLabel($user, null);
 $apiTokenCount = is_array($apiTokens ?? null) ? count($apiTokens) : 0;
 $paymentDetailsConfigured = !empty(trim((string)($user['payment_details'] ?? '')));
+$settingsRewardsEnabled = \App\Service\FeatureService::rewardsEnabled();
+$settingsToolbarNote = $settingsRewardsEnabled
+    ? 'Update your account preferences, security, and payout details here.'
+    : 'Update your account preferences, security, and API access here.';
+$settingsProfileCopy = $settingsRewardsEnabled
+    ? 'Adjust the everyday settings that shape how your account behaves, including your timezone, default file privacy, and any payout preferences tied to rewards.'
+    : 'Adjust the everyday settings that shape how your account behaves, including your timezone and default file privacy.';
+$settingsTwoFactorCopy = $settingsRewardsEnabled
+    ? 'An authenticator app adds an extra code step when you sign in, which is one of the best ways to protect payout access and file ownership.'
+    : 'An authenticator app adds an extra code step when you sign in, which is one of the best ways to protect your files and account access.';
+$settingsTimezoneChoices = timezone_identifiers_list();
+$settingsCurrentTimezone = (string)($user['timezone'] ?? 'UTC');
+if (!in_array($settingsCurrentTimezone, $settingsTimezoneChoices, true)) {
+    $settingsCurrentTimezone = 'UTC';
+}
 $pendingEmail = trim((string)($user['pending_email'] ?? ''));
 $is2faEnabled = false;
 if (\App\Service\FeatureService::twoFactorEnabled()) {
@@ -188,7 +201,7 @@ if (\App\Service\FeatureService::twoFactorEnabled()) {
 
             <div class="toolbar-right">
                 <div class="toolbar-controls">
-                    <span class="settings-toolbar-note">Update your account preferences, security, and payout details here.</span>
+                    <span class="settings-toolbar-note"><?= htmlspecialchars($settingsToolbarNote) ?></span>
                 </div>
             </div>
         </div>
@@ -217,7 +230,7 @@ if (\App\Service\FeatureService::twoFactorEnabled()) {
                         <div class="settings-anchor-nav">
                             <a href="#profileSection" class="settings-anchor-link">Profile & Preferences</a>
                             <a href="#securitySection" class="settings-anchor-link">Security</a>
-                            <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
+                            <?php if ($settingsRewardsEnabled): ?>
                                 <a href="#rewardsSection" class="settings-anchor-link">Rewards & Payout</a>
                             <?php endif; ?>
                             <a href="#apiSection" class="settings-anchor-link">API Tokens</a>
@@ -259,7 +272,7 @@ if (\App\Service\FeatureService::twoFactorEnabled()) {
                     <div class="settings-card__head">
                         <div>
                             <h3 class="settings-card__title">Profile & Preferences</h3>
-                            <p class="settings-card__copy">Adjust the everyday settings that shape how your account behaves, including your timezone, default file privacy, and any payout preferences tied to rewards.</p>
+                            <p class="settings-card__copy"><?= htmlspecialchars($settingsProfileCopy) ?></p>
                         </div>
                         <div class="settings-card__meta">Most users only need this section for routine updates.</div>
                     </div>
@@ -287,6 +300,11 @@ if (\App\Service\FeatureService::twoFactorEnabled()) {
                                         <br><strong>Pending confirmation:</strong> <?= htmlspecialchars($pendingEmail) ?>
                                     <?php endif; ?>
                                 </div>
+                                <div class="form-group" style="margin-top: 1rem;">
+                                    <label>Current Password</label>
+                                    <input type="password" name="profile_current_password" autocomplete="current-password" class="form-control settings-password-input">
+                                    <small class="text-muted">Required if you change your email address.</small>
+                                </div>
                             </div>
 
                             <div class="settings-subsection">
@@ -296,9 +314,11 @@ if (\App\Service\FeatureService::twoFactorEnabled()) {
                                     <div class="form-group">
                                         <label>Timezone</label>
                                         <select name="timezone" class="form-control settings-select">
-                                            <option value="UTC" <?= $user['timezone'] === 'UTC' ? 'selected' : '' ?>>UTC / GMT</option>
-                                            <option value="America/New_York" <?= $user['timezone'] === 'America/New_York' ? 'selected' : '' ?>>Eastern Time (US)</option>
-                                            <option value="Europe/London" <?= $user['timezone'] === 'Europe/London' ? 'selected' : '' ?>>London / Western Europe</option>
+                                            <?php foreach ($settingsTimezoneChoices as $timezoneId): ?>
+                                                <option value="<?= htmlspecialchars($timezoneId) ?>" <?= $settingsCurrentTimezone === $timezoneId ? 'selected' : '' ?>>
+                                                    <?= htmlspecialchars($timezoneId) ?>
+                                                </option>
+                                            <?php endforeach; ?>
                                         </select>
                                     </div>
                                     <div class="form-group">
@@ -311,11 +331,16 @@ if (\App\Service\FeatureService::twoFactorEnabled()) {
                                 </div>
                             </div>
 
-                            <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
+                            <?php if ($settingsRewardsEnabled): ?>
                                 <div id="rewardsSection" class="settings-subsection">
                                     <h4 class="settings-subsection-title">Rewards & Payout</h4>
                                     <p class="settings-subsection-copy">Choose how you want to earn, then make sure your payout details are correct before you request withdrawals.</p>
                                     <?php include __DIR__ . '/partials/reward_settings_fields.php'; ?>
+                                    <div class="form-group" style="margin-top: 1rem;">
+                                        <label>Current Password</label>
+                                        <input type="password" name="payout_current_password" autocomplete="current-password" class="form-control settings-password-input">
+                                        <small class="text-muted">Required only when you change payout processor or payout destination.</small>
+                                    </div>
                                 </div>
                             <?php endif; ?>
 
@@ -367,7 +392,7 @@ if (\App\Service\FeatureService::twoFactorEnabled()) {
                         <?php if (\App\Service\FeatureService::twoFactorEnabled()): ?>
                             <div class="settings-subsection settings-subsection--separated">
                                 <h4 class="settings-subsection-title">Two-Factor Authentication</h4>
-                                <p class="settings-subsection-copy">An authenticator app adds an extra code step when you sign in, which is one of the best ways to protect payout access and file ownership.</p>
+                                <p class="settings-subsection-copy"><?= htmlspecialchars($settingsTwoFactorCopy) ?></p>
                                 <div class="settings-2fa-card <?= $is2faEnabled ? 'settings-2fa-card--enabled' : 'settings-2fa-card--disabled' ?>">
                                     <div>
                                         <h4 class="settings-2fa-title <?= $is2faEnabled ? 'settings-2fa-title--enabled' : 'settings-2fa-title--disabled' ?>">
@@ -436,9 +461,17 @@ if (\App\Service\FeatureService::twoFactorEnabled()) {
                                         <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="files.upload" checked> Upload files</label>
                                         <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="files.read" checked> Read files, folders, and create download links</label>
                                         <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="files.write"> Create folders and manage file or folder changes</label>
-                                        <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="stats.read"> Read earnings and payout stats</label>
+                                        <?php if ($settingsRewardsEnabled): ?>
+                                            <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="stats.read"> Read earnings and payout stats</label>
+                                        <?php endif; ?>
                                         <label class="settings-scope-option"><input type="checkbox" name="token_scopes[]" value="remote.upload"> Create and manage remote URL uploads</label>
                                     </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Current Password</label>
+                                    <input type="password" name="token_current_password" autocomplete="current-password" class="form-control settings-token-input" required>
+                                    <small class="text-muted">Required before creating a long-lived API token.</small>
                                 </div>
 
                                 <button type="submit" class="btn btn-primary settings-token-btn">Create API Token</button>

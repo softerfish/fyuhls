@@ -7,6 +7,8 @@ use App\Core\Config;
 use PDO;
 
 class Setting {
+    private static $afterWriteHandler = null;
+
     private static function getConnection(): ?PDO {
         try {
             return Database::getInstance()->getConnection();
@@ -69,6 +71,11 @@ class Setting {
         return Config::get($key, $default);
     }
 
+    public static function setAfterWriteHandlerForTests(?callable $handler): void
+    {
+        self::$afterWriteHandler = $handler;
+    }
+
     public static function set(string $key, string $value, string $group = 'general'): void {
         if (self::shouldBlockWriteForDemoAdmin()) {
             throw new \RuntimeException('This demo admin account is read-only.');
@@ -80,11 +87,15 @@ class Setting {
         }
 
         $stmt = $db->prepare("
-            INSERT INTO settings (setting_key, setting_value, setting_group) 
-            VALUES (?, ?, ?) 
+            INSERT INTO settings (setting_key, setting_value, setting_group)
+            VALUES (?, ?, ?)
             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), setting_group = VALUES(setting_group)
         ");
         $stmt->execute([$key, $value, $group]);
+
+        if (is_callable(self::$afterWriteHandler)) {
+            (self::$afterWriteHandler)($key, $value, $group, $db);
+        }
     }
 
     public static function getAllByGroup(string $group): array {

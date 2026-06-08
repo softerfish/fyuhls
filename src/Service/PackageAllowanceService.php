@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Core\Database;
+use App\Service\Database\SchemaService;
 
 class PackageAllowanceService
 {
@@ -24,6 +25,7 @@ class PackageAllowanceService
 
         try {
             $db = Database::getInstance()->getConnection();
+            SchemaService::ensureTables(['download_bandwidth_usage'], false);
             $usageDate = gmdate('Y-m-d');
             $actorKey = $userId !== null && $userId > 0
                 ? 'user:' . $userId

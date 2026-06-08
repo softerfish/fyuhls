@@ -21,6 +21,12 @@
         <li><strong>Separate editorial value from sponsorship:</strong> Useful tools should still feel useful even when some listings are partner-backed.</li>
     </ul>
 
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">How To Read The Listings</h6>
+    <ul class="mb-4">
+        <li><strong>Operator fit first:</strong> Ask whether the service helps with hosting, mail, fraud controls, or monetization operations you actually use.</li>
+        <li><strong>Do not treat it as a config checklist:</strong> Resource listings can support a launch decision, but they do not replace the real setup guides.</li>
+    </ul>
+
     <div class="alert alert-info border-0 shadow-sm small mb-0">
         <strong>Tip:</strong> If a link does not clearly answer "when would I use this?", it probably needs tighter copy or does not belong on this page yet.
     </div>

@@ -101,7 +101,7 @@
             <input class="form-check-input" type="checkbox" name="cdn_download_redirects_enabled" id="cdnRedirects" value="1" <?= ($cdnDownloadRedirectsEnabled === '1') ? 'checked' : '' ?>>
             <label class="form-check-label fw-bold" for="cdnRedirects">Enable CDN Redirects for Public Object-Storage Files</label>
         </div>
-        <small class="config-form-note">Optional. Use this only if you have already created a public Cloudflare or custom-domain hostname that fronts the same object-storage bucket/key path. Public eligible files can be redirected there, while private files, local-storage files, and reward-tracked downloads stay on the normal Fyuhls delivery path.</small>
+        <small class="config-form-note">Optional. Use this only if you have already created a public Cloudflare or custom-domain hostname that fronts the same object-storage bucket/key path. Public eligible files can be redirected there, while private files, local-storage files, and stricter reward-proof flows stay on the normal Fyuhls-controlled path. Lighter rewarded downloads may still use redirect-style delivery when your reward settings allow it.</small>
     </div>
 
     <div class="mb-4">

@@ -16,10 +16,14 @@ class PluginController
     private const MAX_PLUGIN_ZIP_BYTES = 20 * 1024 * 1024;
     private const MAX_PLUGIN_ZIP_FILES = 500;
     private const MAX_PLUGIN_EXTRACTED_BYTES = 50 * 1024 * 1024;
+    private static ?string $pluginBasePathOverride = null;
 
     private function checkAuth()
     {
-        Auth::requireAdmin();
+        Auth::requireCapability('plugins.manage');
+        if (!Auth::isSuperAdmin()) {
+            Auth::denyAccess('Plugin management is restricted to the protected super admin account.');
+        }
     }
 
     private function failUpload(string $message, string $logMessage, array $context = []): void
@@ -35,6 +39,283 @@ class PluginController
         exit($message);
     }
 
+    private function pluginBasePath(): string
+    {
+        return self::$pluginBasePathOverride ?? dirname(__DIR__, 2) . '/Plugin';
+    }
+
+    public static function setPluginBasePathForTests(?string $path): void
+    {
+        self::$pluginBasePathOverride = $path;
+    }
+
+    private function cleanupPath(string $path): void
+    {
+        if ($path === '') {
+            return;
+        }
+
+        if (is_file($path)) {
+            @unlink($path);
+            return;
+        }
+
+        $items = scandir($path);
+        if (!is_array($items)) {
+            @rmdir($path);
+            return;
+        }
+
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+
+            $this->cleanupPath($path . DIRECTORY_SEPARATOR . $item);
+        }
+
+        @rmdir($path);
+    }
+
+    private function loadPluginMetaFromDirectory(string $dir): array
+    {
+        $this->validateDir($dir);
+        $jsonPath = $this->pluginBasePath() . '/' . $dir . '/plugin.json';
+        if (!is_file($jsonPath)) {
+            throw new \RuntimeException('Plugin meta not found');
+        }
+
+        $meta = json_decode((string)file_get_contents($jsonPath), true);
+        if (!is_array($meta) || trim((string)($meta['name'] ?? '')) === '' || trim((string)($meta['version'] ?? '')) === '') {
+            throw new \RuntimeException('Plugin metadata is invalid.');
+        }
+
+        return $meta;
+    }
+
+    private function instantiatePlugin(string $dir): ?object
+    {
+        $this->validateDir($dir);
+        $pluginBase = $this->pluginBasePath();
+        $pluginPath = $pluginBase . '/' . $dir;
+        if (!PathValidator::isPathWithinBase($pluginBase, $pluginPath)) {
+            throw new \RuntimeException('Invalid Plugin Directory');
+        }
+
+        $pluginFile = $pluginPath . '/' . $dir . 'Plugin.php';
+        if (!is_file($pluginFile)) {
+            return null;
+        }
+
+        require_once $pluginFile;
+        $className = "\\Plugin\\{$dir}\\{$dir}Plugin";
+        if (!class_exists($className)) {
+            throw new \RuntimeException('Plugin bootstrap class could not be loaded.');
+        }
+
+        return new $className();
+    }
+
+    private function invokePluginLifecycle(string $dir, string $method): void
+    {
+        $plugin = $this->instantiatePlugin($dir);
+        $this->invokePluginLifecycleObject($plugin, $method);
+    }
+
+    private function invokePluginLifecycleObject(?object $plugin, string $method): void
+    {
+        if ($plugin === null) {
+            return;
+        }
+
+        if (!method_exists($plugin, $method)) {
+            return;
+        }
+
+        $result = $plugin->{$method}();
+        if ($result === false) {
+            throw new \RuntimeException('Plugin lifecycle hook `' . $method . '` reported failure.');
+        }
+    }
+
+    private function queueLifecycleWarning(string $dir, string $method, \Throwable $e): void
+    {
+        Logger::warning('plugin lifecycle hook reported failure after the core action was already committed', [
+            'plugin_dir' => $dir,
+            'hook' => $method,
+            'admin_id' => Auth::id(),
+            'error' => $e->getMessage(),
+        ]);
+        $_SESSION['warning'] = sprintf(
+            'The plugin %s action completed, but the `%s` hook reported an error: %s',
+            $dir,
+            $method,
+            $e->getMessage()
+        );
+    }
+
+    private function stagePluginArchive(string $zipPath, string $originalName): array
+    {
+        $zip = new ZipArchive;
+        if ($zip->open($zipPath) !== true) {
+            throw new \RuntimeException('Failed to open ZIP file.');
+        }
+
+        try {
+            $stagingRoot = \App\Service\TemporaryArtifactService::createTempDirectory('fyuhls_plugin_');
+        } catch (\Throwable $e) {
+            $zip->close();
+            throw new \RuntimeException('Plugin upload failed: could not prepare the staging directory.', 0, $e);
+        }
+
+        $entryCount = 0;
+        $totalExtractedBytes = 0;
+        $rootDir = null;
+        $pluginMetaPath = null;
+
+        try {
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $filename = $zip->getNameIndex($i);
+                if (!PathValidator::isSafeZipEntry($filename)) {
+                    throw new \RuntimeException('Security Error: Malicious ZIP detected (Zip Slip)');
+                }
+
+                $normalized = str_replace('\\', '/', trim((string)$filename));
+                $normalized = ltrim($normalized, '/');
+                if ($normalized === '') {
+                    continue;
+                }
+
+                $parts = array_values(array_filter(explode('/', $normalized), static fn(string $part): bool => $part !== ''));
+                if ($parts === []) {
+                    continue;
+                }
+
+                $topLevel = $parts[0];
+                if (!PathValidator::isSafePluginDir($topLevel)) {
+                    throw new \RuntimeException('Plugin upload failed: archive root must be a single safe plugin directory.');
+                }
+                if ($rootDir === null) {
+                    $rootDir = $topLevel;
+                } elseif ($rootDir !== $topLevel) {
+                    throw new \RuntimeException('Plugin upload failed: archive must contain exactly one plugin root directory.');
+                }
+
+                $stat = $zip->statIndex($i);
+                if (!is_array($stat)) {
+                    throw new \RuntimeException('Plugin upload failed: ZIP archive metadata could not be read.');
+                }
+
+                $entryCount++;
+                if ($entryCount > self::MAX_PLUGIN_ZIP_FILES) {
+                    throw new \RuntimeException('Plugin upload failed: ZIP archive contains too many files.');
+                }
+
+                $size = max(0, (int)($stat['size'] ?? 0));
+                $totalExtractedBytes += $size;
+                if ($totalExtractedBytes > self::MAX_PLUGIN_EXTRACTED_BYTES) {
+                    throw new \RuntimeException('Plugin upload failed: extracted plugin size is too large.');
+                }
+
+                $targetPath = PathValidator::buildSafeChildPath($stagingRoot, $normalized);
+                if ($targetPath === null) {
+                    throw new \RuntimeException('Security Error: Malicious ZIP detected (invalid entry path)');
+                }
+
+                $directory = str_ends_with($normalized, '/');
+                if ($directory) {
+                    if (!is_dir($targetPath) && !mkdir($targetPath, 0755, true) && !is_dir($targetPath)) {
+                        throw new \RuntimeException('Plugin upload failed: could not create plugin directories.');
+                    }
+                    continue;
+                }
+
+                $parentDir = dirname($targetPath);
+                if (!is_dir($parentDir) && !mkdir($parentDir, 0755, true) && !is_dir($parentDir)) {
+                    throw new \RuntimeException('Plugin upload failed: could not prepare plugin directory.');
+                }
+
+                $stream = $zip->getStream($filename);
+                if ($stream === false) {
+                    throw new \RuntimeException('Plugin upload failed: ZIP entry could not be read.');
+                }
+
+                $out = fopen($targetPath, 'wb');
+                if ($out === false) {
+                    fclose($stream);
+                    throw new \RuntimeException('Plugin upload failed: extracted file could not be written.');
+                }
+
+                stream_copy_to_stream($stream, $out);
+                fclose($stream);
+                fclose($out);
+
+                if (count($parts) === 2 && strtolower($parts[1]) === 'plugin.json') {
+                    $pluginMetaPath = $targetPath;
+                }
+            }
+        } catch (\Throwable $e) {
+            $zip->close();
+            $this->cleanupPath($stagingRoot);
+            throw $e;
+        }
+
+        $zip->close();
+
+        if ($rootDir === null || $pluginMetaPath === null || !is_file($pluginMetaPath)) {
+            $this->cleanupPath($stagingRoot);
+            throw new \RuntimeException('Plugin upload failed: plugin.json was not found at the plugin root.');
+        }
+
+        $meta = json_decode((string)file_get_contents($pluginMetaPath), true);
+        if (!is_array($meta) || trim((string)($meta['name'] ?? '')) === '' || trim((string)($meta['version'] ?? '')) === '') {
+            $this->cleanupPath($stagingRoot);
+            throw new \RuntimeException('Plugin upload failed: plugin.json is invalid.');
+        }
+
+        $pluginRootPath = $stagingRoot . '/' . $rootDir;
+        $pluginFile = $pluginRootPath . '/' . $rootDir . 'Plugin.php';
+        if (!is_file($pluginFile)) {
+            $this->cleanupPath($stagingRoot);
+            throw new \RuntimeException('Plugin upload failed: the plugin bootstrap file is missing.');
+        }
+
+        $liveTarget = $this->pluginBasePath() . '/' . $rootDir;
+        if (file_exists($liveTarget)) {
+            $this->cleanupPath($stagingRoot);
+            throw new \RuntimeException('Plugin upload failed: a plugin with that directory already exists. Remove it before uploading a replacement.');
+        }
+
+        return [
+            'staging_root' => $stagingRoot,
+            'plugin_root_path' => $pluginRootPath,
+            'plugin_dir' => $rootDir,
+            'meta' => $meta,
+            'entry_count' => $entryCount,
+            'bytes' => $totalExtractedBytes,
+            'filename' => $originalName,
+        ];
+    }
+
+    private function publishStagedPlugin(array $staged): void
+    {
+        $pluginDir = (string)($staged['plugin_dir'] ?? '');
+        $pluginRootPath = (string)($staged['plugin_root_path'] ?? '');
+        if ($pluginDir === '' || $pluginRootPath === '') {
+            throw new \RuntimeException('Plugin upload failed: staging data was incomplete.');
+        }
+
+        $destination = $this->pluginBasePath() . '/' . $pluginDir;
+        if (!@rename($pluginRootPath, $destination)) {
+            throw new \RuntimeException('Plugin upload failed: could not publish the staged plugin.');
+        }
+
+        $stagingRoot = (string)($staged['staging_root'] ?? '');
+        if ($stagingRoot !== '') {
+            $this->cleanupPath($stagingRoot);
+        }
+    }
+
     public function index()
     {
         $this->checkAuth();
@@ -45,7 +326,7 @@ class PluginController
         $installedMap = array_column($installed, null, 'directory');
 
         // Scan directory for plugins
-        $pluginDir = dirname(__DIR__, 2) . '/Plugin';
+        $pluginDir = $this->pluginBasePath();
         $dirs = array_filter(glob($pluginDir . '/*'), 'is_dir');
 
         $allPlugins = [];
@@ -100,7 +381,23 @@ class PluginController
         }
 
         $safeDir = htmlspecialchars($dir);
-        $pluginBase = dirname(__DIR__, 2) . '/Plugin';
+        $pluginBase = $this->pluginBasePath();
+        $pluginPath = $pluginBase . '/' . $dir;
+        if (!PathValidator::isPathWithinBase($pluginBase, $pluginPath) || !is_dir($pluginPath)) {
+            $this->abortText(404, "Plugin is not installed.");
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT is_active FROM plugins WHERE directory = ? LIMIT 1");
+        $stmt->execute([$dir]);
+        $current = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$current) {
+            $this->abortText(404, "Plugin is not installed.");
+        }
+        if (empty($current['is_active'])) {
+            $this->abortText(403, "Plugin is not active.");
+        }
+
         $settingsPath = $pluginBase . '/' . $dir . '/settings.php';
         if (!PathValidator::isPathWithinBase($pluginBase, $settingsPath)) {
             die("Invalid Plugin Directory");
@@ -150,103 +447,26 @@ class PluginController
                 );
             }
 
-            $zip = new ZipArchive;
-
-            if ($zip->open($zipPath) === TRUE) {
-                $extractPath = dirname(__DIR__, 2) . '/Plugin';
-                $entryCount = 0;
-                $totalExtractedBytes = 0;
-                $hasPluginMeta = false;
-
-                // Secure Extraction Loop (Zip Slip Prevention)
-                for ($i = 0; $i < $zip->numFiles; $i++) {
-                    $filename = $zip->getNameIndex($i);
-                    if (!PathValidator::isSafeZipEntry($filename)) {
-                        $zip->close();
-                        $this->failUpload("Security Error: Malicious ZIP detected (Zip Slip)", 'plugin upload malicious zip slip detected', ['filename' => $originalName, 'entry' => $filename]);
-                    }
-
-                    $stat = $zip->statIndex($i);
-                    if (!is_array($stat)) {
-                        $zip->close();
-                        $this->failUpload("Plugin upload failed: ZIP archive metadata could not be read.", 'plugin upload failed stat read', ['filename' => $originalName, 'entry' => $filename]);
-                    }
-
-                    $entryCount++;
-                    if ($entryCount > self::MAX_PLUGIN_ZIP_FILES) {
-                        $zip->close();
-                        $this->failUpload(
-                            "Plugin upload failed: ZIP archive contains too many files.",
-                            'plugin upload rejected file count limit',
-                            ['filename' => $originalName, 'files' => $entryCount]
-                        );
-                    }
-
-                    $size = max(0, (int)($stat['size'] ?? 0));
-                    $totalExtractedBytes += $size;
-                    if ($totalExtractedBytes > self::MAX_PLUGIN_EXTRACTED_BYTES) {
-                        $zip->close();
-                        $this->failUpload(
-                            "Plugin upload failed: extracted plugin size is too large.",
-                            'plugin upload rejected extracted size limit',
-                            ['filename' => $originalName, 'bytes' => $totalExtractedBytes]
-                        );
-                    }
-
-                    if (strtolower(basename(str_replace('\\', '/', $filename))) === 'plugin.json') {
-                        $hasPluginMeta = true;
-                    }
-
-                    $targetPath = PathValidator::buildSafeChildPath($extractPath, $filename);
-                    if ($targetPath === null) {
-                        $zip->close();
-                        $this->failUpload("Security Error: Malicious ZIP detected (invalid entry path)", 'plugin upload invalid target path', ['filename' => $originalName, 'entry' => $filename]);
-                    }
-
-                    $directory = str_ends_with(str_replace('\\', '/', $filename), '/');
-                    if ($directory) {
-                        if (!is_dir($targetPath) && !mkdir($targetPath, 0755, true) && !is_dir($targetPath)) {
-                            $zip->close();
-                            $this->failUpload("Plugin upload failed: could not create plugin directories.", 'plugin upload mkdir failed', ['filename' => $originalName, 'entry' => $filename]);
-                        }
-                        continue;
-                    }
-
-                    $parentDir = dirname($targetPath);
-                    if (!is_dir($parentDir) && !mkdir($parentDir, 0755, true) && !is_dir($parentDir)) {
-                        $zip->close();
-                        $this->failUpload("Plugin upload failed: could not prepare plugin directory.", 'plugin upload parent mkdir failed', ['filename' => $originalName, 'entry' => $filename]);
-                    }
-
-                    $stream = $zip->getStream($filename);
-                    if ($stream === false) {
-                        $zip->close();
-                        $this->failUpload("Plugin upload failed: ZIP entry could not be read.", 'plugin upload stream failed', ['filename' => $originalName, 'entry' => $filename]);
-                    }
-
-                    $out = fopen($targetPath, 'wb');
-                    if ($out === false) {
-                        fclose($stream);
-                        $zip->close();
-                        $this->failUpload("Plugin upload failed: extracted file could not be written.", 'plugin upload write failed', ['filename' => $originalName, 'entry' => $filename]);
-                    }
-
-                    stream_copy_to_stream($stream, $out);
-                    fclose($stream);
-                    fclose($out);
-                }
-
-                if (!$hasPluginMeta) {
-                    $zip->close();
-                    $this->failUpload("Plugin upload failed: plugin.json was not found in the archive.", 'plugin upload missing plugin metadata', ['filename' => $originalName]);
-                }
-
-                $zip->close();
+            $staged = null;
+            try {
+                $staged = $this->stagePluginArchive($zipPath, $originalName);
+                $this->publishStagedPlugin($staged);
                 echo "Plugin uploaded successfully! <a href='/admin/plugins'>Go Back</a>";
-                Logger::info('plugin uploaded', ['admin_id' => Auth::id(), 'filename' => $originalName, 'files' => $entryCount, 'bytes' => $totalExtractedBytes]);
-            }
-            else {
-                $this->failUpload("Failed to open ZIP file.", 'plugin upload failed open zip', ['filename' => $originalName]);
+                Logger::info('plugin uploaded', [
+                    'admin_id' => Auth::id(),
+                    'filename' => $originalName,
+                    'files' => (int)$staged['entry_count'],
+                    'bytes' => (int)$staged['bytes'],
+                    'plugin_dir' => (string)$staged['plugin_dir'],
+                ]);
+            } catch (\Throwable $e) {
+                if (is_array($staged) && !empty($staged['staging_root'])) {
+                    $this->cleanupPath((string)$staged['staging_root']);
+                }
+                $this->failUpload($e->getMessage(), 'plugin upload failed', [
+                    'filename' => $originalName,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
         else {
@@ -272,16 +492,26 @@ class PluginController
         }
         $this->validateDir($dir);
         $db = Database::getInstance()->getConnection();
+        $meta = $this->loadPluginMetaFromDirectory($dir);
 
-        $jsonPath = dirname(__DIR__, 2) . '/Plugin/' . $dir . '/plugin.json';
-        if (!file_exists($jsonPath))
-            die("Plugin meta not found");
+        $existing = $db->prepare("SELECT id FROM plugins WHERE directory = ? LIMIT 1");
+        $existing->execute([$dir]);
+        if ($existing->fetchColumn() !== false) {
+            $this->abortText(409, "Plugin is already installed.");
+        }
 
-        $meta = json_decode(file_get_contents($jsonPath), true);
-
-        // Register in DB
-        $stmt = $db->prepare("INSERT INTO plugins (name, directory, version, is_active) VALUES (?, ?, ?, 0)");
-        $stmt->execute([$meta['name'], $dir, $meta['version']]);
+        $db->beginTransaction();
+        try {
+            $stmt = $db->prepare("INSERT INTO plugins (name, directory, version, is_active) VALUES (?, ?, ?, 0)");
+            $stmt->execute([(string)$meta['name'], $dir, (string)$meta['version']]);
+            $this->invokePluginLifecycle($dir, 'install');
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            $this->abortText(422, $e->getMessage());
+        }
 
         Logger::info('plugin installed', ['dir' => $dir, 'admin_id' => Auth::id()]);
         header("Location: /admin/plugins");
@@ -298,7 +528,28 @@ class PluginController
         }
         $this->validateDir($dir);
         $db = Database::getInstance()->getConnection();
-        $db->prepare("UPDATE plugins SET is_active = 1 WHERE directory = ?")->execute([$dir]);
+        $stmt = $db->prepare("SELECT is_active FROM plugins WHERE directory = ? LIMIT 1");
+        $stmt->execute([$dir]);
+        $current = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$current) {
+            $this->abortText(404, "Plugin is not installed.");
+        }
+        if (!empty($current['is_active'])) {
+            header("Location: /admin/plugins");
+            return;
+        }
+
+        $db->beginTransaction();
+        try {
+            $db->prepare("UPDATE plugins SET is_active = 1 WHERE directory = ?")->execute([$dir]);
+            $this->invokePluginLifecycle($dir, 'activate');
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            $this->abortText(422, $e->getMessage());
+        }
         Logger::info('plugin activated', ['dir' => $dir, 'admin_id' => Auth::id()]);
         header("Location: /admin/plugins");
     }
@@ -314,7 +565,28 @@ class PluginController
         }
         $this->validateDir($dir);
         $db = Database::getInstance()->getConnection();
-        $db->prepare("UPDATE plugins SET is_active = 0 WHERE directory = ?")->execute([$dir]);
+        $stmt = $db->prepare("SELECT is_active FROM plugins WHERE directory = ? LIMIT 1");
+        $stmt->execute([$dir]);
+        $current = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$current) {
+            $this->abortText(404, "Plugin is not installed.");
+        }
+        if (empty($current['is_active'])) {
+            header("Location: /admin/plugins");
+            return;
+        }
+
+        $db->beginTransaction();
+        try {
+            $db->prepare("UPDATE plugins SET is_active = 0 WHERE directory = ?")->execute([$dir]);
+            $this->invokePluginLifecycle($dir, 'deactivate');
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            $this->abortText(422, $e->getMessage());
+        }
         Logger::info('plugin deactivated', ['dir' => $dir, 'admin_id' => Auth::id()]);
         header("Location: /admin/plugins");
     }
@@ -335,40 +607,60 @@ class PluginController
             die("Invalid Plugin Directory");
         }
 
-        $db = Database::getInstance()->getConnection();
-
-        // Remove from DB
-        $db->prepare("DELETE FROM plugins WHERE directory = ?")->execute([$dir]);
-
-        $pluginBase = dirname(__DIR__, 2) . '/Plugin';
+        $pluginBase = $this->pluginBasePath();
         $pluginPath = $pluginBase . '/' . $dir;
         if (!PathValidator::isPathWithinBase($pluginBase, $pluginPath)) {
             die("Invalid Plugin Directory");
         }
-        $pluginFile = $pluginPath . '/' . $dir . 'Plugin.php';
-        
-        // Try to trigger the plugin's native uninstall method to clean up its own DB tables/data
-        if (file_exists($pluginFile)) {
-            require_once $pluginFile;
-            $className = "\\Plugin\\{$dir}\\{$dir}Plugin";
-            if (class_exists($className)) {
-                $plugin = new $className();
-                if (method_exists($plugin, 'uninstall')) {
-                    $plugin->uninstall();
-                }
-            }
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT id FROM plugins WHERE directory = ? LIMIT 1");
+        $stmt->execute([$dir]);
+        if ($stmt->fetchColumn() === false) {
+            $this->abortText(404, "Plugin is not installed.");
         }
 
-        // Physically delete the plugin files
-        $this->deleteDirRecursively($pluginPath);
+        $trashPath = $pluginBase . '/.delete_' . $dir . '_' . bin2hex(random_bytes(4));
+        $pluginInstance = null;
+        $pluginRenamed = false;
+        try {
+            $pluginInstance = $this->instantiatePlugin($dir);
+            if (file_exists($pluginPath)) {
+                if (!@rename($pluginPath, $trashPath)) {
+                    throw new \RuntimeException('Plugin uninstall failed: live files could not be isolated safely.');
+                }
+                $pluginRenamed = true;
+            }
+
+            $db->beginTransaction();
+            $this->invokePluginLifecycleObject($pluginInstance, 'uninstall');
+            $db->prepare("DELETE FROM plugins WHERE directory = ?")->execute([$dir]);
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            if ($pluginRenamed && is_dir($trashPath) && !file_exists($pluginPath)) {
+                @rename($trashPath, $pluginPath);
+            }
+            $this->abortText(422, $e->getMessage());
+        }
+
+        if ($pluginRenamed && is_dir($trashPath) && !$this->deleteDirRecursively($trashPath)) {
+            Logger::warning('plugin uninstall cleanup left archived files behind after the authoritative state change completed', [
+                'plugin_dir' => $dir,
+                'trash_path' => $trashPath,
+                'admin_id' => Auth::id(),
+            ]);
+            $_SESSION['warning'] = 'The plugin was uninstalled, but the archived plugin files could not be removed automatically.';
+        }
 
         Logger::info('plugin uninstalled and deleted', ['dir' => $dir, 'admin_id' => Auth::id()]);
         header("Location: /admin/plugins");
-        exit;
+        return;
     }
 
     private function deleteDirRecursively($dir) {
-        $pluginBase = dirname(__DIR__, 2) . '/Plugin';
+        $pluginBase = $this->pluginBasePath();
         if (!PathValidator::isPathWithinBase($pluginBase, $dir)) {
             return false;
         }
@@ -376,22 +668,22 @@ class PluginController
         if (!file_exists($dir)) {
             return true;
         }
-    
+
         if (!is_dir($dir)) {
             return unlink($dir);
         }
-    
+
         foreach (scandir($dir) as $item) {
             if ($item == '.' || $item == '..') {
                 continue;
             }
-    
+
             if (!$this->deleteDirRecursively($dir . DIRECTORY_SEPARATOR . $item)) {
                 return false;
             }
-    
+
         }
-    
+
         return rmdir($dir);
     }
 }

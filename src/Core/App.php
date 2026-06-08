@@ -2,6 +2,7 @@
 
 namespace App\Core;
 
+use App\Service\ConfigPointerService;
 use App\Service\GarbageCollector;
 
 class App {
@@ -237,20 +238,37 @@ class App {
         }
 
         $generatedKey = bin2hex(random_bytes(16));
-        if ($this->persistAppKey($dbConfigPath, $generatedKey)) {
-            Config::set('app_key', $generatedKey);
-            error_log('Security: generated and persisted a unique application key for this installation.');
-            return;
-        }
-
         $target = $this->resolveWritableConfigTarget($dbConfigPath);
         self::$runtimeSecurityNotices['app_key'] = [
             'title' => 'Application key still uses the insecure default',
-            'message' => 'Fyuhls could not auto-rotate the application key because the hidden config is not writable. Signed download, referral, reward, and callback secrets should be rotated as soon as possible.',
+            'message' => 'Fyuhls detected the insecure default application key. Rotate it from an explicit maintenance window before relying on signed download, referral, reward, or callback secrets.',
             'config_path' => $target ?? $dbConfigPath,
             'suggested_value' => $generatedKey,
         ];
-        error_log('Security warning: application key is still using the insecure default and could not be rotated automatically.');
+        error_log('Security warning: application key is still using the insecure default and must be rotated from an explicit maintenance window.');
+    }
+
+    private function abortBootstrapConfigurationFailure(string $message): void
+    {
+        http_response_code(503);
+        header('Content-Type: text/html; charset=UTF-8');
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Configuration Recovery Needed</title></head><body style="font-family:Segoe UI,Arial,sans-serif;background:#f3f4f6;color:#111827;padding:2rem;"><div style="max-width:760px;margin:0 auto;background:#fff;border-radius:12px;padding:1.5rem;box-shadow:0 10px 30px rgba(15,23,42,.08);"><h1 style="margin-top:0;">Configuration Recovery Needed</h1><p>The application could not load its hidden configuration file safely, so startup has been paused to avoid a fatal error or partial runtime.</p><p><strong>Recovery note:</strong> Restore the hidden config file referenced by <code>config/database.php</code>, or repair that pointer before continuing.</p><p style="color:#991b1b;">' . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . '</p></div></body></html>';
+        exit;
+    }
+
+    private function ensureBootstrapDatabaseReady(): void
+    {
+        $db = Database::getInstance()->getConnection();
+        if ($db instanceof \PDO) {
+            return;
+        }
+
+        $error = Database::getLastConnectionError();
+        if ($error === null || $error === '') {
+            $error = 'The database connection could not be initialized.';
+        }
+
+        $this->abortBootstrapConfigurationFailure('The hidden config loaded, but the database connection failed. Verify the database host, name, username, password, and server availability. Details: ' . $error);
     }
 
     public static function getRuntimeSecurityNotices(): array
@@ -259,9 +277,41 @@ class App {
     }
 
     public function run(): void {
+        // Load configuration
+        $rootDir = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+        Config::load($rootDir . '/config/app.php');
+        $dbConfigPath = $rootDir . '/config/database.php';
+        if (!file_exists($dbConfigPath)) {
+            if (\App\Service\InstallSecurityService::hasInstalledMarker($rootDir)) {
+                $this->abortBootstrapConfigurationFailure('The config/database.php pointer is missing. Restore the pointer to the hidden config file before continuing.');
+            }
+        }
+        if (file_exists($dbConfigPath)) {
+            try {
+                Config::loadArray(ConfigPointerService::loadLinkedConfigArray($dbConfigPath));
+                $encryptionKey = Config::get('security.encryption_key', '');
+                \App\Service\EncryptionService::setKey($encryptionKey);
+            } catch (\RuntimeException $e) {
+                $this->abortBootstrapConfigurationFailure($e->getMessage());
+            }
+
+            $this->ensureBootstrapDatabaseReady();
+            try {
+                \App\Service\InstallSecurityService::writeInstalledMarker($rootDir);
+            } catch (\RuntimeException $e) {
+                self::$runtimeSecurityNotices['install_marker'] = [
+                    'title' => 'Install marker could not be refreshed',
+                    'message' => 'Fyuhls loaded the hidden config successfully, but it could not refresh the local install lock files. Recovery and installer lockout become less trustworthy until filesystem permissions are corrected.',
+                    'config_path' => $dbConfigPath,
+                ];
+                error_log('Security warning: install marker refresh failed: ' . $e->getMessage());
+            }
+        }
+
+        $this->ensureSecureAppKey(file_exists($dbConfigPath) ? $dbConfigPath : null);
+
         // Secure Session Start
         if (session_status() === PHP_SESSION_NONE) {
-            $rootDir = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
             $localSessionPath = $rootDir . '/storage/sessions';
 
             // If system session path is not writable, use project's storage/sessions
@@ -274,24 +324,28 @@ class App {
 
             ini_set('session.cookie_httponly', 1);
             ini_set('session.use_only_cookies', 1);
-            ini_set('session.cookie_samesite', 'Lax'); 
-            
-            $isHttps = $this->isHttpsRequest();
+            ini_set('session.cookie_samesite', 'Lax');
 
+            $isHttps = $this->isHttpsRequest();
             if ($isHttps) {
                 ini_set('session.cookie_secure', 1);
             }
+
             session_start();
 
-            // tiered session timeout: admins get 4 hours idle, regular users stay for 30 days
-            $isAdmin = isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
-            $idleTimeout = $isAdmin ? (4 * 3600) : (30 * 86400);
+            $role = isset($_SESSION['role']) ? (string)$_SESSION['role'] : null;
+            $idleTimeout = \App\Core\Auth::idleLogoutSecondsForRole($role);
 
             if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $idleTimeout) {
                 session_unset();
                 session_destroy();
                 session_start();
             }
+
+            if (!isset($_SESSION['user_id']) || (int)$_SESSION['user_id'] <= 0) {
+                \App\Service\RememberMeService::restoreSessionFromCookie();
+            }
+
             $_SESSION['last_activity'] = time();
         }
 
@@ -306,24 +360,10 @@ class App {
         header('Referrer-Policy: strict-origin-when-cross-origin');
         // disable browser APIs we don't need (mic, camera, geolocation, etc.)
         header("Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(), usb=()");
-        
+
         if ($this->isHttpsRequest()) {
             header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
         }
-
-        // Load configuration
-        $rootDir = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
-        Config::load($rootDir . '/config/app.php');
-        $dbConfigPath = $rootDir . '/config/database.php';
-        if (file_exists($dbConfigPath)) {
-            Config::load($dbConfigPath);
-            
-            // Initialize Database Encryption Service
-            $encryptionKey = Config::get('security.encryption_key', '');
-            \App\Service\EncryptionService::setKey($encryptionKey);
-        }
-
-        $this->ensureSecureAppKey(file_exists($dbConfigPath) ? $dbConfigPath : null);
 
         header('Content-Security-Policy: ' . $this->buildContentSecurityPolicy());
 
@@ -362,19 +402,20 @@ class App {
         $uri = strtok($requestUri, '?');
         $isAdminPath = str_starts_with($uri, '/admin');
         $viewerIsAdmin = \App\Core\Auth::isAdmin();
+        $viewerIsStaff = \App\Core\Auth::isStaff();
         $isStaticAssetRequest =
             str_starts_with($uri, '/assets/')
             || str_starts_with($uri, '/themes/')
             || preg_match('/\.(?:css|js|mjs|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot|map)$/i', $uri) === 1;
-        
+
         // Allow a small set of public support/auth pages even when VPN/proxy blocking is enabled.
         $isPublicAuth = in_array($uri, ['/login', '/register', '/contact'], true);
 
-        if (!$isPublicAuth && !$isStaticAssetRequest) { 
+        if (!$isPublicAuth && !$isStaticAssetRequest) {
             try {
                 // 1. Maintenance Mode Check
                 $maintenanceOn = \App\Model\Setting::get('maintenance_mode', '0') === '1';
-                if ($maintenanceOn && !$isAdminPath && !$viewerIsAdmin) {
+                if ($maintenanceOn && !$isAdminPath && !$viewerIsStaff) {
                     http_response_code(503);
                     $siteName = \App\Model\Setting::getOrConfig('app.name', Config::get('app_name', 'Site'));
                     require_once dirname(__DIR__) . '/View/maintenance.php';
@@ -385,15 +426,16 @@ class App {
                 $vpnMode = \App\Service\SecurityService::getVpnProtectionMode();
                 $vpnScope = \App\Service\SecurityService::getVpnProtectionScope();
                 if ($vpnMode === 'enforcement' && $vpnScope === 'all_pages') {
-                    if ($isAdminPath || $viewerIsAdmin) {
+                    if ($isAdminPath || $viewerIsStaff) {
                         // error_log("VPN_BLOCK: Skipping check because user is Admin.");
                     } else {
                         $ip = \App\Service\SecurityService::getClientIp();
                         $security = new \App\Service\SecurityService();
-                        if ($security->isVpnOrProxy($ip)) {
+                        $proxyIntel = $security->lookupProxyIntel($ip);
+                        if (!empty($proxyIntel['is_proxy']) || \App\Service\SecurityService::proxyIntelRequiresFailClosed($proxyIntel)) {
                             error_log("VPN_BLOCK: Denying access to $ip on $uri");
                             http_response_code(403);
-                            
+
                             // Check if it's an API request
                             if (str_starts_with($uri, '/api') || (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'))) {
                                 header('Content-Type: application/json');
@@ -424,7 +466,7 @@ class App {
             $viewerIsDemoAdmin = \App\Service\DemoModeService::currentViewerIsDemoAdmin();
             $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
             $isReadOnlyMethod = in_array($method, ['GET', 'HEAD', 'OPTIONS'], true);
-            $demoAllowedPosts = ['/login', '/2fa/verify', '/2fa/recovery'];
+            $demoAllowedPosts = ['/login', '/logout', '/2fa/verify', '/2fa/recovery'];
 
             // The designated demo admin account is always read-only.
             // Other admins and normal users continue to operate normally.

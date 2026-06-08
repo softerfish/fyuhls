@@ -1,17 +1,14 @@
-# fyuhls v0.2.1: High-Performance File Hosting Platform
+# fyuhls v1.0.0: High-Performance File Hosting Platform
 
 Does the project look interesting or has it helped you out at all? A star for the project helps a lot.
 
-> Beta notice:
-> fyuhls is still a beta release. You should expect errors, rough edges, and incomplete behavior.
-
-> If you find bugs or broken flows, please send them through the built-in Bug Report area using the sanitized error log export so the issue can be reviewed safely and reproduced faster. You can also e-mail logs to **fyuhls.script@gmail.com** and I will support best I can when available. Keep in mind, this is a passion project, not a full time job. 
+> If you find bugs or broken flows, please send them through the built-in Bug Report area using the sanitized error log export so the issue can be reviewed safely and reproduced faster. You can also e-mail logs to **fyuhls.script@gmail.com** and I will support best I can when available. Keep in mind, this is a passion project, not a full time job.
 
 Note: This project may use affiliate links occasionally. Any revenue earned helps keep this script free and actively maintained, at no extra cost to you.
 
 Welcome to the **Ultimate High-Performance File Hosting Script**. Built on a modern PHP 8.2+ MVC architecture, fyuhls is aimed at operators who want a self-hosted file hosting platform with real control over storage, packages, uploads, downloads, monetization, diagnostics, and admin operations.
 
-Main Page: [https://privacyglance.com](https://privacyglance.com) (demo here with user/pass: `tester` / `testertester`)
+Main Page: [https://privacyglance.com](https://privacyglance.com) (demo here with user/pass: `tester` / `tester`)
 
 ## Table of Contents
 - [Advanced Features](#advanced-features)
@@ -25,6 +22,7 @@ Main Page: [https://privacyglance.com](https://privacyglance.com) (demo here wit
 - [Step 4 - Run the Installer](#step-4---run-the-installer)
 - [Step 5 - Post-Install Configuration](#step-5---post-install-configuration)
 - [Safe Template Customization](#safe-template-customization)
+- [One-Click Updates](#one-click-updates)
 - [Manual Updates](#manual-updates)
 - [Troubleshooting](#troubleshooting)
 - [Security Reminders](#security-reminders)
@@ -35,14 +33,17 @@ Main Page: [https://privacyglance.com](https://privacyglance.com) (demo here wit
 - **Direct Multipart Upload Pipeline**: Large uploads use direct-to-storage multipart sessions instead of PHP-side chunk assembly, with resumable sessions, quota reservations, and signed part URLs.
 - **Public API + Personal API Tokens**: Account-bound API tokens support multipart uploads, managed upload shortcuts, owner-scoped file metadata, and application-controlled download links.
 - **Public Link Checker**: An optional footer-linked link checker can validate batches of local file links, summarize available vs unavailable results, and optionally support copy-to-account behavior for signed-in users.
-- **Creator Rewards + Two-Factor Security**: Creator rewards (PPD/PPS/Hybrid plus referrals when enabled) and TOTP-based two-factor authentication are built into the script and can be enabled or disabled from the admin area.
+- **Creator Rewards + Promotions + Two-Factor Security**: Creator rewards (PPD/PPS/Hybrid plus referrals when enabled), bonus promotions, and TOTP-based two-factor authentication are built into the script and can be enabled or disabled from the admin area.
+- **Premium Coupons + Flexible Checkout Rules**: Built-in coupon campaigns support fixed or percent discounts, package and billing-option targeting, redemption limits, renewal eligibility rules, recurring discount durations, and safe zero-dollar checkout completion.
 - **Centralized Email System**: Professional transaction emails (Verification, Password Resets, Payments) with a built-in Mail Queue and Template Editor.
 - **Site Content Editor**: Edit key public-facing pages like Homepage, FAQ, Creator Rewards, and API copy from the admin area without touching theme files.
 - **Shared Tickets + Requests Queue**: Logged-in support tickets and unified Contact, Abuse, and DMCA handling flow into one admin queue with replies, notes, and moderation actions.
+- **Delegated Staff Permissions + Investigations**: Narrow staff capabilities, protected Super Admin handling, a real moderator role, Staff Activity audit trails, and dedicated uploader/file investigation pages help larger installs separate duties cleanly.
 - **Smart Task Scheduler**: A centralized "Heartbeat" manager handles cleanup, security syncs, and maintenance from a single server cron.
 - **Trusted Proxy + Security Controls**: Built-in proxy/IP hardening, Cloudflare trusted proxy syncing, and admin-controlled VPN/proxy protection modes (`None`, `Enforcement`, and `Intelligence`) so operators can choose between doing nothing, hard-blocking, or collecting proxy intelligence for fraud scoring without blocking the visitor.
 - **High-Performance Delivery**: Signed download redirects, optional CDN redirects for public object-storage files, and native support for X-Accel-Redirect (Nginx), X-SendFile (Apache), and X-LiteSpeed-Location (LiteSpeed).
-- **Ops-Focused Admin Tooling**: Sanitized support exports, a triage-first System Status page, and cleaner admin docs/resources help operators diagnose issues faster.
+- **One-Click GitHub Release Updater**: System Status can check the configured GitHub releases feed, reject downgrades/equal versions, require maintenance mode before applying, preserve runtime paths, and keep update backups/reports under `storage/`.
+- **Ops-Focused Admin Tooling**: Sanitized support exports, a triage-first System Status page, a built-in Scaling Guide, staff activity logging, and cleaner admin docs/resources help operators diagnose issues faster.
 
 **Estimated installation time:** 15 minutes
 
@@ -65,7 +66,7 @@ Developing a robust multi-server architecture requires extensive environment tes
 
 ### Server Requirements
 
-Linux hosting only. This project is intended for Linux-based shared hosting, VPS, and dedicated servers. 
+Linux hosting only. This project is intended for Linux-based shared hosting, VPS, and dedicated servers.
 
 Your hosting account must support:
 
@@ -73,12 +74,13 @@ Your hosting account must support:
 |---|---|
 | PHP Version | **8.2 or higher** |
 | Database | MySQL 5.7+ or MariaDB 10.3+ |
-| PHP Extensions | PDO, PDO MySQL, OpenSSL, JSON, cURL, Sockets |
+| PHP Extensions | PDO, PDO MySQL, OpenSSL, JSON, cURL, Sockets, mbstring |
 | Apache Module | mod_rewrite (enabled by default on cPanel/DirectAdmin) |
 
 Your database and database user must already exist before you run the installer. Create them first in cPanel, DirectAdmin, or your server control panel and grant the user access to the database.
 
 Recommended or feature-dependent PHP extensions:
+- `fileinfo` for stronger upload MIME detection.
 - `gd` for image thumbnails and related diagnostics.
 - `zip` / `ZipArchive` for plugin ZIP uploads and the in-app updater.
 
@@ -157,7 +159,7 @@ Upload the **entire contents** of the extracted folder into `/home/yourusername/
 									 composer.lock
 									 LICENSE
 									 nginx.conf.example
-									
+
 ```
 
 ---
@@ -212,10 +214,11 @@ Most day-to-day setup now lives in **Admin > Config Hub**.
 4. Open **Storage** to add local or external file servers, use the add/edit/migrate workflows, and follow the browser-upload CORS guidance for object storage.
 5. Open **Uploads** and **Downloads** to set limits, chunking, wait times, direct-link behavior, guest/free-user rules, and the download-state behavior that controls how blocked or unavailable file pages are shown.
 6. Open **Link Checker** to control whether the public footer tool is enabled, how many links it can process at once, how aggressively it is rate-limited, and whether signed-in users may copy eligible public files into their own account from the checker.
-7. Open **SEO** to manage titles, metadata templates, sitemap/robots output, and verification codes.
-8. Open **Requests** to manage Contact, Abuse, and DMCA requests from one inbox, including DMCA file-removal processing directly from the request detail view.
-9. Open **Tickets** to configure support inbox behavior, reminder timing, rate limits, and support email notifications.
-10. Open **Site Content** to edit public-facing Homepage, FAQ, Creator Rewards, and API copy without touching theme files.
+7. Open **Monetization** to configure creator rewards, referrals, withdrawal methods, bonus offers, coupons, and premium gateway behavior.
+8. Open **SEO** to manage titles, metadata templates, sitemap/robots output, and verification codes.
+9. Open **Requests** to manage Contact, Abuse, and DMCA requests from one inbox, including DMCA file-removal processing directly from the request detail view.
+10. Open **Tickets** to configure support inbox behavior, reminder timing, rate limits, and support email notifications.
+11. Open **Site Content** to edit public-facing Homepage, FAQ, Creator Rewards, and API copy without touching theme files.
 
 ### Public API
 Fyuhls includes a public API with a dedicated frontend reference page, an OpenAPI document, and longer wiki documentation.
@@ -252,12 +255,14 @@ Large-file production deployments should use the current default architecture:
 This keeps PHP out of the bulk file-transfer path for high-volume environments.
 
 ### Creator Rewards and Monetization
-Creator rewards, referrals, and payout settings are now part of the core script.
+Creator rewards, referrals, bonus offers, coupons, and payout settings are part of the core script.
 1. Go to **Admin > Config Hub > Monetization**.
 2. Enable the reward models you want to use (`PPD`, `PPS`, and/or `Hybrid`).
-3. Set your payout methods, rates, thresholds, and anti-abuse rules.
-4. Users can switch between the enabled earning models from the account-side Creator Rewards and rewards dashboard area, and referral behavior follows the active monetization setup for the install.
-5. If you do not want creator rewards or referral features visible on the site, disable them there and the frontend options will be hidden.
+3. Set your payout methods, rates, thresholds, anti-abuse rules, and bonus-offer behavior.
+4. Use **Bonus Offers** for milestone, limited-time, or referral-style promotions with optional approval or auto-credit behavior.
+5. Use **Coupons** for premium checkout discounts with package targeting, billing-option targeting, duration rules, and redemption caps.
+6. Users can switch between the enabled earning models from the account-side Creator Rewards and rewards dashboard area, and referral behavior follows the active monetization setup for the install.
+7. If you do not want creator rewards, referrals, promotion features, or premium discount campaigns visible on the site, disable them there and the frontend options will be hidden.
 
 ### Email
 Configure your SMTP settings to enable account verification, password resets, and user notifications.
@@ -304,7 +309,7 @@ fyuhls now keeps operator help in two places:
 - **Admin > Docs** for the built-in in-app documentation and page guides
 - the **GitHub wiki** for longer setup and workflow guides
 
-The admin sidebar now includes a dedicated **Help** section linking to both.
+The admin sidebar now includes a dedicated **Help** section linking to both, and **Admin > Scaling Guide** gives operators an install-specific plain-language overview of storage, delivery, and reward-performance tradeoffs.
 
 ### Requests Inbox
 Fyuhls includes a unified admin request workflow for support and legal moderation.
@@ -313,7 +318,18 @@ From **Admin > Requests** you can:
 - review Contact, Abuse, and DMCA submissions in one inbox
 - reply and add internal notes
 - change request status without leaving the detail view
+- keep sensitive ticket work assignment-aware where your staff permissions allow it
 - process matched DMCA file removals directly from the request detail panel without reloading the page
+
+### Staff Roles and Investigations
+Fyuhls now includes a delegated staff-permission layer for installs that need more than one broad all-powerful admin.
+
+Important admin-side surfaces include:
+- **Admin > Users** for staff role and capability management
+- **Admin > Staff Activity** for the audit trail of high-impact staff actions
+- **Admin > Investigations** links from Files and Rewards Fraud for deeper uploader and file review context
+
+This helps separate moderation, payout review, support, and high-trust account recovery work more cleanly.
 
 ### Link Checker
 Fyuhls includes an optional public **Link Checker** that can be placed in the site footer.
@@ -335,6 +351,35 @@ If you want to modify any part of the website, follow these steps so your change
 3. Example: copy `src/View/home/index.php` to `themes/custom/home/index.php`.
 4. Edit the copied file. Fyuhls checks `themes/custom/` first, then the active theme, then the core views.
 
+If you override a public page that now uses **Site Content**, keep the matching `SiteContentService` helper flow intact or the admin-managed content editor may no longer control that page as expected.
+
+---
+
+## One-Click Updates
+
+Fyuhls includes a guarded one-click updater from **Admin > System Status** when the packaged release includes `src/Service/UpdateService.php` and `config/version.php` has a valid `update.github_repo` value.
+
+The updater checks the latest non-draft, non-prerelease GitHub release for the configured repository. It will not treat older releases, equal versions, draft releases, prereleases, or unparseable version tags as upgrades.
+
+Before using one-click apply:
+1. Back up your database and the full application directory.
+2. Enable maintenance mode.
+3. Open **Admin > System Status** and refresh the release check.
+4. Review any blockers shown in the updater card.
+5. Apply the update only when the updater says the release is available and safe to apply.
+
+The updater is designed to preserve:
+- `config/app.php`
+- `config/database.php`
+- `storage/`
+- `themes/custom/`
+- `src/Plugin/`
+- the hidden config file outside the webroot
+
+During an apply run it writes updater downloads, backups, and reports under `storage/` paths such as `storage/cache/update_downloads`, `storage/update_backups`, and `storage/update_reports`. Keep those paths writable by the PHP user.
+
+If the updater is unavailable, blocked by hosting permissions, missing `ZipArchive`, unable to reach GitHub, or reporting a local safety blocker, use the manual update flow below instead.
+
 ---
 
 ## Manual Updates
@@ -355,18 +400,20 @@ If you are updating Fyuhls manually instead of using the in-app updater, use thi
    - `src/`
    - `public/`
    - `config/` except your live `app.php` and `database.php`
+   - `database/`
    - `themes/default/`
+   - `vendor/` if it is included in the packaged release
    - shipped root files such as `README.md`, `CHANGELOG.md`, and `nginx.conf.example` if you wanted a copy of them
 3. Do **not** overwrite:
    - `storage/`
    - `themes/custom/`
-   - `vendor/`
-   - `database/`
+   - `src/Plugin/`
    - `config/app.php`
    - `config/database.php`
    - your hidden config file outside the webroot
 4. If you are updating from a normal packaged release, you should not need to run Composer manually.
 5. If you are updating from source rather than a packaged release, follow the separate **Installing From Source** section and run Composer there.
+6. `config/version.php` should normally be updated with the release so System Status shows the correct installed version. If you customized its `update` settings, merge those custom values into the new release's version file instead of keeping an old version number.
 
 ### Re-apply anything environment-specific
 After the file replacement, review anything that may have local server-specific values or customizations:
@@ -406,6 +453,13 @@ If you are deploying directly from this repository instead of a packaged release
 
 ### The requirements page shows "FAIL" next to PDO MySQL
 Your PHP installation is missing the `pdo_mysql` extension. Contact your host to enable it.
+
+### One-click updater is unavailable or blocked
+- Make sure `config/version.php` has a valid `update.github_repo` value such as `owner/repository`.
+- Make sure the `ZipArchive` PHP extension is installed.
+- Enable maintenance mode before applying an update.
+- Confirm `storage/cache/`, `storage/update_backups/`, and `storage/update_reports/` are writable by the PHP user.
+- The updater intentionally rejects downgrades, equal versions, drafts, prereleases, invalid GitHub repositories, and unsafe archive shapes. Use the manual update flow if your host blocks GitHub or file writes.
 
 ### SMTP Connection fails or emails aren't sending
 - Ensure your SMTP port (usually 465 or 587) is open in your server's firewall.

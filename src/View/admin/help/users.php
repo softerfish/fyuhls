@@ -5,12 +5,12 @@
     <ul class="extra-small text-muted mb-4">
         <li class="mb-2"><strong>Create from the main page:</strong> The Create Account card lets admins create user or admin accounts directly from the list page.</li>
         <li class="mb-2"><strong>Choose the starting state:</strong> Set package, role, status, and a temporary password before saving the account.</li>
-        <li><strong>Refine after creation:</strong> Open the edit screen if you need to reset the password, add credit, or manage 2FA for that user.</li>
+        <li><strong>Refine after creation:</strong> Open the edit screen if you need to reset the password, add credit, manage 2FA, or move a user between non-paid packages.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">How Search Works</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Exact match only:</strong> Username and email are encrypted in the database, so this page supports exact username, exact email, or exact numeric user ID search.</li>
+        <li class="mb-2"><strong>Exact first, then fallback matching:</strong> Fyuhls tries exact ID, username, and email lookups first, then falls back to partial username or email matching when needed.</li>
         <li><strong>Edit for deeper changes:</strong> Open the user record to change package, role, status, password, or manual rewards credit.</li>
     </ul>
 
@@ -25,8 +25,8 @@
     <ul class="extra-small text-muted mb-4">
         <li class="mb-2"><strong>Ban / Unban:</strong> Changes the account status and blocks or restores normal access.</li>
         <li class="mb-2"><strong>Make Admin / Remove Admin:</strong> Changes the user's administrative role.</li>
-        <li class="mb-2"><strong>Delete:</strong> Removes the user if there are no pending or approved withdrawals blocking deletion.</li>
-        <li><strong>Edit Screen:</strong> Lets you reset the password, assign a package, and add a manual bonus credit if Rewards is enabled.</li>
+        <li class="mb-2"><strong>Delete:</strong> Removes the user only when there is no payout, rewards, support, billing, bonus-offer, or file history that would make deletion unsafe. When in doubt, ban the account instead.</li>
+        <li><strong>Edit Screen:</strong> Lets you reset the password, assign non-paid packages, and, if Rewards is enabled and your staff role has manual-credit permission, add a manual bonus credit.</li>
     </ul>
 
     <div class="alert alert-info border-0 shadow-sm small">

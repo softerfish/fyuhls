@@ -28,15 +28,18 @@ renderAdminPageHeader('Withdrawal Requests');
                                 <small><?= htmlspecialchars($w['user_email']) ?></small>
                             </td>
                             <td><strong>$<?= number_format($w['amount'], 2) ?></strong></td>
-                            <td><?= strtoupper($w['method']) ?></td>
                             <td>
-                                <?php $statusClass = $w['status'] === 'pending' ? 'withdrawal-status-pending' : ($w['status'] === 'paid' ? 'withdrawal-status-paid' : 'withdrawal-status-rejected'); ?>
+                                <strong><?= htmlspecialchars((string)($w['method_label'] ?? strtoupper((string)($w['method'] ?? '')))) ?></strong><br>
+                                <small class="text-muted"><?= htmlspecialchars((string)($w['destination_label'] ?? 'Payout destination')) ?></small>
+                            </td>
+                            <td>
+                                <?php $statusClass = $w['status'] === 'pending' ? 'withdrawal-status-pending' : ($w['status'] === 'approved' ? 'withdrawal-status-approved' : ($w['status'] === 'paid' ? 'withdrawal-status-paid' : 'withdrawal-status-rejected')); ?>
                                 <span class="badge withdrawal-status-badge <?= $statusClass ?>">
                                     <?= strtoupper($w['status']) ?>
                                 </span>
                             </td>
                             <td>
-                                <button class="btn btn-sm" type="button" data-withdrawal-id="<?= (int)$w['id'] ?>" data-withdrawal-details="<?= htmlspecialchars($w['details'], ENT_QUOTES, 'UTF-8') ?>" data-withdrawal-status="<?= htmlspecialchars($w['status'], ENT_QUOTES, 'UTF-8') ?>">Manage</button>
+                                <button class="btn btn-sm" type="button" data-withdrawal-id="<?= (int)$w['id'] ?>" data-withdrawal-details="<?= htmlspecialchars($w['details'], ENT_QUOTES, 'UTF-8') ?>" data-withdrawal-status="<?= htmlspecialchars($w['status'], ENT_QUOTES, 'UTF-8') ?>" data-withdrawal-method-label="<?= htmlspecialchars((string)($w['method_label'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" data-withdrawal-destination-label="<?= htmlspecialchars((string)($w['destination_label'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">Manage</button>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -54,7 +57,8 @@ renderAdminPageHeader('Withdrawal Requests');
             <?= \App\Core\Csrf::field() ?>
             <input type="hidden" name="id" id="modalWId">
             <div class="form-group">
-                <label>Payment Details</label>
+                <label id="modalWDetailsLabel">Payment Details</label>
+                <div class="small text-muted mb-2" id="modalWMethodLabel"></div>
                 <pre id="modalWDetails" class="withdrawal-modal-details"></pre>
             </div>
             <div class="form-group">
@@ -69,6 +73,7 @@ renderAdminPageHeader('Withdrawal Requests');
             <div class="form-group">
                 <label>Admin Note (Visible to User)</label>
                 <textarea name="admin_note" rows="3"></textarea>
+                <small class="text-muted d-block mt-2">Required whenever you change the payout status so the user-facing trail explains why.</small>
             </div>
             <div class="withdrawal-modal-actions">
                 <button type="button" class="btn" id="closeWithdrawalModalBtn">Cancel</button>
@@ -81,6 +86,7 @@ renderAdminPageHeader('Withdrawal Requests');
 .withdrawals-empty-state{text-align:center;color:#64748b;padding:2rem}
 .withdrawal-status-badge{padding:.25rem .5rem;border-radius:4px;font-size:.75rem}
 .withdrawal-status-pending{background:#fef3c7;color:#92400e}
+.withdrawal-status-approved{background:#dbeafe;color:#1d4ed8}
 .withdrawal-status-paid{background:#dcfce7;color:#166534}
 .withdrawal-status-rejected{background:#fee2e2;color:#991b1b}
 .withdrawal-modal-shell{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center}
@@ -90,10 +96,12 @@ renderAdminPageHeader('Withdrawal Requests');
 </style>
 
 <script>
-function showWithdrawalDetails(id, details, status) {
+function showWithdrawalDetails(id, details, status, methodLabel, destinationLabel) {
     document.getElementById('modalWId').value = id;
     document.getElementById('modalWDetails').innerText = details;
     document.getElementById('modalWStatus').value = status;
+    document.getElementById('modalWMethodLabel').innerText = methodLabel || '';
+    document.getElementById('modalWDetailsLabel').innerText = destinationLabel || 'Payment Details';
     document.getElementById('wModal').style.display = 'flex';
 }
 
@@ -103,7 +111,9 @@ document.addEventListener('DOMContentLoaded', function() {
             showWithdrawalDetails(
                 button.getAttribute('data-withdrawal-id') || '',
                 button.getAttribute('data-withdrawal-details') || '',
-                button.getAttribute('data-withdrawal-status') || ''
+                button.getAttribute('data-withdrawal-status') || '',
+                button.getAttribute('data-withdrawal-method-label') || '',
+                button.getAttribute('data-withdrawal-destination-label') || ''
             );
         });
     });

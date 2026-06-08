@@ -56,11 +56,17 @@ if (!function_exists('siteContentBlockHint')) {
             'homepage' => [
                 'hero' => 'Shows on the public homepage hero area for visitors who are not logged in, plus admin preview mode.',
                 'panel' => 'Shows in the dark summary panel on the right side of the public homepage hero area.',
+                'trust_section' => 'Shows above the compact trust strip that summarizes the current live plan mix and signup expectations.',
+                'trust_cards' => 'Shows as the compact trust-strip cards near the top of the public homepage.',
+                'preview_section' => 'Shows above the product preview area that pairs a workspace mockup with live setup summaries.',
+                'account_section' => 'Shows above the reasons-to-sign-up card grid on the public homepage.',
+                'account_cards' => 'Shows as the reasons-to-sign-up cards on the public homepage.',
                 'features_section' => 'Shows above the homepage feature card grid on the public homepage.',
                 'feature_cards' => 'Shows as the feature cards in the public homepage features section.',
                 'quick_faq_section' => 'Shows above the smaller FAQ teaser section on the public homepage.',
                 'quick_faq_cards' => 'Shows as the compact FAQ teaser cards on the public homepage, not the full /faq page.',
                 'pricing_section' => 'Shows above the package/pricing cards on the public homepage.',
+                'conversion_cta' => 'Shows as the final signup call to action at the bottom of the public homepage.',
             ],
             'faq' => [
                 'header' => 'Shows at the top of the public /faq page.',

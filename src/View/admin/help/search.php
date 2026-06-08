@@ -15,7 +15,13 @@
         <li><strong>Confirm on the destination page:</strong> Search is a locator, not the final source of truth for moderation or billing actions.</li>
     </ol>
 
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">What Search Is Not</h6>
+    <ul class="extra-small text-muted mb-4">
+        <li class="mb-2"><strong>Not a moderation workspace:</strong> Move into Files, Users, or Tickets once you find the record.</li>
+        <li><strong>Not a complete audit trail:</strong> Use Staff Activity, Investigations, or billing pages when the question becomes historical instead of locational.</li>
+    </ul>
+
     <div class="alert alert-light border-0 shadow-sm small">
-        <strong>Tip:</strong> If a user says “I can’t find my file,” try the file short ID first, then partial filename, then their username. That order usually gets you to the right result the fastest.
+        <strong>Tip:</strong> If a user says "I can't find my file," try the file short ID first, then partial filename, then their username. That order usually gets you to the right result the fastest.
     </div>
 </div>

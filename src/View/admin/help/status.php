@@ -4,7 +4,7 @@
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">When To Use This Page</h6>
     <ul class="mb-4">
         <li><strong>Use Status first</strong> when something feels broken but you do not yet know whether the issue is environment, uploads, delivery, updates, or logging.</li>
-        <li><strong>Use Support Center next</strong> when the status sections still do not explain the behavior and you need a sanitized bundle for escalation.</li>
+        <li><strong>Use Diagnostics next</strong> when the status sections still do not explain the behavior and you need a sanitized bundle for escalation.</li>
         <li><strong>Do not use Status as your only config page</strong> for Email, Cron, Downloads, or Storage changes. Treat it as triage plus guided next steps.</li>
     </ul>
 
@@ -39,7 +39,7 @@
         <li><strong>Cron problems:</strong> Open <code>Config Hub &gt; Cron</code> if upload backlog or stale reservations keep returning.</li>
         <li><strong>Delivery problems:</strong> Open <code>Config Hub &gt; Downloads</code> or <code>Live Downloads</code> when routing or payout verification looks wrong.</li>
         <li><strong>Storage problems:</strong> Open <code>Config Hub &gt; Storage</code> or <code>Server Monitoring</code> for quota, provider, or node-level drift.</li>
-        <li><strong>Support problems:</strong> Open <code>Config Hub &gt; Email</code> or <code>Support Center</code> if support mail or escalation flow is not ready.</li>
+        <li><strong>Support problems:</strong> Open <code>Config Hub &gt; Email</code> or <code>Diagnostics</code> if support mail or escalation flow is not ready.</li>
     </ul>
 
     <div class="alert alert-info border-0">

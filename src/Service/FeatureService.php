@@ -11,6 +11,17 @@ class FeatureService
         return Setting::get('rewards_enabled', '0', 'rewards') === '1';
     }
 
+    public static function isRewardsCronTask(string $taskKey): bool
+    {
+        $taskKey = trim($taskKey);
+        return str_starts_with($taskKey, 'reward_') || str_starts_with($taskKey, 'fraud_');
+    }
+
+    public static function cronTaskEnabled(string $taskKey): bool
+    {
+        return !self::isRewardsCronTask($taskKey) || self::rewardsEnabled();
+    }
+
     public static function affiliateEnabled(): bool
     {
         return self::rewardsEnabled() && Setting::get('affiliate_enabled', '0', 'rewards') === '1';

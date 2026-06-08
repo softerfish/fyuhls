@@ -5,20 +5,32 @@ $pageLocale = $pageLocale ?? \App\Service\SiteContentService::requestLocale();
 
 // read site name from DB, fall back to config, fall back to 'fyuhls'
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'fyuhls'));
+$seoFilename = $filename
+    ?? ((isset($file) && is_array($file) && isset($file['filename'])) ? (string)$file['filename'] : '');
+$seoIsPublic = $isPublic
+    ?? ((isset($file) && is_array($file) && array_key_exists('is_public', $file)) ? !empty($file['is_public']) : true);
+
 $seoDocument = \App\Service\SeoService::getDocumentMeta([
     'title' => $title ?? $siteName,
     'metaDescription' => $metaDescription ?? '',
-    'filename' => $filename ?? '',
-    'isPublic' => $isPublic ?? true,
+    'filename' => $seoFilename,
+    'isPublic' => $seoIsPublic,
 ]);
 $resolvedTitle = $seoDocument['title'];
 $generatedHead = \App\Service\SeoService::buildHead([
     'title' => $title ?? $siteName,
     'metaDescription' => $metaDescription ?? '',
-    'filename' => $filename ?? '',
-    'isPublic' => $isPublic ?? true,
+    'filename' => $seoFilename,
+    'isPublic' => $seoIsPublic,
 ]);
 $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1';
+$currentUserId = \App\Core\Auth::check() ? (int)(\App\Core\Auth::id() ?? 0) : 0;
+$showPromotions = \App\Service\FeatureService::rewardsEnabled()
+    && (
+        $currentUserId > 0
+            ? \App\Service\BonusOfferService::hasVisiblePromotions($currentUserId)
+            : \App\Service\BonusOfferService::hasVisiblePromotions()
+    );
 ?>
 <!DOCTYPE html>
 <html lang="<?= htmlspecialchars((string)$pageLocale) ?>">
@@ -118,20 +130,23 @@ $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1
     <!-- Top Navigation -->
     <header class="home-header">
         <a href="/" class="home-logo"><?= htmlspecialchars($siteName) ?></a>
-        
+
         <div class="home-nav">
             <a href="<?= htmlspecialchars(\App\Service\SiteContentService::localizeUrl('/faq', $pageLocale)) ?>" class="home-nav-link">FAQ</a>
             <?php if ($showAffiliate): ?>
                 <a href="<?= htmlspecialchars(\App\Service\SiteContentService::localizeUrl('/affiliate', $pageLocale)) ?>" class="home-nav-link">Affiliate</a>
             <?php endif; ?>
-            
+            <?php if ($showPromotions): ?>
+                <a href="<?= htmlspecialchars(\App\Service\SiteContentService::localizeUrl('/promotions', $pageLocale)) ?>" class="home-nav-link">Promotions</a>
+            <?php endif; ?>
+
             <?php if (\App\Core\Auth::check()): ?>
                 <a href="/notifications" class="home-notification-link">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" class="home-notification-icon">
                         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                     </svg>
-                    <?php 
+                    <?php
                     try {
                         $unreadNotifications = \App\Service\NotificationService::getUnread(\App\Core\Auth::id() ?? 0);
                         $unreadCount = count($unreadNotifications);
@@ -139,14 +154,14 @@ $allowRegistrations = \App\Model\Setting::get('allow_registrations', '1') === '1
                             <span class="home-notification-badge">
                                 <?= $unreadCount ?>
                             </span>
-                        <?php endif; 
+                        <?php endif;
                     } catch (\Exception $e) { /* Ignore fatal unloads */ } ?>
                 </a>
 
                 <?php if (\App\Core\Auth::isAdmin()): ?>
                     <a href="/admin" class="home-nav-link home-nav-link--strong">Admin</a>
                 <?php endif; ?>
-                
+
                 <form action="/logout" method="POST" class="home-logout-form">
                     <?= \App\Core\Csrf::field() ?>
                     <button type="submit" class="home-logout-btn">Logout</button>

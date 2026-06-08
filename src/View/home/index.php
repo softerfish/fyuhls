@@ -72,14 +72,36 @@ $extraHead = '
     .dashboard-upload-hint { display: inline-flex; align-items: center; padding: 0.35rem 0.6rem; border-radius: 999px; background: #f8fafc; border: 1px solid #e2e8f0; color: #475569; font-size: 0.76rem; font-weight: 600; white-space: nowrap; }
     .dashboard-upload-head-tools { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-left: auto; }
     .dashboard-upload-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
         border: 1px solid var(--border-color);
         border-radius: 999px;
         background: #fff;
-        color: #475569;
-        font-size: 0.78rem;
-        font-weight: 700;
-        padding: 0.46rem 0.82rem;
+        color: #334155;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+        font-size: 0.8rem;
+        font-weight: 800;
+        padding: 0.5rem 0.85rem;
         cursor: pointer;
+        transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease, border-color .15s ease;
+    }
+    .dashboard-upload-toggle:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+    }
+    .dashboard-upload-toggle::before {
+        content: "⬚";
+        font-size: 0.9rem;
+        line-height: 1;
+    }
+    .dashboard-upload-toggle::before {
+        content: "▸";
+        font-size: 0.78rem;
+        transition: transform .15s ease;
+    }
+    .dashboard-upload-toggle[aria-expanded="true"]::before {
+        transform: rotate(90deg);
     }
     .dashboard-drop-zone { margin-bottom: 0; padding: 1.55rem 1.5rem; min-height: 0; }
     .dashboard-drop-zone .dz-message p { font-size: 0.98rem; margin-bottom: 0.35rem; }
@@ -89,9 +111,39 @@ $extraHead = '
     }
     .dashboard-filter-card { border-radius: 16px; }
     .dashboard-filter-head { margin-bottom: 0.95rem; }
+    .dashboard-filter-head-copy { flex: 1 1 320px; min-width: 0; }
     .dashboard-filter-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-left: auto; }
     .dashboard-filter-search { width: min(250px, 100%); flex: 1 1 210px; }
     .dashboard-filter-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .dashboard-filter-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        background: #fff;
+        color: #334155;
+        font-size: 0.78rem;
+        font-weight: 800;
+        padding: 0.48rem 0.82rem;
+        cursor: pointer;
+    }
+    .dashboard-filter-toggle::before {
+        content: "▾";
+        font-size: 0.82rem;
+        line-height: 1;
+        transition: transform .15s ease;
+    }
+    .dashboard-filter-card.is-collapsed .dashboard-filter-toggle::before {
+        transform: rotate(-90deg);
+    }
+    .dashboard-filter-content {
+        display: grid;
+        gap: 0.95rem;
+    }
+    .dashboard-filter-card.is-collapsed .dashboard-filter-content {
+        display: none;
+    }
     .dashboard-filter-clear {
         border: 1px solid var(--border-color);
         border-radius: 999px;
@@ -304,6 +356,9 @@ if ($currentUserId > 0 && !$guestMode) {
 }
 $recentUploadLabel = $recentUploadTimestamp ? date('M j, Y', $recentUploadTimestamp) : 'No uploads yet';
 $workspaceModeLabel = !empty($isTrash) ? 'Trash' : ($guestMode ? 'Guest Upload' : '');
+$guestUploadIntroCopy = \App\Service\FeatureService::rewardsEnabled()
+    ? 'Your files will be uploaded using the current guest package limits. Create an account later if you want a personal dashboard, folders, or reward features.'
+    : 'Your files will be uploaded using the current guest package limits. Create an account later if you want a personal dashboard, folders, and saved account tools.';
 
 $uploadLimitText = $effectiveUploadLimit > 0
     ? 'Maximum upload size: ' . formatBytes($effectiveUploadLimit, 1)
@@ -319,7 +374,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
         <div class="guest-upload-intro">
             <div>
                 <h2>Upload without an account</h2>
-                <p>Your files will be uploaded using the current guest package limits. Create an account later if you want a personal dashboard, folders, or reward features.</p>
+                <p><?= htmlspecialchars($guestUploadIntroCopy) ?></p>
             </div>
             <div class="guest-upload-intro-meta">
                 <span><?= htmlspecialchars($uploadLimitText) ?></span>
@@ -413,13 +468,11 @@ $uploadLimitText = $effectiveUploadLimit > 0
             <div class="dashboard-upload-card-head">
                 <div>
                     <h3 class="dashboard-upload-card-title">Upload area</h3>
-                    <p class="dashboard-upload-card-copy">Use the main upload button for everyday work, or expand the drop area when you want the larger target.</p>
+                    <p class="dashboard-upload-card-copy">Use the main upload button for everyday work, or keep the drop area open when you want a larger target.</p>
                 </div>
                 <div class="dashboard-upload-head-tools">
                     <span class="dashboard-upload-hint"><?= htmlspecialchars($uploadLimitText) ?></span>
-                    <?php if ($shouldCompactUploadArea): ?>
-                        <button type="button" class="dashboard-upload-toggle" id="toggleUploadAreaBtn">Show drag and drop area</button>
-                    <?php endif; ?>
+                    <button type="button" class="dashboard-upload-toggle" id="toggleUploadAreaBtn" aria-expanded="<?= $shouldCompactUploadArea ? 'false' : 'true' ?>"><?= $shouldCompactUploadArea ? 'Show drag and drop area' : 'Hide drag and drop area' ?></button>
                 </div>
             </div>
         <div class="drop-zone dashboard-drop-zone" id="dropZone">
@@ -433,12 +486,15 @@ $uploadLimitText = $effectiveUploadLimit > 0
         </section>
         <?php endif; ?>
 
-        <div class="fm-filter-bar dashboard-filter-card<?= $guestMode ? ' dashboard-hidden' : '' ?>">
+        <div class="fm-filter-bar dashboard-filter-card is-collapsed<?= $guestMode ? ' dashboard-hidden' : '' ?>" id="dashboardFilterCard">
             <div class="dashboard-filter-head">
-                <div>
+                <div class="dashboard-filter-head-copy">
                     <h3 class="dashboard-filter-title">Find and narrow items</h3>
                     <p class="dashboard-filter-copy">Search by name, trim the list by type or status, and change sorting without losing your place.</p>
                 </div>
+                <button type="button" class="dashboard-filter-toggle" id="toggleFilterCardBtn" aria-expanded="false">Show filters</button>
+            </div>
+            <div class="dashboard-filter-content">
                 <div class="dashboard-filter-tools">
                     <div class="search-box dashboard-search-box dashboard-filter-search">
                         <span class="search-icon" aria-hidden="true">&#128269;</span>
@@ -449,7 +505,6 @@ $uploadLimitText = $effectiveUploadLimit > 0
                         <button type="button" class="dashboard-filter-reset" id="fmResetWorkspaceBtn">Reset workspace</button>
                     </div>
                 </div>
-            </div>
             <div class="fm-filter-group">
                 <label class="fm-filter">
                     <span>Type</span>
@@ -500,6 +555,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
             <div class="fm-filter-summary">
                 <div class="fm-filter-chips" id="fmFilterChips"></div>
                 <div class="fm-filter-results" id="fmFilterResults">Showing all items</div>
+            </div>
             </div>
         </div>
 
@@ -597,7 +653,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
                         <div class="file-list-cell file-list-public"></div>
                         <div class="file-list-actions">
                             <button class="fm-row-action rename-item" type="button" title="Rename" aria-label="Rename folder">&#9998;</button>
-                            <button class="fm-row-action fm-row-action-danger delete-folder" type="button" title="Delete" aria-label="Delete folder">&times;</button>
+                            <button class="fm-row-action fm-row-action-danger delete-folder" type="button" title="Move to Trash" aria-label="Move folder to trash">&times;</button>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -630,10 +686,12 @@ $uploadLimitText = $effectiveUploadLimit > 0
                         <div class="file-preview" data-nav-url="/file/<?= $file['short_id'] ?>" data-nav-target="_blank">
                             <?php
                             $thumbUrl = null;
-                            if (strpos($file['mime_type'], 'image/') === 0 || strpos($file['mime_type'], 'video/') === 0) {
-                                $thumbPath = 'thumbnails/' . date('Y/m', strtotime($file['created_at'])) . '/' . $file['file_hash'] . '.jpg';
+                            if ((strpos($file['mime_type'], 'image/') === 0 || strpos($file['mime_type'], 'video/') === 0) && !empty($file['storage_path'])) {
+                                $thumbPath = \App\Model\StoredFile::buildThumbnailVariantPathFromStoragePath((string)$file['storage_path']);
                                 $provider = \App\Core\StorageManager::getProvider($file['storage_provider']);
-                                $thumbUrl = $provider->getUrl($thumbPath);
+                                if ($thumbPath !== null) {
+                                    $thumbUrl = $provider->getUrl($thumbPath);
+                                }
                             }
                             ?>
                             <?php if ($thumbUrl): ?>
@@ -664,7 +722,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
                         </div>
                         <div class="file-list-actions">
                             <button class="fm-row-action rename-item" type="button" title="Rename" aria-label="Rename file">&#9998;</button>
-                            <button class="fm-row-action fm-row-action-danger delete-file" type="button" title="Delete" aria-label="Delete file">&times;</button>
+                            <button class="fm-row-action fm-row-action-danger delete-file" type="button" title="Move to Trash" aria-label="Move file to trash">&times;</button>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -791,6 +849,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
     <ul>
         <li id="dropDownload"><span class="icon" aria-hidden="true">&#11015;</span> Download</li>
         <li id="dropShare"><span class="icon" aria-hidden="true">&#128279;</span> Share</li>
+        <li id="dropReplace"><span class="icon" aria-hidden="true">&#128260;</span> Replace File</li>
         <li id="dropRename"><span class="icon" aria-hidden="true">&#9998;</span> Rename</li>
         <li id="dropMove"><span class="icon" aria-hidden="true">&#8644;</span> Move</li>
         <li id="dropCopy"><span class="icon" aria-hidden="true">&#128203;</span> Create Copy</li>
@@ -960,6 +1019,7 @@ $uploadLimitText = $effectiveUploadLimit > 0
         <div class="mobile-action-list">
             <button class="btn btn-white mobile-action-btn" data-action="download" id="mobileActionDownload" type="button">Download</button>
             <button class="btn btn-white mobile-action-btn" data-action="share" id="mobileActionShare" type="button">Share</button>
+            <button class="btn btn-white mobile-action-btn" data-action="replace" id="mobileActionReplace" type="button">Replace File</button>
             <button class="btn btn-white mobile-action-btn" data-action="rename" id="mobileActionRename" type="button">Rename</button>
             <button class="btn btn-white mobile-action-btn" data-action="move" id="mobileActionMove" type="button">Move</button>
             <button class="btn btn-white mobile-action-btn" data-action="copy" id="mobileActionCopy" type="button">Create Copy</button>
@@ -1024,6 +1084,7 @@ $uploadConfig = [
     'concurrentLimit' => (int) \App\Model\Setting::get('upload_concurrent_limit', '2'),
     'hidePopup' => \App\Model\Setting::get('upload_hide_popup', '0') === '1',
     'chunkingEnabled' => \App\Model\Setting::get('upload_chunking_enabled', '1') === '1',
+    'replaceEnabled' => \App\Model\Setting::get('upload_replace_enabled', '0') === '1',
     // Two parallel part uploads is a safer default for S3-compatible providers on shared-hosting installs.
     'partConcurrency' => 2,
     'maxPartRetries' => 3,
@@ -1089,9 +1150,42 @@ $extraBottom = "
     'baseUrl' => rtrim(\App\Service\SeoService::trustedBaseUrl(), '/'),
     'isAdmin' => \App\Core\Auth::isAdmin(),
     'isTrash' => !empty($isTrash),
+    'isShared' => !empty($isShared),
+    'isRecent' => !empty($isRecent),
     'guestMode' => $guestMode,
+    'replaceEnabled' => \App\Model\Setting::get('upload_replace_enabled', '0') === '1',
+    'liveUploadInsertEnabled' => !$guestMode && empty($isTrash) && empty($isShared) && empty($isRecent),
 ]) . ";</script>
 <script src=\"/assets/js/filemanager.js?v=" . filemtime(BASE_PATH . '/public/assets/js/filemanager.js') . "\"></script>
+<script>
+(function () {
+    const initFilterToggleFallback = () => {
+        const card = document.getElementById('dashboardFilterCard');
+        const button = document.getElementById('toggleFilterCardBtn');
+        if (!card || !button || button.dataset.bound === '1') {
+            return;
+        }
+
+        const setCollapsed = (collapsed) => {
+            card.classList.toggle('is-collapsed', collapsed);
+            button.textContent = collapsed ? 'Show filters' : 'Hide filters';
+            button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        };
+
+        setCollapsed(card.classList.contains('is-collapsed'));
+        button.addEventListener('click', function () {
+            setCollapsed(!card.classList.contains('is-collapsed'));
+        });
+        button.dataset.bound = 'fallback';
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initFilterToggleFallback, { once: true });
+    } else {
+        initFilterToggleFallback();
+    }
+})();
+</script>
 ";
 include __DIR__ . '/footer.php';
 ?>

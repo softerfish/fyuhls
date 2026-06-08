@@ -9,7 +9,7 @@
         <li class="mb-2"><strong>PPS Commission / Mixed Percentages:</strong> Controls how package-sale revenue is split for PPS and Mixed publishers.</li>
         <li class="mb-2"><strong>Affiliate Hold Days:</strong> Keeps affiliate commission in a held state for a configurable number of days before it clears, which gives you a refund and chargeback buffer.</li>
         <li class="mb-2"><strong>PPD Rules:</strong> IP limits, file-size limits, download-progress threshold, video-watch thresholds, guest-only mode, and VPN counting behavior all live here.</li>
-        <li class="mb-2"><strong>Withdrawal Methods:</strong> Controls which payout methods users are allowed to submit.</li>
+        <li class="mb-2"><strong>Payout Processors:</strong> Controls which payout destinations users are allowed to submit for rewards payments.</li>
         <li class="mb-2"><strong>Rewards Retention:</strong> Defines how long reward events stay in the detailed rollup window before older data is collapsed or trimmed.</li>
         <li><strong>Payment Gateways:</strong> Stripe and PayPal credentials, verification secrets, and sandbox or live behavior are managed here.</li>
     </ul>

@@ -40,6 +40,12 @@
     </div>
 
     <div class="alert alert-light border-0 shadow-sm small mb-0">
-        <strong>Related pages:</strong> <a href="/admin/rewards-fraud" class="guide-action-link">Rewards Fraud</a> for downstream risk review, <a href="/admin/configuration?tab=downloads" class="guide-action-link">Config Hub &gt; Downloads</a> for transfer-side behavior that can combine with VPN policy, and <a href="/admin/status" class="guide-action-link">System Status</a> for encryption, queue, and schema health checks.
+        <strong>Related pages:</strong>
+        <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
+            <a href="/admin/rewards-fraud" class="guide-action-link">Rewards Fraud</a> for downstream risk review,
+        <?php else: ?>
+            <a href="/admin/configuration?tab=monetization" class="guide-action-link">Config Hub &gt; Monetization</a> for reward and affiliate availability,
+        <?php endif; ?>
+        <a href="/admin/configuration?tab=downloads" class="guide-action-link">Config Hub &gt; Downloads</a> for transfer-side behavior that can combine with VPN policy, and <a href="/admin/status" class="guide-action-link">System Status</a> for encryption, queue, and schema health checks.
     </div>
 </div>

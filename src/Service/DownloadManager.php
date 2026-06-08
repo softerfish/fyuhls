@@ -4,13 +4,21 @@ namespace App\Service;
 
 use App\Core\Config;
 use App\Core\Database;
+use App\Core\Logger;
 use App\Core\StorageManager;
 use App\Model\File;
+use App\Service\Database\SchemaService;
 
 class DownloadManager
 {
+    public const DOWNLOAD_LINK_TRACKING_UNAVAILABLE_MESSAGE = 'Download link verification is temporarily unavailable. Retry after an administrator repairs download tracking storage.';
+    public const DOWNLOAD_RATE_LIMIT_STORAGE_UNAVAILABLE_MESSAGE = 'Download rate limiting is temporarily unavailable. Retry after an administrator repairs download tracking storage.';
+
     private string $secretKey;
     private static bool $rateLimitTableReady = false;
+    private static bool $downloadLinkIssuesTableReady = false;
+    private static bool $rateLimitSchemaUnavailable = false;
+    private static bool $downloadLinkIssuesSchemaUnavailable = false;
 
     private function getFileServerRow(?int $fileServerId): ?array
     {
@@ -78,20 +86,24 @@ class DownloadManager
 
     public function __construct()
     {
-        // In production, this should be a strong random key in config
-        $this->secretKey = Config::get('app_key', 'change_this_to_a_random_string');
+        $this->secretKey = \App\Service\SecurityService::getSecureAppKey() ?? '';
     }
 
     /**
      * generate a signed temporary download url
      */
-    public function generateSignedUrl(int|string $fileId, string $filename, ?string $sessionId = null): string
+    public function generateSignedUrl(int|string $fileId, string $filename, ?string $sessionId = null, string $mode = 'download'): string
     {
+        if ($this->secretKey === '') {
+            throw new \RuntimeException('Secure download signing is unavailable until the application key is rotated.');
+        }
+
         $expiry = time() + 3600; // 1 hour expiration
         $ip = \App\Service\SecurityService::getClientIp(); // bind to ip to prevent sharing links
 
         $sessionPart = $sessionId ?? '';
-        $data = "{$fileId}|{$expiry}|{$ip}|{$sessionPart}";
+        $mode = $mode === 'stream' ? 'stream' : 'download';
+        $data = "{$fileId}|{$expiry}|{$ip}|{$sessionPart}|{$mode}";
         $signature = hash_hmac('sha256', $data, $this->secretKey);
 
         $append = \App\Model\Setting::get('upload_append_filename', '0') === '1' ? '/' . urlencode($filename) : '';
@@ -104,6 +116,49 @@ class DownloadManager
         }
 
         return $baseUrl . "/download/{$fileId}{$append}?" . http_build_query($query);
+    }
+
+    public function issueNormalDownloadLink(int|string $fileId, string $filename, ?string $sessionId = null): string
+    {
+        $url = $this->generateSignedUrl($fileId, $filename, $sessionId, 'download');
+        $parts = parse_url($url);
+        parse_str((string)($parts['query'] ?? ''), $query);
+
+        $token = (string)($query['token'] ?? '');
+        $expires = isset($query['expires']) ? (int)$query['expires'] : 0;
+        if ($token === '' || $expires <= time()) {
+            throw new \RuntimeException('Could not issue secure download link.');
+        }
+
+        if (!$this->downloadLinkIssuesAvailable()) {
+            throw new \RuntimeException(self::DOWNLOAD_LINK_TRACKING_UNAVAILABLE_MESSAGE);
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO download_link_issues (
+                file_short_id,
+                token_hash,
+                session_public_id,
+                issued_for_ip_hash,
+                expires_at
+            ) VALUES (?, ?, ?, ?, FROM_UNIXTIME(?))
+            ON DUPLICATE KEY UPDATE
+                file_short_id = VALUES(file_short_id),
+                session_public_id = VALUES(session_public_id),
+                issued_for_ip_hash = VALUES(issued_for_ip_hash),
+                used_at = NULL,
+                expires_at = VALUES(expires_at)
+        ");
+        $stmt->execute([
+            (string)$fileId,
+            hash('sha256', $token),
+            $sessionId !== null && $sessionId !== '' ? $sessionId : null,
+            hash('sha256', \App\Service\SecurityService::getClientIp()),
+            $expires,
+        ]);
+
+        return $url;
     }
 
     private function buildDownloadContentDisposition(string $filename): string
@@ -215,16 +270,58 @@ class DownloadManager
     /**
      * validate the signed url
      */
-    public function validateSignature(int|string $fileId, string $token, int $expires, ?string $sessionId = null): bool
+    public function validateSignature(int|string $fileId, string $token, int $expires, ?string $sessionId = null, string $mode = 'download'): bool
     {
+        if ($this->secretKey === '') {
+            return false;
+        }
+
         if (time() > $expires) {
             return false;
         }
         $ip = \App\Service\SecurityService::getClientIp();
-        $data = "{$fileId}|{$expires}|{$ip}|" . ($sessionId ?? '');
+        $mode = $mode === 'stream' ? 'stream' : 'download';
+        $data = "{$fileId}|{$expires}|{$ip}|" . ($sessionId ?? '') . "|{$mode}";
         $expected = hash_hmac('sha256', $data, $this->secretKey);
 
         return hash_equals($expected, $token);
+    }
+
+    public function consumeIssuedDownloadLink(int|string $fileId, string $token, ?string $sessionId = null): bool
+    {
+        if ($token === '') {
+            return false;
+        }
+
+        if (!$this->downloadLinkIssuesAvailable()) {
+            throw new \RuntimeException(self::DOWNLOAD_LINK_TRACKING_UNAVAILABLE_MESSAGE);
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            UPDATE download_link_issues
+               SET used_at = NOW()
+             WHERE file_short_id = ?
+               AND token_hash = ?
+               AND issued_for_ip_hash = ?
+               AND used_at IS NULL
+               AND expires_at >= NOW()
+               AND (
+                    (session_public_id IS NULL AND ? IS NULL)
+                    OR session_public_id = ?
+               )
+             LIMIT 1
+        ");
+        $sessionValue = $sessionId !== null && $sessionId !== '' ? $sessionId : null;
+        $stmt->execute([
+            (string)$fileId,
+            hash('sha256', $token),
+            hash('sha256', \App\Service\SecurityService::getClientIp()),
+            $sessionValue,
+            $sessionValue,
+        ]);
+
+        return $stmt->rowCount() === 1;
     }
 
     /**
@@ -233,7 +330,7 @@ class DownloadManager
     public function validateRequestSource(): bool
     {
         $referer = $_SERVER['HTTP_REFERER'] ?? '';
-        $trustedHost = parse_url(\App\Service\SeoService::trustedBaseUrl(), PHP_URL_HOST) ?: '';
+        $trustedHost = strtolower((string)(parse_url(\App\Service\SeoService::trustedBaseUrl(), PHP_URL_HOST) ?: ''));
 
         // if no referer (direct access), we might want to block or allow depending on strictness
         // for ppd (pay per download), strictly require referer from our own site.
@@ -241,15 +338,48 @@ class DownloadManager
             return false;
         }
 
-        $refererHost = parse_url($referer, PHP_URL_HOST);
+        $refererHost = strtolower((string)(parse_url($referer, PHP_URL_HOST) ?: ''));
 
         // use an allowlist from config when available; do not trust host blindly
         $allowedHosts = Config::get('security.allowed_hosts', []);
-        if (is_array($allowedHosts) && !empty($allowedHosts)) {
-            return in_array($refererHost, $allowedHosts, true);
+        $normalizedAllowedHosts = $this->normalizeAllowedHosts($allowedHosts);
+        if ($this->hasExplicitAllowedHosts($normalizedAllowedHosts)) {
+            return in_array(strtolower((string)$refererHost), $normalizedAllowedHosts, true);
         }
         // fallback: compare to current host
         return $trustedHost !== '' && $refererHost === $trustedHost;
+    }
+
+    private function normalizeAllowedHosts(mixed $allowedHosts): array
+    {
+        if (!is_array($allowedHosts)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(static function ($host): ?string {
+            $normalized = strtolower(trim((string)$host));
+            return $normalized !== '' ? $normalized : null;
+        }, $allowedHosts)));
+    }
+
+    private function hasExplicitAllowedHosts(array $allowedHosts): bool
+    {
+        foreach ($allowedHosts as $host) {
+            if (!$this->isLocalAllowedHost((string)$host)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isLocalAllowedHost(string $host): bool
+    {
+        $host = strtolower(trim($host));
+        return $host !== '' && (
+            in_array($host, ['localhost', '127.0.0.1', '::1'], true)
+            || str_ends_with($host, '.localhost')
+        );
     }
 
     /**
@@ -258,6 +388,10 @@ class DownloadManager
      */
     public function checkRateLimit(string $ip): bool
     {
+        if (!$this->rateLimitAvailable()) {
+            throw new \RuntimeException(self::DOWNLOAD_RATE_LIMIT_STORAGE_UNAVAILABLE_MESSAGE);
+        }
+
         $limit = (int)Config::get('security.rate_limit.download.limit', 5);
         $window = (int)Config::get('security.rate_limit.download.window', 600);
         $currentWindow = floor(time() / $window) * $window;
@@ -275,8 +409,8 @@ class DownloadManager
         // if the resulting count > limit, we block.
 
         $stmt = $db->prepare("
-            INSERT INTO download_limits (ip_address, window_start, attempt_count) 
-            VALUES (?, ?, 1) 
+            INSERT INTO download_limits (ip_address, window_start, attempt_count)
+            VALUES (?, ?, 1)
             ON DUPLICATE KEY UPDATE attempt_count = attempt_count + 1
         ");
         $stmt->execute([$ip, $currentWindow]);
@@ -299,20 +433,56 @@ class DownloadManager
             return;
         }
 
-        $db->exec("CREATE TABLE IF NOT EXISTS `download_limits` (
-            `ip_address` VARCHAR(255) NOT NULL,
-            `window_start` BIGINT UNSIGNED NOT NULL,
-            `attempt_count` INT UNSIGNED NOT NULL DEFAULT 1,
-            PRIMARY KEY (`ip_address`, `window_start`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-        try {
-            $db->exec("ALTER TABLE `download_limits` MODIFY COLUMN `ip_address` VARCHAR(255) NOT NULL");
-        } catch (\Throwable $e) {
-            // Existing installs can still fall back to deep schema repair if the live ALTER fails here.
-        }
+        SchemaService::ensureTables(['download_limits'], false);
 
         self::$rateLimitTableReady = true;
+    }
+
+    private function ensureDownloadLinkIssuesTable(): void
+    {
+        if (self::$downloadLinkIssuesTableReady) {
+            return;
+        }
+
+        SchemaService::ensureTables(['download_link_issues'], false);
+        self::$downloadLinkIssuesTableReady = true;
+    }
+
+    private function rateLimitAvailable(): bool
+    {
+        if (self::$rateLimitSchemaUnavailable) {
+            return false;
+        }
+
+        try {
+            $db = Database::getInstance()->getConnection();
+            $this->ensureRateLimitTable($db);
+            return true;
+        } catch (\Throwable $e) {
+            self::$rateLimitSchemaUnavailable = true;
+            Logger::warning('download rate-limit schema unavailable', [
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    private function downloadLinkIssuesAvailable(): bool
+    {
+        if (self::$downloadLinkIssuesSchemaUnavailable) {
+            return false;
+        }
+
+        try {
+            $this->ensureDownloadLinkIssuesTable();
+            return true;
+        } catch (\Throwable $e) {
+            self::$downloadLinkIssuesSchemaUnavailable = true;
+            Logger::warning('download link issue tracking schema unavailable', [
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
     }
 
     /**
@@ -322,7 +492,7 @@ class DownloadManager
     {
         $secret = \App\Model\Setting::getEncrypted('captcha_secret_key', Config::get('turnstile.secret_key'));
         if (empty($secret)) {
-            return true; // Bypass if not configured
+            return false;
         }
         if ($token === '') {
             return false;

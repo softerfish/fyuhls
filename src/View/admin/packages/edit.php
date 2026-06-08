@@ -1,9 +1,16 @@
 <?php
+use App\Service\PaymentService;
+
 include dirname(__DIR__) . '/header.php';
 include dirname(__DIR__) . '/partials/shell_helpers.php';
 
 $allPackages = is_array($allPackages ?? null) ? $allPackages : [];
 $userCounts = is_array($userCounts ?? null) ? $userCounts : [];
+$isNewPackage = !empty($isNewPackage);
+$canEditPackage = array_key_exists('canEditPackage', get_defined_vars()) ? !empty($canEditPackage) : true;
+$packageEditBlockedMessage = (string)($packageEditBlockedMessage ?? '');
+$error = (string)($error ?? '');
+$success = (string)($success ?? '');
 
 if (!function_exists('packageFormatBytes')) {
     function packageFormatBytes(int $bytes, string $unit = 'auto'): string
@@ -28,6 +35,37 @@ if (!function_exists('packageFormatBytes')) {
     }
 }
 
+if (!function_exists('packageFriendlyTermLabel')) {
+    function packageFriendlyTermLabel(int $days): string
+    {
+        return PaymentService::formatTermLabel($days);
+    }
+}
+
+$isPaidPackage = (string)($package['level_type'] ?? '') === 'paid';
+$packageBillingOptions = is_array($package['billing_options'] ?? null) ? $package['billing_options'] : [];
+if ($isPaidPackage && $packageBillingOptions === []) {
+    $packageBillingOptions = [[
+        'id' => 0,
+        'option_label' => PaymentService::formatTermLabel((int)($package['subscription_term_days'] ?? 30)),
+        'price' => (float)($package['price'] ?? 9.99),
+        'term_days' => (int)($package['subscription_term_days'] ?? 30),
+        'renewal_enabled' => !empty($package['renewal_enabled']) ? 1 : 0,
+        'is_active' => 1,
+    ]];
+}
+$billingEditorRows = $packageBillingOptions;
+if ($billingEditorRows === []) {
+    $billingEditorRows = [[
+        'id' => 0,
+        'option_label' => PaymentService::formatTermLabel((int)($package['subscription_term_days'] ?? 30)),
+        'price' => 9.99,
+        'term_days' => (int)($package['subscription_term_days'] ?? 30),
+        'renewal_enabled' => !empty($package['renewal_enabled']) ? 1 : 0,
+        'is_active' => 1,
+    ]];
+}
+
 $assignedUsers = (int)($userCounts[(int)$package['id']] ?? 0);
 $rewardSummary = [];
 if (!empty($package['ppd_enabled'])) {
@@ -43,22 +81,44 @@ ob_start();
 ?>
 <div class="d-flex flex-wrap gap-2 align-items-center package-edit-actions">
     <a href="/admin/packages" class="btn btn-sm btn-outline-secondary shadow-sm">&larr; Back to Packages</a>
-    <form method="POST" action="/admin/package/clone/<?= (int)$package['id'] ?>" class="d-inline" data-confirm-message="Clone this package into a new plan?">
-        <?= \App\Core\Csrf::field() ?>
-        <button type="submit" class="btn btn-sm btn-outline-dark shadow-sm">Clone Package</button>
-    </form>
+    <?php if (!$isNewPackage): ?>
+        <?php if (!in_array((string)($package['level_type'] ?? ''), ['guest', 'admin'], true)): ?>
+            <form method="POST" action="/admin/package/clone/<?= (int)$package['id'] ?>" class="d-inline" data-confirm-message="Clone this package into a new plan?">
+                <?= \App\Core\Csrf::field() ?>
+                <button type="submit" class="btn btn-sm btn-outline-dark shadow-sm">Clone Package</button>
+            </form>
+            <form method="POST" action="/admin/package/delete/<?= (int)$package['id'] ?>" class="d-inline" data-confirm-message="Delete this package? This only works when nothing in the system still depends on it.">
+                <?= \App\Core\Csrf::field() ?>
+                <button type="submit" class="btn btn-sm btn-outline-danger shadow-sm">Delete Package</button>
+            </form>
+        <?php endif; ?>
+    <?php endif; ?>
 </div>
 <?php
 $actions = ob_get_clean();
-renderAdminPageHeader('Edit Package: ' . (string)$package['name'], 'Tune user-facing plan behavior without digging through a single long form. Limits, rewards, and experience settings are grouped below.', $actions);
+renderAdminPageHeader($isNewPackage ? 'Create Package' : ('Edit Package: ' . (string)$package['name']), $isNewPackage ? 'Create a new user-facing plan from scratch, then fine-tune it before assigning users or exposing it in checkout.' : 'Tune user-facing plan behavior without digging through a single long form. Limits, rewards, and experience settings are grouped below.', $actions);
 ?>
+
+<?php if ($error !== ''): ?>
+    <div class="alert alert-danger border-0 shadow-sm mb-4"><?= htmlspecialchars($error) ?></div>
+<?php endif; ?>
+<?php if ($success !== ''): ?>
+    <div class="alert alert-success border-0 shadow-sm mb-4"><?= htmlspecialchars($success) ?></div>
+<?php endif; ?>
 
 <div class="row g-3 mb-4">
     <div class="col-md-3 col-sm-6">
         <?php renderAdminStatCard('Plan Type', strtoupper((string)$package['level_type'])); ?>
     </div>
     <div class="col-md-3 col-sm-6">
-        <?php renderAdminStatCard('Price', ((float)($package['price'] ?? 0)) > 0 ? '$' . number_format((float)$package['price'], 2) : 'Free'); ?>
+        <?php
+        $activeBillingOptions = array_values(array_filter($packageBillingOptions, static fn(array $option): bool => !empty($option['is_active'])));
+        $defaultBillingOption = $activeBillingOptions[0] ?? $packageBillingOptions[0] ?? null;
+        $packagePriceLabel = ($isPaidPackage && $defaultBillingOption !== null && (float)($defaultBillingOption['price'] ?? 0) > 0)
+            ? ('$' . number_format((float)$defaultBillingOption['price'], 2) . ' / ' . packageFriendlyTermLabel((int)($defaultBillingOption['term_days'] ?? 30)))
+            : 'Free';
+        renderAdminStatCard('Price', $packagePriceLabel);
+        ?>
     </div>
     <div class="col-md-3 col-sm-6">
         <?php renderAdminStatCard('Assigned Users', (string)$assignedUsers); ?>
@@ -68,19 +128,27 @@ renderAdminPageHeader('Edit Package: ' . (string)$package['name'], 'Tune user-fa
     </div>
 </div>
 
-<?php if ($assignedUsers > 0): ?>
+<?php if (!$isNewPackage && $assignedUsers > 0): ?>
     <div class="alert alert-warning border-0 shadow-sm mb-4">
         <strong>Live impact:</strong> <?= $assignedUsers ?> user<?= $assignedUsers === 1 ? '' : 's' ?> currently rely on this package. Changes to limits, rewards, or wait rules affect their experience immediately.
     </div>
 <?php endif; ?>
 
+<?php if (!$canEditPackage): ?>
+    <div class="alert alert-warning border-0 shadow-sm mb-4">
+        <strong>Protected system plan:</strong> <?= htmlspecialchars($packageEditBlockedMessage) ?>
+    </div>
+<?php endif; ?>
+
 <form method="POST" id="packageEditForm">
     <?= \App\Core\Csrf::field() ?>
+    <fieldset <?= !$canEditPackage ? 'disabled' : '' ?>>
     <div class="row g-4">
         <div class="col-xl-3">
             <?php renderAdminCardStart('Package Sections', ['cardClass' => 'card border-0 shadow-sm mb-4']); ?>
                 <div class="list-group list-group-flush package-edit-nav">
                     <a href="#package-overview" class="list-group-item list-group-item-action">Overview</a>
+                    <a href="#package-billing" class="list-group-item list-group-item-action">Billing Options</a>
                     <a href="#package-storage" class="list-group-item list-group-item-action">Storage & Uploads</a>
                     <a href="#package-downloads" class="list-group-item list-group-item-action">Downloads & Delivery</a>
                     <a href="#package-rewards" class="list-group-item list-group-item-action">Rewards & Payout</a>
@@ -97,7 +165,17 @@ renderAdminPageHeader('Edit Package: ' . (string)$package['name'], 'Tune user-fa
                         <?php foreach ($comparisonPackages as $comparison): ?>
                             <div class="border rounded p-2">
                                 <div class="fw-semibold"><?= htmlspecialchars((string)$comparison['name']) ?></div>
-                                <div class="small text-muted"><?= strtoupper((string)$comparison['level_type']) ?> | <?= ((float)($comparison['price'] ?? 0)) > 0 ? '$' . number_format((float)$comparison['price'], 2) : 'Free' ?></div>
+                                <?php
+                                $comparisonOptions = is_array($comparison['billing_options'] ?? null) ? $comparison['billing_options'] : [];
+                                $comparisonActive = array_values(array_filter($comparisonOptions, static fn(array $option): bool => !empty($option['is_active'])));
+                                $comparisonDefault = $comparisonActive[0] ?? $comparisonOptions[0] ?? null;
+                                ?>
+                                <div class="small text-muted">
+                                    <?= strtoupper((string)$comparison['level_type']) ?> |
+                                    <?= ($comparisonDefault !== null && (float)($comparisonDefault['price'] ?? 0) > 0)
+                                        ? ('$' . number_format((float)$comparisonDefault['price'], 2) . ' / ' . packageFriendlyTermLabel((int)($comparisonDefault['term_days'] ?? 30)))
+                                        : 'Free' ?>
+                                </div>
                                 <div class="small text-muted"><?= htmlspecialchars(packageFormatBytes((int)($comparison['max_storage_bytes'] ?? 0), 'gb')) ?> storage | <?= htmlspecialchars(packageFormatBytes((int)($comparison['max_upload_size'] ?? 0), 'mb')) ?> upload</div>
                             </div>
                         <?php endforeach; ?>
@@ -116,14 +194,22 @@ renderAdminPageHeader('Edit Package: ' . (string)$package['name'], 'Tune user-fa
                         <div class="form-text">This is the customer-facing name used across checkout, account, and package messaging.</div>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold">Package Price (USD)</label>
-                        <input type="number" class="form-control" step="0.01" min="0" name="price" value="<?= htmlspecialchars((string)($package['price'] ?? '0.00')) ?>">
-                        <div class="form-text">Set to <code>0</code> for plans that should not charge users directly.</div>
+                        <label class="form-label fw-semibold">Billing setup</label>
+                        <div class="form-control bg-light d-flex align-items-center">Managed in the Billing Options section below</div>
+                        <div class="form-text">One paid package can now offer multiple checkout choices like 1 month, 6 months, or 1 year.</div>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold">Plan Audience</label>
-                        <input type="text" class="form-control" value="<?= htmlspecialchars(strtoupper((string)$package['level_type'])) ?>" disabled>
-                        <div class="form-text">This built-in package type is fixed so registrations, upgrades, and role flows remain predictable.</div>
+                        <?php if ($isNewPackage): ?>
+                            <select class="form-select" id="planAudienceSelect" name="level_type">
+                                <option value="free" <?= (string)$package['level_type'] === 'free' ? 'selected' : '' ?>>FREE</option>
+                                <option value="paid" <?= (string)$package['level_type'] === 'paid' ? 'selected' : '' ?>>PAID</option>
+                            </select>
+                            <div class="form-text">New packages can start as free or paid plans. System-only guest and admin plans stay protected.</div>
+                        <?php else: ?>
+                            <input type="text" class="form-control" value="<?= htmlspecialchars(strtoupper((string)$package['level_type'])) ?>" disabled>
+                            <div class="form-text">This built-in package type is fixed so registrations, upgrades, and role flows remain predictable.</div>
+                        <?php endif; ?>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold">Accepted File Types</label>
@@ -131,6 +217,59 @@ renderAdminPageHeader('Edit Package: ' . (string)$package['name'], 'Tune user-fa
                         <div class="form-text">Optional override. Use a comma-separated list if this plan needs stricter file-type rules than the global uploader settings.</div>
                     </div>
                 </div>
+            <?php renderAdminCardEnd(); ?>
+            <?php renderAdminCardStart('Billing Options', ['cardClass' => 'card border-0 shadow-sm mb-4']); ?>
+                <div id="package-billing"></div>
+                <div id="packageFreeBillingNotice" class="<?= $isPaidPackage ? 'd-none' : '' ?>">
+                    <div class="alert alert-light border small mb-0">
+                        <strong>Not used for free plans:</strong> Billing options only apply to paid packages. If you later convert this package into a paid plan, checkout pricing will be managed here.
+                    </div>
+                </div>
+                <fieldset id="packagePaidBillingFieldset" <?= $isPaidPackage ? '' : 'disabled' ?> class="<?= $isPaidPackage ? '' : 'd-none' ?>">
+                    <div class="form-text mb-3">These are the real checkout choices for this plan. Admins can use any day count they want. If auto-renew is enabled on a row, the term also needs to fit the recurring gateway limits. The first active row becomes the default option shown across the site.</div>
+                    <div class="d-grid gap-3" id="billingOptionsList">
+                        <?php foreach ($billingEditorRows as $index => $option): ?>
+                            <div class="border rounded p-3 billing-option-row">
+                                <input type="hidden" name="billing_option_id[]" value="<?= (int)($option['id'] ?? 0) ?>">
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label fw-semibold">Label</label>
+                                        <input type="text" class="form-control" name="billing_option_label[]" maxlength="100" value="<?= htmlspecialchars((string)($option['option_label'] ?? '')) ?>" placeholder="3 months, Annual, 45 days">
+                                        <div class="form-text">Optional. Leave blank to auto-name it from the day count.</div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-semibold">Price (USD)</label>
+                                        <input type="number" class="form-control" name="billing_option_price[]" min="0" step="0.01" value="<?= htmlspecialchars(number_format((float)($option['price'] ?? 0), 2, '.', '')) ?>">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-semibold">Term (days)</label>
+                                        <input type="number" class="form-control billing-option-term-days" name="billing_option_term_days[]" min="1" value="<?= (int)($option['term_days'] ?? 30) ?>">
+                                        <div class="form-text billing-option-term-preview">Shows as <?= htmlspecialchars(packageFriendlyTermLabel((int)($option['term_days'] ?? 30))) ?></div>
+                                    </div>
+                                    <div class="col-md-2 d-flex align-items-end">
+                                        <button type="button" class="btn btn-outline-danger w-100 billing-option-remove">Remove</button>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-check-label d-flex align-items-center gap-2">
+                                            <input type="checkbox" class="form-check-input mt-0" name="billing_option_renewal_enabled[<?= $index ?>]" value="1" <?= !empty($option['renewal_enabled']) ? 'checked' : '' ?>>
+                                            Allow auto-renew for this billing choice
+                                        </label>
+                                        <div class="form-text">Auto-renew rows must use gateway-friendly recurring lengths, like 45 days, 3 months, 6 months, or 1 year.</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-check-label d-flex align-items-center gap-2">
+                                            <input type="checkbox" class="form-check-input mt-0" name="billing_option_is_active[<?= $index ?>]" value="1" <?= !empty($option['is_active']) ? 'checked' : '' ?>>
+                                            Show this billing choice in checkout
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="mt-3" id="packagePaidBillingActions">
+                        <button type="button" class="btn btn-outline-secondary" id="addBillingOptionBtn">Add Billing Option</button>
+                    </div>
+                </fieldset>
             <?php renderAdminCardEnd(); ?>
 
             <?php renderAdminCardStart('Storage & Uploads', ['cardClass' => 'card border-0 shadow-sm mb-4']); ?>
@@ -258,11 +397,13 @@ renderAdminPageHeader('Edit Package: ' . (string)$package['name'], 'Tune user-fa
 
             <div class="position-sticky bottom-0 bg-white border rounded shadow-sm p-3 d-flex flex-wrap align-items-center justify-content-between gap-3 package-savebar">
                 <div class="small text-muted">
-                    Editing a live plan updates user entitlements right away. Clone a plan first if you want to test a new tier safely before switching users or checkout flows over to it.
+                    <?= $isNewPackage
+                        ? 'Create the package first, then review it on the edit screen before assigning users or exposing it in checkout.'
+                        : 'Editing a live plan updates user entitlements right away. Clone a plan first if you want to test a new tier safely before switching users or checkout flows over to it.' ?>
                 </div>
                 <div class="d-flex gap-2 flex-wrap">
                     <a href="/admin/packages" class="btn btn-outline-secondary">Back to Packages</a>
-                    <button type="submit" class="btn btn-primary">Save Package Changes</button>
+                    <button type="submit" class="btn btn-primary"><?= $isNewPackage ? 'Create Package' : 'Save Package Changes' ?></button>
                 </div>
             </div>
         </div>
@@ -273,7 +414,18 @@ renderAdminPageHeader('Edit Package: ' . (string)$package['name'], 'Tune user-fa
                 <div class="package-preview-card border rounded p-3">
                     <div class="small text-uppercase text-muted mb-2"><?= htmlspecialchars(strtoupper((string)$package['level_type'])) ?></div>
                     <h5 class="mb-2"><?= htmlspecialchars((string)$package['name']) ?></h5>
-                    <div class="fs-4 fw-bold mb-3"><?= ((float)($package['price'] ?? 0)) > 0 ? '$' . number_format((float)$package['price'], 2) : 'Free' ?></div>
+                    <div class="fs-4 fw-bold mb-3"><?= ($isPaidPackage && $defaultBillingOption !== null && (float)($defaultBillingOption['price'] ?? 0) > 0) ? '$' . number_format((float)$defaultBillingOption['price'], 2) : 'Free' ?></div>
+                    <?php if ($isPaidPackage): ?>
+                        <div class="small text-muted mb-3">
+                            <?= count($packageBillingOptions) > 1 ? 'Starts at' : 'Default term:' ?>
+                            <?= htmlspecialchars(packageFriendlyTermLabel((int)($defaultBillingOption['term_days'] ?? 30))) ?>
+                            <?php if (!empty($defaultBillingOption['renewal_enabled'])): ?>
+                                | Auto-renew available
+                            <?php else: ?>
+                                | One-time only
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
                     <ul class="small text-muted ps-3 mb-0">
                         <li><?= htmlspecialchars(packageFormatBytes((int)$package['max_storage_bytes'], 'gb')) ?> storage</li>
                         <li><?= htmlspecialchars(packageFormatBytes((int)$package['max_upload_size'], 'mb')) ?> max upload</li>
@@ -289,22 +441,173 @@ renderAdminPageHeader('Edit Package: ' . (string)$package['name'], 'Tune user-fa
             <?php renderAdminCardStart('Admin Notes', ['cardClass' => 'card border-0 shadow-sm']); ?>
                 <ul class="small text-muted ps-3 mb-0">
                     <li>Use built-in package types as anchors for registration, upgrade, and role-driven behavior.</li>
+                    <li>You can add as many billing options as you want for one paid plan. The day count is freeform.</li>
                     <li>Clone a plan when you need a new tier instead of repurposing a live package that already has users on it.</li>
                     <li>Concurrent download limits above zero automatically turn on active-download tracking in Config Hub.</li>
                 </ul>
             <?php renderAdminCardEnd(); ?>
         </div>
     </div>
+    </fieldset>
 </form>
 
 <style>
 .package-edit-nav .list-group-item{padding:.72rem .82rem}
 .package-savebar{z-index:10;bottom:1rem}
 .package-edit-actions .btn{white-space:nowrap}
+.billing-option-row{background:#fff}
+.billing-option-term-preview{min-height:1.25rem}
 @media (max-width: 991.98px){
     .package-savebar{position:static!important}
     .package-savebar .btn{flex:1 1 100%}
 }
 </style>
+
+<script>
+(() => {
+    const list = document.getElementById('billingOptionsList');
+    const addBtn = document.getElementById('addBillingOptionBtn');
+    if (!list || !addBtn) {
+        return;
+    }
+    const planAudienceSelect = document.getElementById('planAudienceSelect');
+    const paidFieldset = document.getElementById('packagePaidBillingFieldset');
+    const freeNotice = document.getElementById('packageFreeBillingNotice');
+    const paidActions = document.getElementById('packagePaidBillingActions');
+
+    const termLabel = (days) => {
+        const value = Math.max(1, parseInt(days || '1', 10) || 1);
+        if (value % 365 === 0) {
+            const years = value / 365;
+            return years === 1 ? '1 year' : `${years} years`;
+        }
+        if (value % 30 === 0) {
+            const months = value / 30;
+            return months === 1 ? '1 month' : `${months} months`;
+        }
+        if (value % 7 === 0) {
+            const weeks = value / 7;
+            return weeks === 1 ? '1 week' : `${weeks} weeks`;
+        }
+        return value === 1 ? '1 day' : `${value} days`;
+    };
+
+    const refreshRows = () => {
+        const rows = Array.from(list.querySelectorAll('.billing-option-row'));
+        rows.forEach((row, index) => {
+            const renewalCheckbox = row.querySelector('[data-billing-renewal]');
+            const activeCheckbox = row.querySelector('[data-billing-active]');
+            const termInput = row.querySelector('.billing-option-term-days');
+            const termPreview = row.querySelector('.billing-option-term-preview');
+            const removeBtn = row.querySelector('.billing-option-remove');
+            if (renewalCheckbox) {
+                renewalCheckbox.name = `billing_option_renewal_enabled[${index}]`;
+            }
+            if (activeCheckbox) {
+                activeCheckbox.name = `billing_option_is_active[${index}]`;
+            }
+            if (termInput && termPreview) {
+                termPreview.textContent = `Shows as ${termLabel(termInput.value)}`;
+            }
+            if (removeBtn) {
+                removeBtn.disabled = rows.length === 1;
+            }
+        });
+    };
+
+    const syncBillingSectionVisibility = () => {
+        if (!(planAudienceSelect instanceof HTMLSelectElement) || !(paidFieldset instanceof HTMLFieldSetElement) || !(freeNotice instanceof HTMLElement)) {
+            return;
+        }
+
+        const isPaid = planAudienceSelect.value === 'paid';
+        paidFieldset.disabled = !isPaid;
+        paidFieldset.classList.toggle('d-none', !isPaid);
+        freeNotice.classList.toggle('d-none', isPaid);
+        if (paidActions instanceof HTMLElement) {
+            paidActions.classList.toggle('d-none', !isPaid);
+        }
+    };
+
+    const buildRow = () => {
+        const row = document.createElement('div');
+        row.className = 'border rounded p-3 billing-option-row';
+        row.innerHTML = `
+            <input type="hidden" name="billing_option_id[]" value="0">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">Label</label>
+                    <input type="text" class="form-control" name="billing_option_label[]" maxlength="100" placeholder="3 months, Annual, 45 days">
+                    <div class="form-text">Optional. Leave blank to auto-name it from the day count.</div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">Price (USD)</label>
+                    <input type="number" class="form-control" name="billing_option_price[]" min="0" step="0.01" value="0.00">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">Term (days)</label>
+                    <input type="number" class="form-control billing-option-term-days" name="billing_option_term_days[]" min="1" value="30">
+                    <div class="form-text billing-option-term-preview">Shows as 1 month</div>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="button" class="btn btn-outline-danger w-100 billing-option-remove">Remove</button>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-check-label d-flex align-items-center gap-2">
+                        <input type="checkbox" class="form-check-input mt-0" data-billing-renewal value="1" checked>
+                        Allow auto-renew for this billing choice
+                    </label>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-check-label d-flex align-items-center gap-2">
+                        <input type="checkbox" class="form-check-input mt-0" data-billing-active value="1" checked>
+                        Show this billing choice in checkout
+                    </label>
+                </div>
+            </div>
+        `;
+        return row;
+    };
+
+    list.querySelectorAll('input[name^="billing_option_renewal_enabled"]').forEach((el) => {
+        el.setAttribute('data-billing-renewal', '1');
+    });
+    list.querySelectorAll('input[name^="billing_option_is_active"]').forEach((el) => {
+        el.setAttribute('data-billing-active', '1');
+    });
+
+    addBtn.addEventListener('click', () => {
+        list.appendChild(buildRow());
+        refreshRows();
+    });
+
+    list.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement) || !target.classList.contains('billing-option-remove')) {
+            return;
+        }
+        const rows = list.querySelectorAll('.billing-option-row');
+        if (rows.length <= 1) {
+            return;
+        }
+        target.closest('.billing-option-row')?.remove();
+        refreshRows();
+    });
+
+    list.addEventListener('input', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement) || !target.classList.contains('billing-option-term-days')) {
+            return;
+        }
+        refreshRows();
+    });
+
+    refreshRows();
+    syncBillingSectionVisibility();
+    if (planAudienceSelect instanceof HTMLSelectElement) {
+        planAudienceSelect.addEventListener('change', syncBillingSectionVisibility);
+    }
+})();
+</script>
 
 <?php include dirname(__DIR__) . '/footer.php'; ?>

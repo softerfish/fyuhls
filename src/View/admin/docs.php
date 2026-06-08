@@ -33,8 +33,16 @@ $docGroups = [
                 'include' => 'help/status.php',
             ],
             [
+                'id' => 'application-logs',
+                'title' => 'Application Logs',
+                'summary' => 'Read the newest redacted application log lines directly when you need fast recent-error context.',
+                'icon' => 'bi-terminal',
+                'keywords' => 'logs application logs recent errors redacted clear log file troubleshooting',
+                'include' => 'help/logs.php',
+            ],
+            [
                 'id' => 'support',
-                'title' => 'Support Center',
+                'title' => 'Diagnostics',
                 'summary' => 'Generate sanitized diagnostics, review updater context, and prepare clean escalation bundles.',
                 'icon' => 'bi-life-preserver',
                 'keywords' => 'support support center sanitized json update updater release diagnostics email bundle',
@@ -47,6 +55,14 @@ $docGroups = [
                 'icon' => 'bi-stars',
                 'keywords' => 'resources sponsors partners proxycheck hosting partnerships supporters affiliates setup',
                 'include' => 'help/resources.php',
+            ],
+            [
+                'id' => 'staff-activity',
+                'title' => 'Staff Activity',
+                'summary' => 'Audit who changed users, packages, payouts, and configuration, with filters built for investigations.',
+                'icon' => 'bi-clock-history',
+                'keywords' => 'staff activity admin audit log actor action target manual credit withdrawals config package history investigation',
+                'include' => 'help/staff_activity.php',
             ],
         ],
     ],
@@ -72,6 +88,22 @@ $docGroups = [
                 'include' => 'help/files.php',
             ],
             [
+                'id' => 'uploader-investigation',
+                'title' => 'Uploader Investigation',
+                'summary' => 'Deep-dive one uploader when rewards, abuse, file volume, or package behavior needs closer review.',
+                'icon' => 'bi-person-lines-fill',
+                'keywords' => 'uploader investigation rewards abuse files package downloads risk staff audit user detail',
+                'include' => 'help/uploader_investigation.php',
+            ],
+            [
+                'id' => 'file-investigation',
+                'title' => 'File Investigation',
+                'summary' => 'Inspect one file across ownership, delivery, moderation, and rewards-adjacent history without leaving admin.',
+                'icon' => 'bi-file-earmark-medical',
+                'keywords' => 'file investigation ownership delivery moderation rewards history diagnostics details',
+                'include' => 'help/file_investigation.php',
+            ],
+            [
                 'id' => 'live-downloads',
                 'title' => 'Live Downloads',
                 'summary' => 'See active transfer sessions and concurrency pressure when connection tracking is enabled.',
@@ -94,6 +126,14 @@ $docGroups = [
                 'icon' => 'bi-shield-exclamation',
                 'keywords' => 'rewards fraud held flagged risk review queue cloudflare proxycheck intelligence',
                 'include' => 'help/rewards_fraud.php',
+            ],
+            [
+                'id' => 'bonus-reviews',
+                'title' => 'Bonus Reviews',
+                'summary' => 'Review pending bonus-offer awards from the Monetization tab when you already have full Configuration access.',
+                'icon' => 'bi-award',
+                'keywords' => 'bonus reviews promotions review queue rewards moderation monetization offers approve reject hold',
+                'include' => 'help/bonus_reviews.php',
             ],
         ],
     ],
@@ -125,6 +165,22 @@ $docGroups = [
                 'icon' => 'bi-arrow-repeat',
                 'keywords' => 'subscriptions premium expiry renewals packages status billing',
                 'include' => 'help/subscriptions.php',
+            ],
+            [
+                'id' => 'manual-subscription',
+                'title' => 'Create Manual Subscription',
+                'summary' => 'Grant or repair one-time premium access directly when normal gateway checkout is not the right tool.',
+                'icon' => 'bi-plus-circle',
+                'keywords' => 'manual subscription create premium support repair offline payment one time no auto renew',
+                'include' => 'help/subscription_create.php',
+            ],
+            [
+                'id' => 'coupons',
+                'title' => 'Coupons',
+                'summary' => 'Create premium discount codes, control eligibility, and watch how limited campaigns are actually being used.',
+                'icon' => 'bi-ticket-perforated',
+                'keywords' => 'coupons coupon codes premium discounts renewals new accounts limits percentage amount campaigns checkout',
+                'include' => 'help/coupons.php',
             ],
         ],
     ],
@@ -195,6 +251,14 @@ $docGroups = [
                 'icon' => 'bi-folder2-open',
                 'keywords' => 'file manager trash restore folders search filters grid list quota uploads sharing user support',
                 'include' => 'help/file_manager.php',
+            ],
+            [
+                'id' => 'scaling',
+                'title' => 'Scaling Guide',
+                'summary' => 'Read how storage, delivery, reward-proof rules, and CDN posture affect throughput before changing settings.',
+                'icon' => 'bi-lightning-charge',
+                'keywords' => 'scaling guide throughput delivery storage cdn nginx rewards proof concurrency object storage app hot path',
+                'include' => 'help/scaling.php',
             ],
         ],
     ],
@@ -274,9 +338,9 @@ HTML,
             [
                 'id' => 'supporting-guides-detail',
                 'title' => 'Shared Tab Guides',
-                'summary' => 'General, downloads, uploads, SEO, cron, monetization, and other shared config areas referenced by many pages.',
+                'summary' => 'General, downloads, uploads, link checker, ticket settings, SEO, cron, monetization, and other shared config areas referenced by many pages.',
                 'icon' => 'bi-journal-text',
-                'keywords' => 'security email cron cron jobs settings monetization uploads downloads multipart support api rewards fraud requests archive dmca captcha proxycheck cloudflare templates tickets',
+                'keywords' => 'security email cron cron jobs settings monetization uploads downloads multipart support api rewards fraud requests archive dmca captcha proxycheck cloudflare templates tickets link checker',
             ],
         ],
     ],
@@ -300,15 +364,107 @@ function renderDocsModuleEnd(): void
     renderAdminCardEnd();
 }
 
+function docsViewerCanOpenAdminHref(string $href): bool
+{
+    $path = (string)(parse_url($href, PHP_URL_PATH) ?? '');
+    if ($path === '' || !str_starts_with($path, '/admin')) {
+        return true;
+    }
+
+    if (str_starts_with($path, '/admin/docs')) {
+        return \App\Core\Auth::hasCapability('docs.view');
+    }
+    if (str_starts_with($path, '/admin/configuration')) {
+        return \App\Core\Auth::hasCapability('configuration.manage');
+    }
+    if (str_starts_with($path, '/admin/status')) {
+        return \App\Core\Auth::hasCapability('status.view');
+    }
+    if (str_starts_with($path, '/admin/logs')) {
+        return \App\Core\Auth::hasCapability('status.view');
+    }
+    if (str_starts_with($path, '/admin/support')) {
+        return \App\Core\Auth::hasCapability('support.manage');
+    }
+    if (str_starts_with($path, '/admin/requests') || str_starts_with($path, '/admin/contacts')) {
+        return \App\Core\Auth::hasCapability('requests.manage');
+    }
+    if (str_starts_with($path, '/admin/files')) {
+        return \App\Core\Auth::hasCapability('files.moderate');
+    }
+    if (str_starts_with($path, '/admin/users')) {
+        return \App\Core\Auth::hasCapability('users.manage');
+    }
+    if (str_starts_with($path, '/admin/subscriptions')) {
+        return \App\Core\Auth::hasCapability('subscriptions.manage');
+    }
+    if (str_starts_with($path, '/admin/subscription/create')) {
+        return \App\Core\Auth::hasCapability('subscriptions.manage');
+    }
+    if (str_starts_with($path, '/admin/packages')) {
+        return \App\Core\Auth::hasCapability('packages.manage');
+    }
+    if (str_starts_with($path, '/admin/downloads/current')) {
+        return \App\Core\Auth::hasCapability('downloads.live');
+    }
+    if (str_starts_with($path, '/admin/server-monitoring')) {
+        return \App\Core\Auth::hasAnyCapability(['configuration.manage', 'support.manage', 'file_servers.manage']);
+    }
+    if (str_starts_with($path, '/admin/file-server/')) {
+        return \App\Core\Auth::hasCapability('file_servers.manage');
+    }
+    if (str_starts_with($path, '/admin/rewards-fraud')) {
+        return \App\Service\FeatureService::rewardsEnabled() && \App\Core\Auth::hasCapability('rewards_fraud.manage');
+    }
+    if (str_starts_with($path, '/admin/withdrawals')) {
+        return \App\Service\FeatureService::rewardsEnabled() && \App\Core\Auth::hasCapability('withdrawals.manage');
+    }
+    if (str_starts_with($path, '/admin/investigations/')) {
+        return \App\Core\Auth::hasCapability('investigations.view');
+    }
+
+    return false;
+}
+
+function docsSanitizeAdminLinks(string $html): string
+{
+    return (string)preg_replace_callback(
+        '/<a\b([^>]*?)href="([^"]+)"([^>]*)>(.*?)<\/a>/is',
+        static function (array $matches): string {
+            $href = (string)($matches[2] ?? '');
+            if (docsViewerCanOpenAdminHref($href)) {
+                return $matches[0];
+            }
+
+            $attributes = trim((string)(($matches[1] ?? '') . ' ' . ($matches[3] ?? '')));
+            $className = 'guide-action-link docs-link-disabled';
+            if (preg_match('/class="([^"]*)"/i', $attributes, $classMatch) === 1) {
+                $className = trim($classMatch[1] . ' docs-link-disabled');
+            }
+
+            return '<span class="' . htmlspecialchars($className, ENT_QUOTES, 'UTF-8') . '" title="Additional permission required to open this page.">' . ($matches[4] ?? '') . '</span>';
+        },
+        $html
+    );
+}
+
 ob_start();
 ?>
 <div class="docs-search-wrap position-relative mt-3">
     <input type="text" id="docsSearchInput" class="form-control border-0 shadow-sm" placeholder="Search docs by task, page, setting, or feature...">
 </div>
+<div class="d-flex flex-wrap gap-2 mt-3">
+    <a href="<?= htmlspecialchars(adminWikiBaseUrl()) ?>" class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener noreferrer">Open GitHub Wiki</a>
+    <a href="<?= htmlspecialchars(adminWikiBaseUrl() . '/Find-the-Right-Page') ?>" class="btn btn-outline-primary btn-sm" target="_blank" rel="noopener noreferrer">Find the Right Wiki Page</a>
+</div>
 <?php
 $docsActions = ob_get_clean();
 renderAdminPageHeader('Platform Documentation', 'Task-oriented admin docs, page guides, and operational references that match the current interface.', $docsActions);
 ?>
+
+<?php renderAdminCardStart('Link Visibility', ['bodyClass' => 'py-3 px-4', 'cardClass' => 'mb-4']); ?>
+    <p class="small text-muted mb-0">Cross-links inside these guides only stay clickable when your current role can actually open the target admin page. This keeps the docs useful without advertising deeper controls that are outside your permission boundary.</p>
+<?php renderAdminCardEnd(); ?>
 
 <?php renderAdminCardStart('Start Here', ['bodyClass' => 'py-3 px-4', 'cardClass' => 'mb-4']); ?>
 <div class="row g-3">
@@ -318,7 +474,7 @@ renderAdminPageHeader('Platform Documentation', 'Task-oriented admin docs, page 
                 <div class="docs-summary-icon bg-primary-subtle text-primary"><i class="bi bi-rocket-takeoff"></i></div>
                 <div>
                     <div class="fw-semibold text-dark mb-1">First-Time Setup</div>
-                    <div class="small text-muted">Start with Dashboard, Config Hub, System Status, and Support Center.</div>
+                    <div class="small text-muted">Start with Dashboard, Config Hub, System Status, and Diagnostics.</div>
                 </div>
             </div>
         </a>
@@ -366,7 +522,7 @@ renderAdminPageHeader('Platform Documentation', 'Task-oriented admin docs, page 
             <ul class="small text-muted mb-0 ps-3">
                 <li>Use <a href="#email-supporting">Email</a> for SMTP config, connection tests, send tests, and templates.</li>
                 <li>Check <a href="#status">System Status</a> if the queue is stuck or cron-driven mail is not moving.</li>
-                <li>Use <a href="#support">Support Center</a> when you need a sanitized bundle for escalation.</li>
+                <li>Use <a href="#support">Diagnostics</a> when you need a sanitized bundle for escalation.</li>
             </ul>
         </div>
     </div>
@@ -450,9 +606,11 @@ renderAdminPageHeader('Platform Documentation', 'Task-oriented admin docs, page 
                     </div>
                     <?php
                     if (isset($card['include'])) {
+                        ob_start();
                         include $card['include'];
+                        echo docsSanitizeAdminLinks((string)ob_get_clean());
                     } elseif (isset($card['html'])) {
-                        echo $card['html'];
+                        echo docsSanitizeAdminLinks((string)$card['html']);
                     }
                     ?>
                 <?php renderDocsModuleEnd(); ?>
@@ -469,21 +627,21 @@ renderAdminPageHeader('Platform Documentation', 'Task-oriented admin docs, page 
             <div class="row mt-1">
                 <div class="col-md-4 border-end">
                     <h6 class="fw-bold fs-7 text-uppercase text-muted mb-3">Add Node</h6>
-                    <?php include 'help/file_server_add.php'; ?>
+                    <?php ob_start(); include 'help/file_server_add.php'; echo docsSanitizeAdminLinks((string)ob_get_clean()); ?>
                 </div>
                 <div class="col-md-4 border-end">
                     <h6 class="fw-bold fs-7 text-uppercase text-muted mb-3">Edit Node</h6>
-                    <?php include 'help/file_server_edit.php'; ?>
+                    <?php ob_start(); include 'help/file_server_edit.php'; echo docsSanitizeAdminLinks((string)ob_get_clean()); ?>
                 </div>
                 <div class="col-md-4">
                     <h6 class="fw-bold fs-7 text-uppercase text-muted mb-3">Migrate Files</h6>
-                    <?php include 'help/file_server_migrate.php'; ?>
+                    <?php ob_start(); include 'help/file_server_migrate.php'; echo docsSanitizeAdminLinks((string)ob_get_clean()); ?>
                 </div>
             </div>
         <?php renderDocsModuleEnd(); ?>
     </div>
 
-    <div class="col-12 doc-module" id="supporting-guides-detail" data-keywords="general downloads uploads security email monetization seo cron tickets shared tab guides">
+    <div class="col-12 doc-module" id="supporting-guides-detail" data-keywords="general downloads uploads link checker security email monetization seo cron tickets shared tab guides">
         <?php renderDocsModuleStart('bi-journal-richtext', 'Shared Configuration Tab Guides'); ?>
             <div class="p-1 border-bottom mb-4 pb-3">
                 <div class="small text-uppercase text-muted fw-semibold mb-2">What This Covers</div>
@@ -491,16 +649,12 @@ renderAdminPageHeader('Platform Documentation', 'Task-oriented admin docs, page 
             </div>
             <div class="row">
                 <div class="col-md-6 border-end">
-                    <h6 class="fw-bold fs-7 text-uppercase text-muted mb-3">General / Downloads / Uploads</h6>
-                    <?php include 'help/settings.php'; ?>
+                    <h6 class="fw-bold fs-7 text-uppercase text-muted mb-3">General / Downloads / Uploads / Link Checker</h6>
+                    <?php ob_start(); include 'help/settings.php'; include 'help/link_checker.php'; echo docsSanitizeAdminLinks((string)ob_get_clean()); ?>
                 </div>
                 <div class="col-md-6">
-                    <h6 class="fw-bold fs-7 text-uppercase text-muted mb-3">Security / Email / Monetization / SEO / Cron Jobs</h6>
-                    <?php include 'help/security.php'; ?>
-                    <?php include 'help/email.php'; ?>
-                    <?php include 'help/ad-placements.php'; ?>
-                    <?php include 'help/seo.php'; ?>
-                    <?php include 'help/cron.php'; ?>
+                    <h6 class="fw-bold fs-7 text-uppercase text-muted mb-3">Security / Email / Monetization / SEO / Cron Jobs / Ticket Settings</h6>
+                    <?php ob_start(); include 'help/security.php'; include 'help/email.php'; include 'help/ad-placements.php'; include 'help/seo.php'; include 'help/cron.php'; include 'help/ticket_settings.php'; echo docsSanitizeAdminLinks((string)ob_get_clean()); ?>
                 </div>
             </div>
         <?php renderDocsModuleEnd(); ?>
@@ -593,6 +747,11 @@ document.addEventListener('DOMContentLoaded', function() {
 .docs-summary-card:hover{
     transform:translateY(-1px);
     box-shadow:0 14px 28px rgba(15,23,42,.08);
+}
+.docs-link-disabled{
+    color:#64748b;
+    text-decoration:none;
+    cursor:default;
 }
 .docs-directory-card,
 .docs-summary-card{

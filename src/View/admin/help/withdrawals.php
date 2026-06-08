@@ -4,7 +4,7 @@
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">How To Process A Withdrawal</h6>
     <ol class="guide-steps mb-4">
-        <li><strong>Open Manage:</strong> Review amount, payment method, and the payout details the user submitted.</li>
+        <li><strong>Open Manage:</strong> Review amount, payout processor, and the payout destination the user submitted.</li>
         <li><strong>Verify the account context:</strong> Check the uploader account and, if needed, review <a href="/admin/rewards-fraud" class="guide-action-link">Rewards Fraud</a> before approving anything suspicious.</li>
         <li><strong>Send the payment outside the app:</strong> Fyuhls tracks status and notes, but the actual transfer still happens in your payment processor or wallet.</li>
         <li><strong>Update the status carefully:</strong> Use <em>Approved</em> when you intend to pay, <em>Paid</em> after the transfer is complete, or <em>Rejected</em> if the request is invalid.</li>

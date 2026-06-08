@@ -59,6 +59,44 @@ $extraHead = '
         line-height: 1.65;
         font-size: 0.92rem;
     }
+    .plans-billing-list {
+        margin: -0.1rem 0 1.35rem;
+        display: grid;
+        gap: 0.65rem;
+        justify-items: center;
+    }
+    .plans-billing-option {
+        width: 100%;
+        max-width: 240px;
+        text-align: center;
+        padding: 0.8rem 0.95rem;
+        border-radius: 14px;
+        border: 1px solid #dbe7ff;
+        background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.85);
+    }
+    .plans-billing-option-label {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        color: #315aa6;
+        margin-bottom: 0.25rem;
+    }
+    .plans-billing-option-price {
+        display: block;
+        font-size: 1rem;
+        font-weight: 800;
+        color: var(--text-color);
+        line-height: 1.2;
+    }
+    .plans-billing-option-renewal {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.74rem;
+        color: var(--text-muted);
+    }
     .plans-features {
         list-style: none;
         padding: 0;
@@ -119,6 +157,10 @@ $formatBytes = static function (int $bytes): string {
     return round($value, $pow >= 2 ? 1 : 0) . ' ' . $units[$pow];
 };
 
+$formatTerm = static function (int $days): string {
+    return \App\Service\PaymentService::formatTermLabel($days);
+};
+
 $paymentEnabled = !empty($stripeEnabled) || !empty($paypalEnabled);
 ?>
 
@@ -151,11 +193,19 @@ $paymentEnabled = !empty($stripeEnabled) || !empty($paypalEnabled);
                     $downloadSpeed = (int)($package['download_speed'] ?? 0);
                     $maxStorage = (int)($package['max_storage_bytes'] ?? 0);
                     $maxUpload = (int)($package['max_upload_size'] ?? 0);
+                    $billingOptions = \App\Service\PaymentService::checkoutBillingOptions($package);
+                    $primaryOption = $billingOptions[0];
+                    $termDays = (int)$primaryOption['term_days'];
+                    $renewableOptionCount = count(array_filter($billingOptions, static fn(array $option): bool => !empty($option['renewal_enabled'])));
+                    $oneTimeOptionCount = count($billingOptions) - $renewableOptionCount;
+                    $renewalSummary = $renewableOptionCount > 0 && $oneTimeOptionCount > 0
+                        ? 'Renewal depends on the billing option you pick'
+                        : ($renewableOptionCount > 0 ? 'Auto-renew available at checkout' : 'One-time premium term');
                     ?>
                     <article class="plans-card <?= $isCurrent ? 'plans-card--current' : '' ?>">
                         <span class="plans-badge"><?= $isCurrent ? 'Current Plan' : 'Paid Plan' ?></span>
                         <h3 class="plans-card-title"><?= htmlspecialchars((string)($package['name'] ?? 'Premium Plan')) ?></h3>
-                        <div class="plans-price">$<?= number_format((float)($package['price'] ?? 0), 2) ?></div>
+                        <div class="plans-price">From $<?= number_format((float)($primaryOption['price'] ?? 0), 2) ?> / <?= htmlspecialchars($formatTerm($termDays)) ?></div>
                         <p class="plans-copy">
                             Upgrade for more storage, faster delivery, and additional account features for paid members.
                         </p>
@@ -163,15 +213,31 @@ $paymentEnabled = !empty($stripeEnabled) || !empty($paypalEnabled);
                             <li>Storage: <?= htmlspecialchars($formatBytes($maxStorage)) ?></li>
                             <li>Max upload: <?= htmlspecialchars($formatBytes($maxUpload)) ?></li>
                             <li>Download speed: <?= htmlspecialchars($downloadSpeed > 0 ? $formatBytes($downloadSpeed) . '/s' : 'Unlimited') ?></li>
+                            <li><?= htmlspecialchars($renewalSummary) ?></li>
                             <li>Download wait: <?= !empty($package['wait_time_enabled']) ? (int)($package['wait_time'] ?? 0) . ' seconds' : 'Instant' ?></li>
                             <li><?= !empty($package['allow_remote_upload']) ? 'Remote URL upload enabled' : 'Remote URL upload disabled' ?></li>
                             <li><?= !empty($package['show_ads']) ? 'Download pages may show ads' : 'No download-page ads' ?></li>
                         </ul>
+                        <?php if (count($billingOptions) > 1): ?>
+                            <div class="plans-billing-list" aria-label="Billing options">
+                                <?php foreach ($billingOptions as $option): ?>
+                                    <div class="plans-billing-option">
+                                        <span class="plans-billing-option-label"><?= htmlspecialchars((string)$option['option_label']) ?></span>
+                                        <span class="plans-billing-option-price">$<?= number_format((float)$option['price'], 2) ?></span>
+                                        <span class="plans-billing-option-renewal"><?= !empty($option['renewal_enabled']) ? 'Auto-renew available' : 'One-time purchase' ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
                         <div class="plans-actions">
                             <?php if ($isCurrent): ?>
                                 <span class="plans-current-note">You are already on this plan.</span>
                             <?php else: ?>
-                                <a class="btn btn-primary plans-action-btn" href="/checkout/<?= (int)$package['id'] ?>">Continue to Checkout</a>
+                                <?php foreach ($billingOptions as $option): ?>
+                                    <a class="btn btn-primary plans-action-btn" href="/checkout/<?= (int)$package['id'] ?><?= !empty($option['id']) ? ('?option=' . (int)$option['id']) : '' ?>">
+                                        <?= htmlspecialchars((string)$option['option_label']) ?>
+                                    </a>
+                                <?php endforeach; ?>
                             <?php endif; ?>
                         </div>
                     </article>

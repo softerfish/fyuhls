@@ -31,61 +31,83 @@ include __DIR__ . '/partials/account_sidebar_styles.php';
                 <div class="alert alert-danger mb-4"><?= htmlspecialchars($_SESSION['2fa_error']); unset($_SESSION['2fa_error']); ?></div>
             <?php endif; ?>
 
-            <div class="row g-5">
-                <div class="col-md-5">
-                    <div class="card shadow-sm border-0 bg-white">
-                        <div class="card-body p-4 text-center">
-                            <h6 class="fw-bold mb-3 text-uppercase small text-muted">Scan The QR Code</h6>
-                            <div id="qr-container" class="p-2 border rounded mb-3 bg-white d-inline-block"></div>
-                            <p class="extra-small text-muted mt-2">Open your authenticator app and scan the code above. Proton Auth and Ente Auth both work well.</p>
-                            <div class="mt-4 pt-3 border-top">
-                                <span class="extra-small fw-bold text-muted text-uppercase">Manual Key</span>
-                                <div class="bg-light p-2 rounded font-monospace extra-small text-break mt-2 border">
-                                    <?= htmlspecialchars($secret) ?>
+            <?php if (empty($setupAuthorized)): ?>
+                <div class="two-factor-stepup-card card shadow-sm border-0 bg-white">
+                    <div class="card-body p-4 p-md-5">
+                        <h6 class="fw-bold mb-3 text-uppercase small text-muted">Confirm Your Password First</h6>
+                        <p class="text-muted mb-4">Before Fyuhls shows a new authenticator secret or recovery codes, confirm your current password. This keeps a stolen browser session from silently enrolling someone else&apos;s device on your account.</p>
+                        <form method="POST" action="/2fa/setup" class="two-factor-stepup-form">
+                            <?= \App\Core\Csrf::field() ?>
+                            <input type="hidden" name="intent" value="authorize">
+                            <div class="form-group mb-3">
+                                <label class="fw-semibold mb-2">Current Password</label>
+                                <input type="password" name="current_password" class="form-control form-control-lg" autocomplete="current-password" required>
+                            </div>
+                            <button class="btn btn-primary py-3 px-4 fw-bold" type="submit">Continue To 2FA Setup</button>
+                        </form>
+                    </div>
+                </div>
+            <?php else: ?>
+                <div class="row g-5">
+                    <div class="col-md-5">
+                        <div class="card shadow-sm border-0 bg-white">
+                            <div class="card-body p-4 text-center">
+                                <h6 class="fw-bold mb-3 text-uppercase small text-muted">Scan The QR Code</h6>
+                                <div id="qr-container" class="p-2 border rounded mb-3 bg-white d-inline-block"></div>
+                                <p class="extra-small text-muted mt-2">Open your authenticator app and scan the code above. Proton Auth and Ente Auth both work well.</p>
+                                <div class="mt-4 pt-3 border-top">
+                                    <span class="extra-small fw-bold text-muted text-uppercase">Manual Key</span>
+                                    <div class="bg-light p-2 rounded font-monospace extra-small text-break mt-2 border">
+                                        <?= htmlspecialchars($secret) ?>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="col-md-7">
-                    <h6 class="fw-bold mb-3 text-uppercase small text-muted">Save These Recovery Codes</h6>
-                    <div class="p-4 bg-light border rounded-3 mb-4">
-                        <p class="small text-danger fw-bold mb-3">Important: save these codes now.</p>
-                        <p class="extra-small text-muted mb-3">If you lose your phone, these are the only way to recover your account. Each code can be used once.</p>
-                        <div class="row g-2">
-                            <?php foreach ($recoveryCodes as $code): ?>
-                                <div class="col-6">
-                                    <div class="p-2 bg-white border rounded font-monospace small text-center"><?= htmlspecialchars($code) ?></div>
-                                </div>
-                            <?php endforeach; ?>
+                    <div class="col-md-7">
+                        <h6 class="fw-bold mb-3 text-uppercase small text-muted">Save These Recovery Codes</h6>
+                        <div class="p-4 bg-light border rounded-3 mb-4">
+                            <p class="small text-danger fw-bold mb-3">Important: save these codes now.</p>
+                            <p class="extra-small text-muted mb-3">If you lose your phone, these are the only way to recover your account. Each code can be used once.</p>
+                            <div class="row g-2">
+                                <?php foreach ($recoveryCodes as $code): ?>
+                                    <div class="col-6">
+                                        <div class="p-2 bg-white border rounded font-monospace small text-center"><?= htmlspecialchars($code) ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
                         </div>
+
+                        <hr class="my-4 opacity-10">
+
+                        <h6 class="fw-bold mb-3 text-uppercase small text-muted">Verify And Activate</h6>
+                        <p class="small mb-3 text-muted">Enter the current 6-digit code from your authenticator app.</p>
+                        <form method="POST" action="/2fa/setup">
+                            <?= \App\Core\Csrf::field() ?>
+                            <input type="hidden" name="intent" value="enable">
+                            <div class="text-center">
+                                <input type="text" name="code" class="two-factor-setup-code form-control form-control-lg mx-auto fw-bold" placeholder="000000" maxlength="6" required>
+                            </div>
+                            <button class="btn btn-primary w-100 py-3 fw-bold mt-2" type="submit">Enable 2FA Now</button>
+                        </form>
                     </div>
-
-                    <hr class="my-4 opacity-10">
-
-                    <h6 class="fw-bold mb-3 text-uppercase small text-muted">Verify And Activate</h6>
-                    <p class="small mb-3 text-muted">Enter the current 6-digit code from your authenticator app.</p>
-                    <form method="POST" action="/2fa/setup">
-                        <?= \App\Core\Csrf::field() ?>
-                        <div class="text-center">
-                            <input type="text" name="code" class="two-factor-setup-code form-control form-control-lg mx-auto fw-bold" placeholder="000000" maxlength="6" required>
-                        </div>
-                        <button class="btn btn-primary w-100 py-3 fw-bold mt-2" type="submit">Enable 2FA Now</button>
-                    </form>
                 </div>
-            </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
+<?php if (!empty($setupAuthorized)): ?>
 <script>
 const qr = kjua({ text: "<?= $qrUrl ?>", size: 200, fill: '#000', back: '#fff', rounded: 10 });
 document.getElementById('qr-container').appendChild(qr);
 </script>
+<?php endif; ?>
 <style>
 .extra-small { font-size: 0.75rem; }
 .two-factor-setup-container { margin-top: 1rem; }
 .two-factor-setup-main { background: #fdfdfd; margin-left: auto; margin-right: auto; max-width: 980px; }
 .two-factor-setup-content { max-width: 850px; padding: 0 2rem 2rem 2rem; }
 .two-factor-setup-code { letter-spacing: 0.3rem; border-color: var(--primary-color); width: 40%; margin-bottom: 3rem !important; }
+.two-factor-stepup-card { max-width: 680px; }
 </style>
 <?php include __DIR__ . '/footer.php'; ?>

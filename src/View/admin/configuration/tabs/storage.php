@@ -6,6 +6,8 @@ $activeServers = isset($activeServers) ? (int)$activeServers : 0;
 $totalUsed = isset($totalUsed) ? (float)$totalUsed : 0;
 $totalLimit = isset($totalLimit) ? (float)$totalLimit : 0;
 $usagePercent = isset($usagePercent) ? (float)$usagePercent : ($totalLimit > 0 ? round(($totalUsed / $totalLimit) * 100, 1) : 0);
+$hasNetworkCapacityLimit = $totalLimit > 0;
+$networkUsageLabel = $hasNetworkCapacityLimit ? ($usagePercent . '%') : 'Unlimited';
 
 foreach ($servers as &$server) {
     if (!empty($server['config']) && is_string($server['config'])) {
@@ -39,7 +41,7 @@ unset($server);
             </div>
             <ul class="config-summary-chips">
                 <li class="config-summary-chip <?= $activeServers === $totalServers && $totalServers > 0 ? 'config-summary-chip--success' : 'config-summary-chip--warning' ?>">Nodes: <?= $activeServers ?>/<?= $totalServers ?> online</li>
-                <li class="config-summary-chip <?= $usagePercent > 90 ? 'config-summary-chip--danger' : ($usagePercent > 75 ? 'config-summary-chip--warning' : 'config-summary-chip--success') ?>">Usage: <?= $usagePercent ?>%</li>
+                <li class="config-summary-chip <?= !$hasNetworkCapacityLimit ? 'config-summary-chip--info' : ($usagePercent > 90 ? 'config-summary-chip--danger' : ($usagePercent > 75 ? 'config-summary-chip--warning' : 'config-summary-chip--success')) ?>">Usage: <?= htmlspecialchars($networkUsageLabel) ?></li>
             </ul>
         </div>
         <details class="config-help-panel">
@@ -59,9 +61,9 @@ unset($server);
                 <h6 class="text-uppercase small fw-bold text-muted">Network Capacity</h6>
                 <div class="d-flex align-items-center gap-3">
                     <div class="storage-capacity-progress progress flex-grow-1">
-                        <div class="progress-bar js-progress-width <?= $usagePercent > 90 ? 'bg-danger' : 'bg-success' ?>" role="progressbar" data-progress="<?= htmlspecialchars((string)$usagePercent) ?>"></div>
+                        <div class="progress-bar js-progress-width <?= !$hasNetworkCapacityLimit ? 'bg-info' : ($usagePercent > 90 ? 'bg-danger' : 'bg-success') ?>" role="progressbar" data-progress="<?= htmlspecialchars((string)($hasNetworkCapacityLimit ? $usagePercent : 100)) ?>"></div>
                     </div>
-                    <span class="fw-bold"><?= $usagePercent ?>%</span>
+                    <span class="fw-bold"><?= htmlspecialchars($networkUsageLabel) ?></span>
                 </div>
         <?php renderAdminCardEnd(); ?>
     </div>
@@ -129,17 +131,24 @@ unset($server);
                             ?>
                         </td>
                         <td class="storage-usage-cell">
-                            <?php 
+                            <?php
                             $usageBytes = (float)($server['current_usage_bytes'] ?? 0);
                             $maxBytes = (float)($server['max_capacity_bytes'] ?? 0);
-                            $sUsage = $maxBytes > 0 ? round(($usageBytes / $maxBytes) * 100, 1) : 0;
+                            $hasCapacityLimit = $maxBytes > 0;
+                            $sUsage = $hasCapacityLimit ? round(($usageBytes / $maxBytes) * 100, 1) : 0;
+                            $usedGbLabel = round($usageBytes / 1024 / 1024 / 1024, 2) . ' GB';
+                            $usagePercentLabel = $hasCapacityLimit ? ($sUsage . '% used') : 'No capacity limit';
+                            $usageAmountLabel = $hasCapacityLimit
+                                ? ($usedGbLabel . ' / ' . round($maxBytes / 1024 / 1024 / 1024, 2) . ' GB')
+                                : ('Used: ' . $usedGbLabel);
+                            $usageLimitLabel = $hasCapacityLimit ? '' : 'Limit: Unlimited';
                             ?>
                             <div class="storage-usage-progress progress mb-1">
-                                <div class="progress-bar js-progress-width <?= $sUsage > 85 ? 'bg-danger' : 'bg-primary' ?>" data-progress="<?= htmlspecialchars((string)$sUsage) ?>"></div>
+                                <div class="progress-bar js-progress-width <?= !$hasCapacityLimit ? 'bg-info' : ($sUsage > 85 ? 'bg-danger' : 'bg-primary') ?>" data-progress="<?= htmlspecialchars((string)($hasCapacityLimit ? $sUsage : 100)) ?>"></div>
                             </div>
-                            <div class="d-flex justify-content-between extra-small text-muted">
-                                <span><?= $sUsage ?>%</span>
-                                <span><?= round($usageBytes / 1024 / 1024 / 1024, 2) ?> GB / <?= round($maxBytes / 1024 / 1024 / 1024, 2) ?> GB</span>
+                            <div class="d-flex justify-content-between gap-3 extra-small text-muted">
+                                <span><?= htmlspecialchars($usagePercentLabel) ?></span>
+                                <span class="text-end"><?= htmlspecialchars($usageAmountLabel) ?><?= $usageLimitLabel !== '' ? '<br>' . htmlspecialchars($usageLimitLabel) : '' ?></span>
                             </div>
                         </td>
                         <td>
@@ -153,6 +162,15 @@ unset($server);
                         </td>
                         <td class="text-end pe-4">
                             <div class="table-actions justify-content-end">
+                                <?php if (($server['is_default'] ?? 0) != 1): ?>
+                                    <form method="POST" action="/admin/file-server/set-default" class="d-inline">
+                                        <?= \App\Core\Csrf::field() ?>
+                                        <input type="hidden" name="server_id" value="<?= (int)$server['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-success action-icon-btn" title="Make Default Upload Target" aria-label="Make Default Upload Target" <?= $demoAdmin ? 'disabled' : '' ?>>
+                                            <i class="bi bi-stars"></i>
+                                        </button>
+                                    </form>
+                                <?php endif; ?>
                                 <button type="button" class="btn btn-sm btn-outline-primary action-icon-btn" data-test-server-id="<?= (int)$server['id'] ?>" title="Ping Node" aria-label="Ping Node" <?= $demoAdmin ? 'disabled' : '' ?>>
                                     <i class="bi bi-plug"></i>
                                 </button>
@@ -189,9 +207,9 @@ function testServer(btn, id) {
     })
     .then(r => r.json())
     .then(data => {
-        alert(data.message || 'Ping successful!');
+        window.adminAlert(data.message || 'Ping successful!');
     })
-    .catch(e => alert('Connection failed: ' + e.message))
+    .catch(e => window.adminAlert('Connection failed: ' + e.message))
     .finally(() => {
         btn.innerHTML = originalHtml;
         btn.disabled = false;
@@ -224,4 +242,3 @@ document.addEventListener('DOMContentLoaded', function() {
 .storage-usage-cell{min-width:150px}
 .storage-usage-progress{height:6px}
 </style>
-

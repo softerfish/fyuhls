@@ -20,6 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const viewToggle = document.getElementById('viewToggle');
     const dashboardUploadCard = document.getElementById('dashboardUploadCard');
     const toggleUploadAreaBtn = document.getElementById('toggleUploadAreaBtn');
+    const dashboardFilterCard = document.getElementById('dashboardFilterCard');
+    const toggleFilterCardBtn = document.getElementById('toggleFilterCardBtn');
     const listSelectAll = document.getElementById('listSelectAll');
     const listSortButtons = document.querySelectorAll('[data-list-sort]');
     const bulkMakePublicBtn = document.getElementById('bulkMakePublicBtn');
@@ -50,6 +52,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let csrfToken = document.querySelector('input[name="csrf_token"]')?.value;
     const isTrashView = fileManagerConfig.isTrash === true;
     const isGuestMode = fileManagerConfig.guestMode === true;
+    const replaceEnabled = fileManagerConfig.replaceEnabled === true;
+    const liveUploadInsertEnabled = fileManagerConfig.liveUploadInsertEnabled === true;
+    const folderIndexCache = new Map();
+    let folderIndexLoaded = false;
+    let pendingReplaceTarget = null;
 
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
@@ -69,7 +76,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadQueueList = document.getElementById('uploadQueueList');
     const uploadQueueStats = document.getElementById('uploadQueueStats');
     const uploadBtn = document.getElementById('uploadBtn');
-    const pageStateKey = 'fm_state:' + window.location.pathname;
+    const workspaceHeading = document.querySelector('.dashboard-workspace-heading');
+    const workspaceTitle = document.querySelector('.dashboard-workspace-title');
+    const workspaceCopy = document.querySelector('.dashboard-workspace-copy');
+    const breadcrumbs = document.getElementById('breadcrumbs');
+    const filePanelMeta = document.querySelector('.dashboard-file-panel-meta');
+    const mainActionsRight = document.querySelector('.dashboard-main-actions > .dashboard-main-actions-right');
 
     let selectedItems = []; // Array of {id: string, type: 'file'|'folder'}
     let selectionAnchor = null;
@@ -91,6 +103,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const mobileActionTitle = document.getElementById('mobileActionTitle');
     const closeMobileActionSheetBtn = document.getElementById('closeMobileActionSheetBtn');
 
+    function getPageStateKey() {
+        return 'fm_state:' + window.location.pathname;
+    }
+
     function savePageState(extra = {}) {
         const state = {
             search: fmSearch?.value || '',
@@ -98,19 +114,20 @@ document.addEventListener('DOMContentLoaded', () => {
             visibilityFilter: fmVisibilityFilter?.value || 'all',
             statusFilter: fmStatusFilter?.value || 'all',
             sort: fmSort?.value || 'newest',
+            filterCardCollapsed: dashboardFilterCard ? dashboardFilterCard.classList.contains('is-collapsed') : true,
             scrollY: window.scrollY,
             selectedItems,
             ...extra,
         };
 
-        sessionStorage.setItem(pageStateKey, JSON.stringify(state));
+        sessionStorage.setItem(getPageStateKey(), JSON.stringify(state));
     }
 
     function restorePageState() {
-        const raw = sessionStorage.getItem(pageStateKey);
+        const raw = sessionStorage.getItem(getPageStateKey());
         if (!raw) return;
 
-        sessionStorage.removeItem(pageStateKey);
+        sessionStorage.removeItem(getPageStateKey());
 
         try {
             const state = JSON.parse(raw);
@@ -119,6 +136,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (fmVisibilityFilter) fmVisibilityFilter.value = state.visibilityFilter || 'all';
             if (fmStatusFilter) fmStatusFilter.value = state.statusFilter || 'all';
             if (fmSort) fmSort.value = state.sort || 'newest';
+            if (dashboardFilterCard) {
+                const collapsed = state.filterCardCollapsed !== undefined ? Boolean(state.filterCardCollapsed) : true;
+                setFilterCardCollapsed(collapsed);
+            }
             applySearchFilter();
 
             if (Array.isArray(state.selectedItems)) {
@@ -174,6 +195,22 @@ document.addEventListener('DOMContentLoaded', () => {
         fmFilterChips.innerHTML = chips.length > 0
             ? chips.map(chip => `<span class="fm-chip">${escapeHtml(chip)}</span>`).join('')
             : '<span class="fm-chip muted">No filters applied</span>';
+    }
+
+    function hasActiveFilters() {
+        return getActiveFilterChips().length > 0;
+    }
+
+    function setFilterCardCollapsed(collapsed) {
+        if (!dashboardFilterCard) {
+            return;
+        }
+
+        dashboardFilterCard.classList.toggle('is-collapsed', collapsed);
+        if (toggleFilterCardBtn) {
+            toggleFilterCardBtn.textContent = collapsed ? 'Show filters' : 'Hide filters';
+            toggleFilterCardBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        }
     }
 
     function applySearchFilter() {
@@ -237,6 +274,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? `Showing all ${visibleCount} item${visibleCount === 1 ? '' : 's'}`
                 : `Showing ${visibleCount} of ${items.length} item${items.length === 1 ? '' : 's'}`;
         }
+        if (dashboardFilterCard && hasActiveFilters()) {
+            setFilterCardCollapsed(false);
+        }
         updateListSortButtons(sort);
         updateSelectionUI();
     }
@@ -274,6 +314,51 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${size.toFixed(power === 0 ? 0 : 1)} ${units[power]}`;
     }
 
+    function formatDashboardDate(value) {
+        if (!value) {
+            return '';
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return String(value).slice(0, 10);
+        }
+
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function formatDashboardDateTime(value) {
+        if (!value) {
+            return '';
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return String(value);
+        }
+
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    }
+
+    function fileIconForMime(mime) {
+        const normalized = String(mime || '').toLowerCase();
+        if (normalized.startsWith('image/')) return '&#128247;';
+        if (normalized.startsWith('video/')) return '&#127909;';
+        if (normalized.startsWith('audio/')) return '&#127925;';
+        if (normalized.includes('pdf')) return '&#128462;';
+        if (normalized.includes('zip') || normalized.includes('rar') || normalized.includes('tar') || normalized.includes('7z')) return '&#128230;';
+        return '&#128196;';
+    }
+
     function describeItemFromElement(element) {
         if (!element) {
             return null;
@@ -303,6 +388,420 @@ document.addEventListener('DOMContentLoaded', () => {
         return Array.from(document.querySelectorAll('.file-item')).find(element =>
             String(element.getAttribute('data-id')) === String(item?.id ?? '') && itemTypeFromElement(element) === item?.type
         ) || null;
+    }
+
+    function currentViewCanDisplayFile(file) {
+        if (!file || isTrashView || !fileGrid) {
+            return false;
+        }
+
+        const currentFolder = currentFolderId();
+        const fileFolder = file.folder_id === null || file.folder_id === undefined || file.folder_id === ''
+            ? null
+            : Number(file.folder_id);
+
+        return Number(currentFolder || 0) === Number(fileFolder || 0);
+    }
+
+    function currentViewCanDisplayFolder(parentId) {
+        if (isTrashView || !fileGrid) {
+            return false;
+        }
+
+        return Number(currentFolderId() || 0) === Number(parentId || 0);
+    }
+
+    function hasBlockingUploads() {
+        return Array.from(uploadTaskRegistry.values()).some(task =>
+            ['queued', 'starting', 'uploading', 'finalizing', 'paused'].includes(task.status)
+        );
+    }
+
+    function folderRoute(folderId = null) {
+        return folderId ? `/folder/${encodeURIComponent(folderId)}` : '/';
+    }
+
+    function workspaceHeadingText(folder) {
+        return folder ? String(folder.name || 'Folder') : 'All Files';
+    }
+
+    function workspaceCopyText(folder) {
+        return folder
+            ? 'Work inside this folder, upload new files, and keep the structure tidy without leaving the page.'
+            : 'Upload, organize, and share your files from one workspace. Start with upload, then use filters once the list gets busy.';
+    }
+
+    function setWorkspaceItems(folders = [], files = []) {
+        if (!fileGrid) {
+            return;
+        }
+
+        fileGrid.querySelectorAll('.file-item, .empty-state').forEach(node => node.remove());
+
+        if (folders.length === 0 && files.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.innerHTML = `
+                <div class="empty-icon" aria-hidden="true">&#128194;</div>
+                <p>No files or folders here. Start by uploading something!</p>
+            `;
+            fileGrid.appendChild(empty);
+        } else {
+            folders.forEach(folder => fileGrid.appendChild(buildFolderItemElement(folder)));
+            files.forEach(file => fileGrid.appendChild(buildFileItemElement(file)));
+        }
+
+        syncWorkspaceSummaryFromDom();
+    }
+
+    function formatWorkspaceSummaryDate(value) {
+        if (!value) {
+            return 'No uploads yet';
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return 'No uploads yet';
+        }
+
+        return date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+        });
+    }
+
+    function syncWorkspaceSummaryFromDom() {
+        const items = Array.from(document.querySelectorAll('.file-item'))
+            .filter(item => item.dataset.pendingRemoval !== '1');
+        const folders = items.filter(item => item.dataset.kind === 'folder');
+        const files = items.filter(item => item.dataset.kind === 'file');
+
+        if (filePanelMeta) {
+            const total = items.length;
+            filePanelMeta.textContent = `${total.toLocaleString()} visible item${total === 1 ? '' : 's'}`;
+        }
+
+        const statValues = document.querySelectorAll('.dashboard-workspace-stat-value');
+        const statMetas = document.querySelectorAll('.dashboard-workspace-stat-meta');
+        if (statValues.length >= 4) {
+            statValues[0].textContent = files.length.toLocaleString();
+            statValues[1].textContent = folders.length.toLocaleString();
+
+            if (files.length > 0) {
+                const latestTimestamp = files.reduce((latest, item) => {
+                    const next = Date.parse(String(item.dataset.createdAt || ''));
+                    return Number.isFinite(next) && next > latest ? next : latest;
+                }, 0);
+                statValues[3].textContent = latestTimestamp > 0
+                    ? formatWorkspaceSummaryDate(new Date(latestTimestamp).toISOString())
+                    : 'No uploads yet';
+                if (statMetas.length >= 4) {
+                    statMetas[3].textContent = 'Most recent file added';
+                }
+            } else {
+                statValues[3].textContent = 'No uploads yet';
+                if (statMetas.length >= 4) {
+                    statMetas[3].textContent = 'Upload to get started';
+                }
+            }
+        }
+    }
+
+    function updateWorkspaceBreadcrumbs(folder, allFolders = []) {
+        if (!breadcrumbs) {
+            return;
+        }
+
+        const folderMap = new Map(allFolders.map(item => [String(item.id), item]));
+        const crumbs = [];
+        let current = folder;
+        while (current) {
+            crumbs.unshift(current);
+            const parentId = current.parent_id === null || current.parent_id === undefined || current.parent_id === ''
+                ? null
+                : String(current.parent_id);
+            current = parentId ? folderMap.get(parentId) || null : null;
+        }
+
+        const parts = ['<a href="/" data-nav-url="/">Home</a>'];
+        crumbs.forEach((crumb, index) => {
+            const isLast = index === crumbs.length - 1;
+            parts.push('<span class="crumb-sep">/</span>');
+            if (isLast) {
+                parts.push(`<span>${escapeHtml(crumb.name || 'Folder')}</span>`);
+            } else {
+                parts.push(`<a href="${escapeHtml(folderRoute(crumb.id))}" data-nav-url="${escapeHtml(folderRoute(crumb.id))}">${escapeHtml(crumb.name || 'Folder')}</a>`);
+            }
+        });
+
+        breadcrumbs.innerHTML = parts.join('');
+    }
+
+    function updateWorkspaceActions(folder) {
+        if (!mainActionsRight) {
+            return;
+        }
+
+        mainActionsRight.innerHTML = '';
+        if (folder && !isGuestMode) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-white';
+            button.setAttribute('data-nav-url', folder.parent_id ? folderRoute(folder.parent_id) : '/');
+            button.textContent = 'Up One Level';
+            mainActionsRight.appendChild(button);
+        }
+    }
+
+    async function softNavigateFolder(folderId = null, options = {}) {
+        if (isTrashView || isGuestMode) {
+            window.location.assign(folderRoute(folderId));
+            return;
+        }
+
+        const folderParam = folderId ? encodeURIComponent(String(folderId)) : 'root';
+        if (workspaceHeading) {
+            workspaceHeading.setAttribute('aria-busy', 'true');
+        }
+
+        try {
+            const [foldersPayload, filesPayload, allFolders] = await Promise.all([
+                apiJson(`/api/v1/folders?parent_id=${folderParam}`),
+                apiJson(`/api/v1/files?folder_id=${folderParam}`),
+                fetch('/folders/json', { credentials: 'same-origin' }).then(r => r.json()).catch(() => []),
+            ]);
+
+            const folders = Array.isArray(foldersPayload?.folders) ? foldersPayload.folders : [];
+            const files = Array.isArray(filesPayload?.files) ? filesPayload.files : [];
+            const folderList = Array.isArray(allFolders) ? allFolders : [];
+            const folder = folderId ? (folderList.find(item => String(item.id) === String(folderId)) || null) : null;
+
+            if (workspaceTitle) {
+                workspaceTitle.textContent = workspaceHeadingText(folder);
+            }
+            if (workspaceCopy) {
+                workspaceCopy.textContent = workspaceCopyText(folder);
+            }
+            if (document.getElementById('currentFolderId')) {
+                document.getElementById('currentFolderId').value = folderId ? String(folderId) : '';
+            }
+
+            updateWorkspaceBreadcrumbs(folder, folderList);
+            updateWorkspaceActions(folder);
+            clearSelection();
+            setWorkspaceItems(folders, files);
+            applySearchFilter();
+            if (options.pushHistory !== false) {
+                history.pushState({ folderId: folderId ? String(folderId) : null }, '', folderRoute(folderId));
+            }
+        } catch (err) {
+            console.error('Soft folder navigation failed:', err);
+            showToast('Could not open that folder in place. Falling back to a full page load.', [], 5000);
+            window.location.assign(folderRoute(folderId));
+        } finally {
+            if (workspaceHeading) {
+                workspaceHeading.removeAttribute('aria-busy');
+            }
+        }
+    }
+
+    function openFolderView(folderId) {
+        const url = '/folder/' + encodeURIComponent(folderId);
+        if (!hasBlockingUploads()) {
+            window.location.assign(url);
+            return;
+        }
+        softNavigateFolder(folderId);
+    }
+
+    window.__fmHasBlockingUploads = hasBlockingUploads;
+    window.__fmOpenFolderView = openFolderView;
+    window.__fmOpenWorkspaceUrl = (url) => {
+        if (url === '/') {
+            softNavigateFolder(null);
+            return;
+        }
+        const match = /^\/folder\/(\d+)(?:[/?#]|$)/.exec(String(url || ''));
+        if (match) {
+            softNavigateFolder(match[1]);
+            return;
+        }
+        window.location.assign(url);
+    };
+
+    window.addEventListener('popstate', (event) => {
+        const stateFolderId = event.state && Object.prototype.hasOwnProperty.call(event.state, 'folderId')
+            ? event.state.folderId
+            : null;
+        if (!hasBlockingUploads()) {
+            return;
+        }
+        softNavigateFolder(stateFolderId, { pushHistory: false });
+    });
+
+    function removeEmptyStateCard() {
+        fileGrid?.querySelector('.empty-state')?.remove();
+    }
+
+    function buildFolderItemElement(folder) {
+        const folderId = String(folder.id);
+        const parentId = folder.parent_id === null || folder.parent_id === undefined ? '' : String(folder.parent_id);
+        const name = String(folder.name || 'New Folder');
+        const createdAt = String(folder.created_at || new Date().toISOString());
+        const fileCount = Number(folder.file_count || 0);
+
+        const item = document.createElement('div');
+        item.className = 'file-item folder-item';
+        item.setAttribute('data-id', folderId);
+        item.setAttribute('data-kind', 'folder');
+        item.setAttribute('data-parent-id', parentId);
+        item.setAttribute('data-status', String(folder.status || 'active'));
+        item.setAttribute('data-size', String(folder.total_size || 0));
+        item.setAttribute('data-downloads', '0');
+        item.setAttribute('data-created-at', createdAt);
+        item.setAttribute('draggable', 'true');
+
+        item.innerHTML = `
+            <div class="file-hover-controls">
+                <div class="file-select">
+                    <input type="checkbox" class="item-checkbox" data-id="${escapeHtml(folderId)}" data-type="folder">
+                </div>
+                <div class="file-options-trigger" data-id="${escapeHtml(folderId)}" data-type="folder" data-name="${escapeHtml(name)}">
+                    <span class="trigger-icon" aria-hidden="true">&#9662;</span>
+                </div>
+            </div>
+            <div class="file-preview">
+                <div class="file-icon" aria-hidden="true">&#128193;</div>
+            </div>
+            <div class="file-info" data-nav-url="/folder/${encodeURIComponent(folderId)}">
+                <div class="file-name" title="${escapeHtml(name)}">
+                    ${escapeHtml(name)}
+                    <span class="folder-count-badge">${fileCount}</span>
+                </div>
+                <div class="file-meta">
+                    <span class="file-stats">${fileCount > 0 ? `${fileCount} ${fileCount === 1 ? 'file' : 'files'}` : 'Empty'}</span>
+                    <span class="file-date dashboard-date-hidden">${escapeHtml(formatDashboardDateTime(createdAt))}</span>
+                </div>
+            </div>
+            <div class="file-list-cell file-list-size"></div>
+            <div class="file-list-cell file-list-upload">${escapeHtml(formatDashboardDate(createdAt))}</div>
+            <div class="file-list-cell file-list-downloads"></div>
+            <div class="file-list-cell file-list-public"></div>
+            <div class="file-list-actions">
+                <button class="fm-row-action rename-item" type="button" title="Rename" aria-label="Rename folder">&#9998;</button>
+                <button class="fm-row-action fm-row-action-danger delete-folder" type="button" title="Move to Trash" aria-label="Move folder to trash">&times;</button>
+            </div>
+        `;
+
+        return item;
+    }
+
+    function upsertFolderInView(folder) {
+        if (!folder || !currentViewCanDisplayFolder(folder.parent_id)) {
+            return false;
+        }
+
+        removeEmptyStateCard();
+        const existing = findItemElement({ id: folder.id, type: 'folder' });
+        const element = buildFolderItemElement(folder);
+        if (existing) {
+            existing.replaceWith(element);
+        } else {
+            fileGrid.appendChild(element);
+        }
+        applySearchFilter();
+        syncWorkspaceSummaryFromDom();
+        return true;
+    }
+
+    function buildFileItemElement(file) {
+        const fileId = String(file.id);
+        const shortId = String(file.short_id || '');
+        const filename = String(file.filename || 'Untitled file');
+        const mimeType = String(file.mime_type || 'application/octet-stream');
+        const isPublic = Number(file.is_public || 0) === 1;
+        const fileSize = Number(file.file_size || 0);
+        const downloadCount = Number(file.downloads || 0);
+        const createdAt = String(file.created_at || new Date().toISOString());
+        const folderId = file.folder_id === null || file.folder_id === undefined ? '' : String(file.folder_id);
+
+        const item = document.createElement('div');
+        item.className = 'file-item';
+        item.setAttribute('data-id', fileId);
+        item.setAttribute('data-kind', 'file');
+        item.setAttribute('data-parent-id', folderId);
+        item.setAttribute('data-status', String(file.status || 'active'));
+        item.setAttribute('data-public', isPublic ? '1' : '0');
+        item.setAttribute('data-size', String(fileSize));
+        item.setAttribute('data-downloads', String(downloadCount));
+        item.setAttribute('data-mime', mimeType);
+        item.setAttribute('data-short-id', shortId);
+        item.setAttribute('data-created-at', createdAt);
+        item.setAttribute('draggable', 'true');
+
+        item.innerHTML = `
+            <div class="file-hover-controls">
+                <div class="file-select">
+                    <input type="checkbox" class="item-checkbox" data-id="${escapeHtml(fileId)}" data-type="file">
+                </div>
+                <div class="file-options-trigger" data-id="${escapeHtml(fileId)}" data-type="file" data-name="${escapeHtml(filename)}">
+                    <span class="trigger-icon" aria-hidden="true">&#9662;</span>
+                </div>
+            </div>
+            <div class="file-preview" data-nav-url="/file/${encodeURIComponent(shortId)}" data-nav-target="_blank">
+                <div class="file-icon">${fileIconForMime(mimeType)}</div>
+            </div>
+            <div class="file-info" data-nav-url="/file/${encodeURIComponent(shortId)}" data-nav-target="_blank">
+                <div class="file-name" title="${escapeHtml(filename)}">${escapeHtml(filename)}</div>
+                <div class="file-meta">
+                    <span class="file-size-raw">${escapeHtml(formatBytes(fileSize))}</span>
+                    <span class="file-date dashboard-date-hidden">${escapeHtml(formatDashboardDateTime(createdAt))}</span>
+                </div>
+            </div>
+            <div class="file-list-cell file-list-size">${escapeHtml(formatBytes(fileSize))}</div>
+            <div class="file-list-cell file-list-upload">${escapeHtml(formatDashboardDate(createdAt))}</div>
+            <div class="file-list-cell file-list-downloads">${downloadCount > 0 ? escapeHtml(String(downloadCount)) : ''}</div>
+            <div class="file-list-cell file-list-public">
+                <button class="fm-switch-indicator fm-public-toggle ${isPublic ? 'is-on' : ''}"
+                        type="button"
+                        data-visibility-toggle
+                        aria-label="${isPublic ? 'Make private' : 'Make public'}"
+                        title="${isPublic ? 'Public' : 'Private'}"></button>
+            </div>
+            <div class="file-list-actions">
+                <button class="fm-row-action rename-item" type="button" title="Rename" aria-label="Rename file">&#9998;</button>
+                <button class="fm-row-action fm-row-action-danger delete-file" type="button" title="Move to Trash" aria-label="Move file to trash">&times;</button>
+            </div>
+        `;
+
+        return item;
+    }
+
+    async function upsertCompletedFileInView(fileId) {
+        if (!fileId || !fileGrid || isGuestMode || isTrashView || !liveUploadInsertEnabled) {
+            return false;
+        }
+
+        const payload = await apiJson(`/api/v1/files/${encodeURIComponent(fileId)}`);
+        const file = payload?.file;
+        if (!currentViewCanDisplayFile(file)) {
+            return false;
+        }
+
+        removeEmptyStateCard();
+        const existing = findItemElement({ id: file.id, type: 'file' });
+        const element = buildFileItemElement(file);
+
+        if (existing) {
+            existing.replaceWith(element);
+        } else {
+            fileGrid.appendChild(element);
+        }
+
+        applySearchFilter();
+        syncWorkspaceSummaryFromDom();
+        return true;
     }
 
     function selectionContains(id, type) {
@@ -434,6 +933,28 @@ document.addEventListener('DOMContentLoaded', () => {
         toast.addEventListener('mouseenter', () => clearTimeout(timeout), { once: true });
     }
 
+    function queueFlashToast(message, duration = 5000) {
+        try {
+            sessionStorage.setItem('fyuhls.flash.toast', JSON.stringify({ message, duration }));
+        } catch (err) {
+        }
+    }
+
+    function consumeFlashToast() {
+        try {
+            const raw = sessionStorage.getItem('fyuhls.flash.toast');
+            if (!raw) {
+                return;
+            }
+            sessionStorage.removeItem('fyuhls.flash.toast');
+            const payload = JSON.parse(raw);
+            if (payload && typeof payload.message === 'string' && payload.message.trim() !== '') {
+                showToast(payload.message, [], Number(payload.duration || 5000));
+            }
+        } catch (err) {
+        }
+    }
+
     async function copyText(value, label = 'Link') {
         try {
             await navigator.clipboard.writeText(value);
@@ -463,8 +984,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const downloadButton = document.getElementById('mobileActionDownload');
         const shareButton = document.getElementById('mobileActionShare');
+        const replaceButton = document.getElementById('mobileActionReplace');
         if (downloadButton) downloadButton.style.display = itemType === 'file' ? '' : 'none';
         if (shareButton) shareButton.style.display = itemType === 'file' ? '' : 'none';
+        if (replaceButton) replaceButton.style.display = (replaceEnabled && itemType === 'file') ? '' : 'none';
         mobileActionSheet.style.display = 'block';
         return true;
     }
@@ -583,6 +1106,23 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        if (action === 'replace') {
+            if (!replaceEnabled) {
+                showToast('File replacement is currently disabled.');
+                return;
+            }
+            if (type !== 'file') {
+                return;
+            }
+            pendingReplaceTarget = { id, type, name };
+            if (fileInput) {
+                fileInput.value = '';
+                fileInput.removeAttribute('multiple');
+                fileInput.click();
+            }
+            return;
+        }
+
         if (action === 'rename') {
             const currentItem = itemEl || findItemElement({ id, type });
             const currentName = currentItem?.querySelector('.file-name')?.innerText || name;
@@ -666,7 +1206,7 @@ document.addEventListener('DOMContentLoaded', () => {
         contextMenu.style.display = 'block';
 
         // re-wire context menu items after cloning to clear stale listeners
-        ['ctxDownload', 'ctxRename', 'ctxMove', 'ctxCopy', 'ctxTrash'].forEach(cid => {
+        ['ctxDownload', 'ctxReplace', 'ctxRename', 'ctxMove', 'ctxCopy', 'ctxTrash'].forEach(cid => {
             const el = document.getElementById(cid);
             if (!el) return;
             const fresh = el.cloneNode(true);
@@ -677,6 +1217,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ctxDownload) {
             ctxDownload.style.display = (type === 'file') ? 'flex' : 'none';
             ctxDownload.onclick = () => performItemAction('download', id, type, name, item);
+        }
+        const ctxReplace = document.getElementById('ctxReplace');
+        if (ctxReplace) {
+            ctxReplace.style.display = (replaceEnabled && type === 'file') ? 'flex' : 'none';
+            ctxReplace.onclick = () => performItemAction('replace', id, type, name, item);
         }
         const ctxRename = document.getElementById('ctxRename');
         if (ctxRename) ctxRename.onclick = () => performItemAction('rename', id, type, name, item);
@@ -791,7 +1336,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const name = trigger.getAttribute('data-name');
             const item = trigger.closest('.file-item');
 
-            // Select this item exclusively if it wasnt already selected? 
+            // Select this item exclusively if it wasnt already selected?
             // Or just use it for the dropdown? Usually dropdown act on the single item.
             // Let's match context menu behavior: auto-select if not selected.
             if (!selectionContains(id, type)) {
@@ -849,6 +1394,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dropShare) {
             dropShare.style.display = (type === 'file') ? 'flex' : 'none';
             dropShare.onclick = () => performItemAction('share', id, type, name, item);
+        }
+
+        const dropReplace = document.getElementById('dropReplace');
+        if (dropReplace) {
+            dropReplace.style.display = (replaceEnabled && type === 'file') ? 'flex' : 'none';
+            dropReplace.onclick = () => performItemAction('replace', id, type, name, item);
         }
 
         const dropRename = document.getElementById('dropRename');
@@ -1420,33 +1971,60 @@ document.addEventListener('DOMContentLoaded', () => {
             }, false);
         });
 
-        dropZone.addEventListener('drop', (e) => {
+        dropZone.addEventListener('drop', async (e) => {
             const dt = e.dataTransfer;
-            if (dt.files.length > 0) {
-                handleFiles(dt.files);
+            if ((dt?.items?.length || dt?.files?.length)) {
+                const uploadItems = await extractDroppedUploadItems(dt);
+                if (uploadItems.length > 0) {
+                    await handleFiles(uploadItems);
+                }
             }
         });
 
-        dropZone.addEventListener('click', () => fileInput?.click());
+        dropZone.addEventListener('click', () => {
+            pendingReplaceTarget = null;
+            fileInput?.setAttribute('multiple', 'multiple');
+            fileInput?.click();
+        });
     }
 
     if (fileInput) {
         fileInput.addEventListener('change', () => {
             if (fileInput.files.length > 0) {
-                handleFiles(fileInput.files);
+                const replaceOptions = pendingReplaceTarget
+                    ? { replaceFileId: pendingReplaceTarget.id }
+                    : {};
+                handleFiles(fileInput.files, replaceOptions);
             }
+            pendingReplaceTarget = null;
+            fileInput.setAttribute('multiple', 'multiple');
         });
     }
 
     if (uploadBtn) {
-        uploadBtn.addEventListener('click', () => fileInput?.click());
+        uploadBtn.addEventListener('click', () => {
+            pendingReplaceTarget = null;
+            fileInput?.setAttribute('multiple', 'multiple');
+            fileInput?.click();
+        });
     }
+
+    const syncUploadAreaToggle = () => {
+        if (!dashboardUploadCard || !toggleUploadAreaBtn) {
+            return;
+        }
+        const collapsed = dashboardUploadCard.classList.contains('is-collapsed');
+        toggleUploadAreaBtn.textContent = collapsed ? 'Show drag and drop area' : 'Hide drag and drop area';
+        toggleUploadAreaBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    };
+
+    syncUploadAreaToggle();
 
     toggleUploadAreaBtn?.addEventListener('click', () => {
         if (!dashboardUploadCard) return;
         const nextCollapsed = !dashboardUploadCard.classList.contains('is-collapsed');
         dashboardUploadCard.classList.toggle('is-collapsed', nextCollapsed);
-        toggleUploadAreaBtn.textContent = nextCollapsed ? 'Show drag and drop area' : 'Hide drag and drop area';
+        syncUploadAreaToggle();
     });
 
     window.addEventListener('dragenter', (event) => {
@@ -1458,10 +2036,21 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         dashboardUploadCard.classList.remove('is-collapsed');
-        if (toggleUploadAreaBtn) {
-            toggleUploadAreaBtn.textContent = 'Hide drag and drop area';
-        }
+        syncUploadAreaToggle();
     });
+
+    setFilterCardCollapsed(true);
+    toggleFilterCardBtn?.addEventListener('click', () => {
+        if (!dashboardFilterCard) {
+            return;
+        }
+        const nextCollapsed = !dashboardFilterCard.classList.contains('is-collapsed');
+        setFilterCardCollapsed(nextCollapsed);
+        savePageState();
+    });
+    if (toggleFilterCardBtn) {
+        toggleFilterCardBtn.dataset.bound = '1';
+    }
 
     // 5. Drag and Drop (Internal Movement - Use Delegation)
     fileGrid?.addEventListener('dragover', (e) => {
@@ -1859,6 +2448,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (fmVisibilityFilter) fmVisibilityFilter.value = 'all';
         if (fmStatusFilter) fmStatusFilter.value = 'all';
         if (fmSort) fmSort.value = 'newest';
+        setFilterCardCollapsed(true);
         applySearchFilter();
     });
     fmResetWorkspaceBtn?.addEventListener('click', () => {
@@ -1867,6 +2457,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (fmVisibilityFilter) fmVisibilityFilter.value = 'all';
         if (fmStatusFilter) fmStatusFilter.value = 'all';
         if (fmSort) fmSort.value = 'newest';
+        setFilterCardCollapsed(true);
         setFileManagerView('list');
         applySearchFilter();
         clearSelection();
@@ -1921,6 +2512,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setFileManagerView(savedView);
 
     restorePageState();
+    consumeFlashToast();
     applySearchFilter();
 
     // 8. Move Modal Navigation
@@ -1990,7 +2582,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!/^\d+$/.test(id)) {
                 return;
             }
-            window.location.assign('/folder/' + encodeURIComponent(id));
+            openFolderView(id);
             return;
         }
 
@@ -2035,51 +2627,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Delete Individual
+        // Trash Individual
         const delFile = e.target.closest('.delete-file');
         const delFolder = e.target.closest('.delete-folder');
         if (delFile || delFolder) {
             e.stopPropagation();
             const type = delFile ? 'file' : 'folder';
             const id = e.target.closest('.file-item').getAttribute('data-id');
-            if (await showActionModal('Delete Item', `Delete this ${type}?`)) {
-                const fd = new FormData();
-                fd.append(type === 'file' ? 'id' : 'folder_id', id);
-                fd.append('csrf_token', csrfToken);
-                if (type === 'file' && window.FILE_MANAGER_CONFIG?.isAdmin) {
-                    const deleteReason = await showActionModal(
-                        'Delete Reason',
-                        'Enter a reason for deleting this file.',
-                        '',
-                        true
-                    );
-                    if (deleteReason === null) {
-                        return;
-                    }
-                    if (!String(deleteReason).trim()) {
-                        alert('A delete reason is required for admin file deletions.');
-                        return;
-                    }
-                    fd.append('delete_reason', String(deleteReason).trim());
-                }
-                fetch(type === 'file' ? '/file/delete' : '/folder/delete', { method: 'POST', body: fd })
-                    .then(async r => {
-                        const text = await r.text();
-                        try {
-                            return JSON.parse(text);
-                        } catch (err) {
-                            throw new Error('Server returned invalid response');
-                        }
-                    })
-                    .then(data => {
-                        if (data.status === 'success') reloadWithState();
-                        else alert(data.error || data.message || 'Action failed');
-                    })
-                    .catch(err => {
-                        console.error('Individual action failed:', err);
-                        alert(err.message);
-                    });
-            }
+            await performBulkTrash([{ id, type }]);
         }
 
         // New Folder
@@ -2123,10 +2678,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateGlobalProgress(50, "Remote URL...");
                 if (progressContainer) progressContainer.style.display = showUploadPopup ? 'block' : 'none';
 
-                fetch('/upload/remote', { 
-                    method: 'POST', 
+                fetch('/upload/remote', {
+                    method: 'POST',
                     body: fd,
-                    signal: controller.signal 
+                    signal: controller.signal
                 })
                 .then(r => r.json())
                 .then(data => {
@@ -2268,6 +2823,9 @@ document.addEventListener('DOMContentLoaded', () => {
         task.progress.completedBytes = totalBytes;
         task.progress.loadedBytes = totalBytes;
         setTaskStatus(task, 'completed', 'Ready');
+        if (task.replaceFileId) {
+            queueFlashToast('Replaced file in place.');
+        }
         updateGlobalProgress();
         return true;
     }
@@ -2500,6 +3058,176 @@ document.addEventListener('DOMContentLoaded', () => {
         return cur ? Number(cur) : null;
     }
 
+    function folderCacheKey(parentId, name) {
+        return `${parentId === null || parentId === undefined || parentId === '' ? 'root' : String(parentId)}::${String(name)}`;
+    }
+
+    async function ensureFolderIndexLoaded() {
+        if (folderIndexLoaded || isGuestMode) {
+            return;
+        }
+
+        const folders = await fetch('/folders/json', { credentials: 'same-origin' }).then(r => r.json()).catch(() => []);
+        folderIndexCache.clear();
+        if (Array.isArray(folders)) {
+            folders.forEach(folder => {
+                const name = String(folder?.name || '').trim();
+                if (name === '') {
+                    return;
+                }
+                const parentId = folder?.parent_id ?? null;
+                folderIndexCache.set(folderCacheKey(parentId, name), Number(folder.id));
+            });
+        }
+        folderIndexLoaded = true;
+    }
+
+    async function ensureFolderExists(name, parentId) {
+        const normalized = String(name || '').trim();
+        if (normalized === '') {
+            return parentId ?? null;
+        }
+
+        await ensureFolderIndexLoaded();
+        const cacheKey = folderCacheKey(parentId ?? null, normalized);
+        if (folderIndexCache.has(cacheKey)) {
+            return folderIndexCache.get(cacheKey);
+        }
+
+        const fd = new FormData();
+        fd.append('name', normalized);
+        if (parentId !== null && parentId !== undefined && parentId !== '') {
+            fd.append('parent_id', String(parentId));
+        }
+        fd.append('csrf_token', csrfToken);
+
+        const response = await fetch('/folder/create', {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: fd,
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.status !== 'success' || !payload.folder_id) {
+            throw new Error(payload.error || `Could not create folder "${normalized}".`);
+        }
+
+        const folderId = Number(payload.folder_id);
+        folderIndexCache.set(cacheKey, folderId);
+        upsertFolderInView({
+            id: folderId,
+            parent_id: parentId ?? null,
+            name: normalized,
+            status: 'active',
+            created_at: new Date().toISOString(),
+            file_count: 0,
+            total_size: 0,
+        });
+        return folderId;
+    }
+
+    async function ensureFolderPath(relativeSegments = [], baseParentId = currentFolderId()) {
+        if (!Array.isArray(relativeSegments) || relativeSegments.length === 0) {
+            return baseParentId ?? null;
+        }
+        if (isGuestMode) {
+            throw new Error('Folder uploads require a signed-in account.');
+        }
+
+        let parentId = baseParentId ?? null;
+        for (const segment of relativeSegments) {
+            parentId = await ensureFolderExists(segment, parentId);
+        }
+        return parentId;
+    }
+
+    function isSkippableUploadError(error) {
+        const message = String(error?.message || '').toLowerCase();
+        return message.includes('file type') && message.includes('not allowed');
+    }
+
+    function readEntryFile(entry) {
+        return new Promise((resolve, reject) => {
+            entry.file(resolve, reject);
+        });
+    }
+
+    function readDirectoryEntries(reader) {
+        return new Promise((resolve, reject) => {
+            const allEntries = [];
+            const readBatch = () => {
+                reader.readEntries(entries => {
+                    if (!entries || entries.length === 0) {
+                        resolve(allEntries);
+                        return;
+                    }
+                    allEntries.push(...entries);
+                    readBatch();
+                }, reject);
+            };
+            readBatch();
+        });
+    }
+
+    async function collectDroppedEntryFiles(entry, parentSegments = []) {
+        if (!entry) {
+            return [];
+        }
+
+        if (entry.isFile) {
+            const file = await readEntryFile(entry);
+            return [{ file, relativeFolderSegments: parentSegments }];
+        }
+
+        if (!entry.isDirectory) {
+            return [];
+        }
+
+        const reader = entry.createReader();
+        const entries = await readDirectoryEntries(reader);
+        if (entries.length === 0) {
+            return [{
+                file: null,
+                folderOnly: true,
+                relativeFolderSegments: [...parentSegments, entry.name],
+            }];
+        }
+        const nested = await Promise.all(entries.map(child =>
+            collectDroppedEntryFiles(child, [...parentSegments, entry.name])
+        ));
+        return nested.flat();
+    }
+
+    async function normalizeUploadItems(input) {
+        if (!input) {
+            return [];
+        }
+
+        if (Array.isArray(input)) {
+            return input;
+        }
+
+        return Array.from(input).map(file => {
+            const relativePath = String(file.webkitRelativePath || '');
+            const segments = relativePath ? relativePath.split('/').filter(Boolean).slice(0, -1) : [];
+            return { file, folderOnly: false, relativeFolderSegments: segments };
+        });
+    }
+
+    async function extractDroppedUploadItems(dataTransfer) {
+        const items = Array.from(dataTransfer?.items || []);
+        const entryItems = items
+            .map(item => (typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null))
+            .filter(Boolean);
+
+        if (entryItems.length === 0) {
+            return normalizeUploadItems(dataTransfer?.files || []);
+        }
+
+        const nested = await Promise.all(entryItems.map(entry => collectDroppedEntryFiles(entry, [])));
+        const files = nested.flat();
+        return files.length > 0 ? files : normalizeUploadItems(dataTransfer?.files || []);
+    }
+
     function readUploadState() {
         try {
             const raw = localStorage.getItem(uploadStateKey);
@@ -2559,11 +3287,23 @@ document.addEventListener('DOMContentLoaded', () => {
         renderResumeNotice();
     }
 
+    function getInterruptedUploadStates() {
+        const savedStates = Object.values(readUploadState()).filter(item => item.sessionId);
+        return savedStates.filter(item => {
+            const liveTask = uploadTaskRegistry.get(item.id);
+            if (!liveTask) {
+                return true;
+            }
+
+            return ['completed', 'canceled'].includes(liveTask.status);
+        });
+    }
+
     function renderResumeNotice() {
         const existing = document.getElementById('resumeNotice');
         if (existing) existing.remove();
 
-        const resumable = Object.values(readUploadState()).filter(item => item.sessionId);
+        const resumable = getInterruptedUploadStates();
         if (!dropZone || resumable.length === 0) return;
 
         const wrap = document.createElement('div');
@@ -2627,7 +3367,8 @@ document.addEventListener('DOMContentLoaded', () => {
             size: task.file.size,
             type: task.file.type || 'application/octet-stream',
             sessionId: task.sessionId || null,
-            folderId: currentFolderId(),
+            folderId: task.folderIdOverride ?? currentFolderId(),
+            replaceFileId: task.replaceFileId || null,
             ...extra,
         };
         writeUploadState(state);
@@ -2665,13 +3406,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function findResumableState(file) {
-        const folderId = currentFolderId();
+    function findResumableState(file, options = {}) {
+        const folderId = options.folderIdOverride ?? currentFolderId();
+        const replaceFileId = options.replaceFileId || null;
         const saved = Object.values(readUploadState());
         return saved.find(item =>
             item.name === file.name &&
             Number(item.size) === file.size &&
             Number(item.folderId || 0) === Number(folderId || 0) &&
+            Number(item.replaceFileId || 0) === Number(replaceFileId || 0) &&
             item.sessionId
         ) || null;
     }
@@ -2704,18 +3447,121 @@ document.addEventListener('DOMContentLoaded', () => {
         return payload;
     }
 
-    async function handleFiles(files) {
+    async function loadSessionById(sessionId) {
+        if (!sessionId) {
+            return null;
+        }
+
+        const payload = await apiJson(`/api/v1/uploads/sessions/${encodeURIComponent(sessionId)}`);
+        const session = payload?.session;
+        if (!session || ['completed', 'aborted', 'expired', 'failed'].includes(session.status)) {
+            return null;
+        }
+
+        return session;
+    }
+
+    async function createTaskSession(task, options = {}) {
+        const createPayload = {
+            filename: task.file.name,
+            size: task.file.size,
+            mime_type: task.file.type || 'application/octet-stream',
+        };
+
+        if (task.replaceFileId) {
+            createPayload.replace_file_id = task.replaceFileId;
+        }
+
+        if (options.includeChecksum) {
+            try {
+                setTaskStatus(task, 'starting', options.statusDetail || 'Preparing upload');
+                const checksum = await getTaskChecksum(task);
+                if (checksum) {
+                    createPayload.checksum_sha256 = checksum;
+                }
+            } catch (err) {
+                console.warn('Could not calculate pre-upload checksum:', err);
+            }
+        }
+
+        const folderId = task.folderIdOverride ?? currentFolderId();
+        if (folderId) {
+            createPayload.folder_id = folderId;
+        }
+
+        const created = await apiJson('/api/v1/uploads/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(createPayload),
+        });
+
+        task.sessionId = created.session.public_id;
+        saveTaskState(task, { sessionId: task.sessionId });
+        return created.session;
+    }
+
+    async function ensureTaskSessionPrepared(task, options = {}) {
+        if (task.sessionId) {
+            const activeSession = await loadSessionById(task.sessionId);
+            if (activeSession) {
+                return activeSession;
+            }
+            task.sessionId = null;
+            saveTaskState(task, { sessionId: null });
+        }
+
+        const resumableState = findResumableState(task.file, { replaceFileId: task.replaceFileId });
+        if (resumableState) {
+            const existing = await loadSessionById(resumableState.sessionId);
+            if (existing) {
+                task.id = resumableState.id;
+                task.sessionId = existing.public_id;
+                saveTaskState(task, { sessionId: task.sessionId });
+                return existing;
+            }
+        }
+
+        return createTaskSession(task, options);
+    }
+
+    async function handleFiles(files, options = {}) {
         if (!progressContainer) return;
         if (window.UPLOAD_CONFIG?.chunkingEnabled === false) {
             showToast('Chunked browser uploads are currently disabled by the administrator.');
             return;
         }
+        const uploadItems = await normalizeUploadItems(files);
+        if (options.replaceFileId && uploadItems.filter(item => item.file).length !== 1) {
+            showToast('Choose exactly one replacement file.');
+            return;
+        }
         cancelRequested = false;
         progressContainer.style.display = showUploadPopup ? 'block' : 'none';
         updateGlobalProgress();
+        let skippedCount = 0;
 
-        for (const file of [...files]) {
-            const resumable = findResumableState(file);
+        for (const item of uploadItems) {
+            const file = item.file;
+            const relativeFolderSegments = Array.isArray(item.relativeFolderSegments) ? item.relativeFolderSegments : [];
+            let folderIdOverride = currentFolderId();
+
+            try {
+                folderIdOverride = await ensureFolderPath(relativeFolderSegments, currentFolderId());
+            } catch (err) {
+                skippedCount++;
+                showToast(
+                    `${file.name}: ${err.message || 'Could not prepare destination folders.'}`,
+                    [],
+                    7000
+                );
+                continue;
+            }
+
+            if (item.folderOnly || !file) {
+                continue;
+            }
+
+            const resumable = findResumableState(file, { ...options, folderIdOverride });
             if (resumable) {
                 const resume = await showActionModal(
                     'Resume Upload',
@@ -2741,14 +3587,44 @@ document.addEventListener('DOMContentLoaded', () => {
                     totalBytes: file.size,
                     completedBytes: 0,
                 },
+                replaceFileId: options.replaceFileId || null,
+                folderIdOverride,
             };
             saveTaskState(task);
             registerTask(task);
-            uploadQueue.push(task);
+
+            try {
+                setTaskStatus(task, 'starting', 'Preparing upload');
+                await ensureTaskSessionPrepared(task, { includeChecksum: false });
+                enqueueTask(task);
+            } catch (err) {
+                if (isSkippableUploadError(err)) {
+                    skippedCount++;
+                    clearTaskState(task.id);
+                    dropTask(task.id);
+                    showToast(`${task.file.name}: skipped because this file type is not allowed.`, [], 7000);
+                } else {
+                    failedUploads++;
+                    setTaskStatus(task, 'failed', err.message || 'Upload failed');
+                    showToast(
+                        `${task.file.name}: ${err.message || 'Upload failed.'}`,
+                        [],
+                        7000
+                    );
+                }
+            }
         }
 
         renderResumeNotice();
         updateUploadPanel();
+
+        if (skippedCount > 0) {
+            showToast(
+                `${skippedCount} file${skippedCount === 1 ? '' : 's'} skipped while preparing this upload.`,
+                [],
+                7000
+            );
+        }
 
         processQueue();
     }
@@ -2791,19 +3667,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                if (failedUploads === 0 && !hasPendingAttention && remaining.length > 0) {
-                    reloadWithState({ selectedItems: [] });
-                } else {
-                    if (failedUploads > 0) {
-                        showToast(
-                            `${failedUploads} file(s) failed to upload. Check the notices above for details.`,
-                            [],
-                            7000
-                        );
-                    }
-                    failedUploads = 0;
-                    updateUploadPanel();
+                if (failedUploads > 0) {
+                    showToast(
+                        `${failedUploads} file(s) failed to upload. Check the notices above for details.`,
+                        [],
+                        7000
+                    );
                 }
+                failedUploads = 0;
+                updateUploadPanel();
             }, 600);
         }
     }
@@ -2811,63 +3683,11 @@ document.addEventListener('DOMContentLoaded', () => {
     async function startUploadProcess(task) {
         const file = task.file;
         setTaskStatus(task, 'starting', 'Checking upload session');
-        const resumableState = findResumableState(file);
-        let session;
-        let partSize;
-
-        if (resumableState) {
-            const existing = await apiJson(`/api/v1/uploads/sessions/${encodeURIComponent(resumableState.sessionId)}`);
-            if (existing.session && !['completed', 'aborted', 'expired', 'failed'].includes(existing.session.status)) {
-                task.id = resumableState.id;
-                task.sessionId = existing.session.public_id;
-                session = existing.session;
-                partSize = Number(existing.session.part_size_bytes || file.size);
-            }
-        }
-
-        if (!session) {
-            const createPayload = {
-                filename: file.name,
-                size: file.size,
-                mime_type: file.type || 'application/octet-stream',
-            };
-
-            try {
-                setTaskStatus(task, 'starting', 'Checking duplicates');
-                const checksum = await getTaskChecksum(task);
-                if (checksum) {
-                    createPayload.checksum_sha256 = checksum;
-                }
-            } catch (err) {
-                console.warn('Could not calculate pre-upload checksum:', err);
-            }
-
-            const folderId = currentFolderId();
-            if (folderId) {
-                createPayload.folder_id = folderId;
-            }
-
-            const created = await apiJson('/api/v1/uploads/sessions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(createPayload),
-            });
-
-            task.sessionId = created.session.public_id;
-            session = created.session;
-            partSize = Number(created.part_size_bytes || file.size);
-
-            if (created.upload_skipped || session.status === 'completed') {
-                clearTaskState(task.id);
-                const presented = await runDedupedUploadPresentation(task);
-                if (presented) {
-                    setTimeout(() => dropTask(task.id), 1500);
-                }
-                return;
-            }
-        }
-
-        saveTaskState(task, { sessionId: task.sessionId });
+        const session = await ensureTaskSessionPrepared(task, {
+            includeChecksum: true,
+            statusDetail: 'Preparing upload',
+        });
+        const partSize = Number(session.part_size_bytes || file.size);
 
         const totalParts = Math.max(1, Math.ceil(file.size / partSize));
         const uploadedParts = new Set((session.parts || [])
@@ -2976,7 +3796,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         setTaskStatus(task, 'finalizing', 'Completing upload');
-        await apiJson(`/api/v1/uploads/sessions/${encodeURIComponent(task.sessionId)}/complete`, {
+        const completed = await apiJson(`/api/v1/uploads/sessions/${encodeURIComponent(task.sessionId)}/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(completionPayload),
@@ -2985,6 +3805,14 @@ document.addEventListener('DOMContentLoaded', () => {
         clearTaskState(task.id);
         task.progress.loadedBytes = task.progress.totalBytes;
         setTaskStatus(task, 'completed', 'Ready');
+        try {
+            await upsertCompletedFileInView(completed.file_id);
+        } catch (err) {
+            console.warn('Could not update file manager in place after upload completion:', err);
+        }
+        if (task.replaceFileId) {
+            queueFlashToast('Replaced file in place.');
+        }
         updateGlobalProgress();
         setTimeout(() => dropTask(task.id), 1500);
     }
@@ -3144,10 +3972,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.addEventListener('beforeunload', (event) => {
-        const hasActiveUploads = Array.from(uploadTaskRegistry.values()).some(task =>
-            ['queued', 'starting', 'uploading', 'finalizing', 'paused'].includes(task.status)
-        );
-        if (!hasActiveUploads) {
+        if (!hasBlockingUploads()) {
             return;
         }
 
@@ -3185,5 +4010,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
     restorePendingUploads();
 });
-
-

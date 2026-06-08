@@ -474,12 +474,13 @@ class SeoService
                 return $allowedHost !== '' ? $allowedHost : null;
             }, $configuredAllowedHosts)))
             : [];
+        $hasExplicitAllowedHosts = self::hasExplicitAllowedHosts($normalizedAllowedHosts);
 
         if ($hostOnly === '') {
             return null;
         }
 
-        if ($normalizedAllowedHosts !== []) {
+        if ($hasExplicitAllowedHosts) {
             if (!in_array($hostOnly, $normalizedAllowedHosts, true)) {
                 return null;
             }
@@ -507,6 +508,21 @@ class SeoService
         }
 
         return $scheme . '://' . $host . $basePath;
+    }
+
+    private static function hasExplicitAllowedHosts(array $normalizedAllowedHosts): bool
+    {
+        if ($normalizedAllowedHosts === []) {
+            return false;
+        }
+
+        foreach ($normalizedAllowedHosts as $allowedHost) {
+            if (!self::isLocalHost((string)$allowedHost)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function isPlaceholderBaseUrl(string $value): bool

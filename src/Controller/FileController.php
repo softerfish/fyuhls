@@ -20,6 +20,138 @@ class FileController
 {
     private const MAX_FILENAME_LENGTH = 255;
     private static bool $downloadBandwidthTableReady = false;
+    private static $fileProcessorFactoryForTests = null;
+
+    public static function setFileProcessorFactoryForTests(?callable $factory): void
+    {
+        self::$fileProcessorFactoryForTests = $factory;
+    }
+
+    private function makeFileProcessor(): object
+    {
+        if (is_callable(self::$fileProcessorFactoryForTests)) {
+            return (self::$fileProcessorFactoryForTests)();
+        }
+
+        return new FileProcessor();
+    }
+
+    private function currentUserOwnsRecord(?int $ownerUserId): bool
+    {
+        return Auth::check() && $ownerUserId !== null && $ownerUserId === (int)(Auth::id() ?? 0);
+    }
+
+    private function currentUserOwnsFile(?array $file): bool
+    {
+        return is_array($file) && $this->currentUserOwnsRecord(isset($file['user_id']) ? (int)$file['user_id'] : null);
+    }
+
+    private function currentUserOwnsFolder(?array $folder): bool
+    {
+        return is_array($folder) && $this->currentUserOwnsRecord(isset($folder['user_id']) ? (int)$folder['user_id'] : null);
+    }
+
+    private function downloadWaitSessionKey(array $file, ?int $userId): string
+    {
+        $fileKey = trim((string)($file['short_id'] ?? $file['id'] ?? ''));
+        $actorKey = $userId !== null && $userId > 0 ? 'user:' . $userId : 'guest:' . session_id();
+        return $actorKey . '|file:' . $fileKey;
+    }
+
+    private function respondJson(array $payload, int $statusCode = 200): void
+    {
+        http_response_code($statusCode);
+        echo json_encode($payload);
+    }
+
+    private function resolveOwnedBulkItems(array $items, string $fileScope = 'active', string $folderScope = 'active'): array
+    {
+        $resolved = [];
+        $seen = [];
+
+        foreach ($items as $item) {
+            $type = strtolower(trim((string)($item['type'] ?? '')));
+            $id = (int)($item['id'] ?? 0);
+            if ($id <= 0 || !in_array($type, ['file', 'folder'], true)) {
+                throw new \RuntimeException('Every selected item must include a valid type and id.');
+            }
+
+            $key = $type . ':' . $id;
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            if ($type === 'file') {
+                $row = $fileScope === 'active' ? File::find($id) : File::findAnyStatus($id);
+                if (!$this->currentUserOwnsFile($row)) {
+                    throw new \RuntimeException('One or more selected files are no longer available to this account.');
+                }
+                $status = (string)($row['status'] ?? 'active');
+                if ($fileScope === 'deleted' && $status !== 'deleted') {
+                    throw new \RuntimeException('One or more selected files are no longer in the expected state.');
+                }
+                if ($fileScope === 'active' && $status !== 'active') {
+                    throw new \RuntimeException('One or more selected files are no longer active.');
+                }
+            } else {
+                $row = \App\Model\Folder::find($id);
+                if (!$this->currentUserOwnsFolder($row)) {
+                    throw new \RuntimeException('One or more selected folders are no longer available to this account.');
+                }
+                $status = (string)($row['status'] ?? 'active');
+                if ($folderScope === 'deleted' && $status !== 'deleted') {
+                    throw new \RuntimeException('One or more selected folders are no longer in the expected state.');
+                }
+                if ($folderScope === 'active' && $status !== 'active') {
+                    throw new \RuntimeException('One or more selected folders are no longer active.');
+                }
+            }
+
+            $resolved[] = [
+                'type' => $type,
+                'id' => $id,
+                'row' => $row,
+                'request' => is_array($item) ? $item : [],
+            ];
+        }
+
+        if ($resolved === []) {
+            throw new \RuntimeException('No items selected.');
+        }
+
+        return $resolved;
+    }
+
+    private function issueTrackedDownloadUrl(array $file, array $clientHints = []): string
+    {
+        $this->maybeIssuePpsReferralCookie($file);
+        $fraud = new \App\Service\RewardFraudService();
+        $fraud->ensureVisitorCookie();
+        $fraud->rememberDownloadPageReferrer((int)($file['id'] ?? 0));
+        $session = $fraud->createDownloadSession($file, Auth::id() ? (int)Auth::id() : null, $clientHints);
+        $sessionId = trim((string)($session['public_id'] ?? ''));
+        if ($sessionId === '') {
+            throw new \RuntimeException('Could not issue a tracked download session.');
+        }
+
+        return (new DownloadManager())->issueNormalDownloadLink((string)($file['short_id'] ?? $file['id']), $file['filename'], $sessionId);
+    }
+
+    private function buildDownloadBandwidthEventKey(string $fileId, string $token, int $expires, string $sessionId, bool $streamMode, bool $isOwner): string
+    {
+        if ($isOwner && $token === '' && $expires <= 0 && $sessionId === '') {
+            return 'direct-owner:' . bin2hex(random_bytes(16));
+        }
+
+        return hash('sha256', implode('|', [
+            $fileId,
+            $token,
+            (string)$expires,
+            $sessionId,
+            $streamMode ? 'stream' : 'download',
+        ]));
+    }
 
     private function buildPublicShareFields(array $file): array
     {
@@ -48,10 +180,11 @@ class FileController
 
         $thumbnailUrl = null;
         $isImageFile = str_starts_with($this->resolveDisplayMimeType($file), 'image/');
-        if ($isImageFile && !empty($file['file_hash']) && !empty($file['storage_path'])) {
-            $pathParts = explode('/', trim((string)$file['storage_path'], '/'));
-            if (count($pathParts) >= 3) {
-                $thumbnailUrl = $baseUrl . '/thumbnail/' . rawurlencode($pathParts[0]) . '/' . rawurlencode($pathParts[1]) . '/' . rawurlencode((string)$file['file_hash']) . '.jpg';
+        if ($isImageFile && !empty($file['storage_path'])) {
+            $thumbnailPath = \App\Model\StoredFile::buildThumbnailVariantPathFromStoragePath((string)$file['storage_path']);
+            if ($thumbnailPath !== null) {
+                $normalized = trim(substr($thumbnailPath, strlen('thumbnails/')), '/');
+                $thumbnailUrl = $baseUrl . '/thumbnail/' . implode('/', array_map('rawurlencode', explode('/', $normalized)));
             }
         }
 
@@ -138,7 +271,7 @@ class FileController
     {
         $secret = Setting::getEncrypted('captcha_secret_key', Config::get('turnstile.secret_key'));
         if (!$secret) {
-            return true;
+            return false;
         }
 
         if ($token === '') {
@@ -169,8 +302,7 @@ class FileController
 
     private function isHttpsRequest(): bool
     {
-        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+        return \App\Service\SecurityService::isHttpsRequest();
     }
 
     private function issueReferralCookie(int $referrerId, string $source = 'pps'): void
@@ -181,42 +313,80 @@ class FileController
 
         $source = in_array($source, ['referral', 'pps'], true) ? $source : 'pps';
 
-        $secret = (string)\App\Core\Config::get('app_key', '');
-        if ($secret === '') {
+        $secret = \App\Service\SecurityService::getSecureAppKey();
+        if ($secret === null) {
             return;
         }
 
         $payload = $referrerId . '|' . $source;
         $signature = hash_hmac('sha256', $payload, $secret);
-        setcookie('ref', $payload . '.' . $signature, [
+        $cookieValue = $payload . '.' . $signature;
+        setcookie('ref', $cookieValue, [
             'expires' => time() + (86400 * 30),
             'path' => '/',
             'secure' => $this->isHttpsRequest(),
             'httponly' => true,
             'samesite' => 'Lax',
         ]);
+        $_COOKIE['ref'] = $cookieValue;
     }
 
-    private function cleanupStaleActiveDownloadsForUser(int $userId): void
+    private function maybeIssuePpsReferralCookie(array $file): void
+    {
+        if (
+            !\App\Service\FeatureService::affiliateEnabled()
+            || Setting::get('pps_global_status', '1') !== '1'
+            || Auth::check()
+            || !empty($_COOKIE['ref'])
+        ) {
+            return;
+        }
+
+        $referrerId = (int)($file['user_id'] ?? 0);
+        if ($referrerId <= 0) {
+            return;
+        }
+
+        $this->issueReferralCookie($referrerId, 'pps');
+    }
+
+    private function cleanupStaleActiveDownloadsForActor(?int $userId, ?string $ipHash): void
     {
         $db = \App\Core\Database::getInstance()->getConnection();
-        $stmt = $db->prepare("
-            DELETE FROM active_downloads
-            WHERE user_id = ?
-              AND (
-                    started_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)
-                 OR last_ping_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)
-                 OR (
-                        COALESCE(bytes_sent, 0) = 0
+        $staleClause = "
+            (
+                started_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                OR last_ping_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                OR (
+                    COALESCE(bytes_sent, 0) = 0
                     AND started_at < DATE_SUB(NOW(), INTERVAL 2 MINUTE)
-                    )
-                 OR (
-                        COALESCE(bytes_sent, 0) > 0
+                )
+                OR (
+                    COALESCE(bytes_sent, 0) > 0
                     AND last_ping_at < DATE_SUB(NOW(), INTERVAL 2 MINUTE)
-                    )
-              )
-        ");
-        $stmt->execute([$userId]);
+                )
+            )
+        ";
+
+        if ($userId !== null && $userId > 0) {
+            $stmt = $db->prepare("
+                DELETE FROM active_downloads
+                WHERE user_id = ?
+                  AND {$staleClause}
+            ");
+            $stmt->execute([$userId]);
+            return;
+        }
+
+        if ($ipHash !== null && $ipHash !== '') {
+            $stmt = $db->prepare("
+                DELETE FROM active_downloads
+                WHERE user_id IS NULL
+                  AND ip_hash = ?
+                  AND {$staleClause}
+            ");
+            $stmt->execute([$ipHash]);
+        }
     }
 
     private function registerActiveDownload(int $fileId, ?int $userId, string $ip, array $context = []): int
@@ -266,22 +436,7 @@ class FileController
             return;
         }
 
-        $db = \App\Core\Database::getInstance()->getConnection();
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS download_bandwidth_usage (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                usage_date DATE NOT NULL,
-                actor_key VARCHAR(96) NOT NULL,
-                user_id BIGINT UNSIGNED NULL,
-                event_key VARCHAR(80) NOT NULL,
-                bytes_used BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY download_bandwidth_event_unique (event_key),
-                KEY download_bandwidth_actor_date_idx (actor_key, usage_date),
-                KEY download_bandwidth_user_date_idx (user_id, usage_date)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
+        \App\Service\Database\SchemaService::ensureTables(['download_bandwidth_usage'], false);
 
         self::$downloadBandwidthTableReady = true;
     }
@@ -293,6 +448,24 @@ class FileController
         }
 
         return 'ip:' . hash('sha256', $ip);
+    }
+
+    private function acquireDownloadBandwidthLock(\PDO $db, string $actorKey, string $usageDate): bool
+    {
+        $lockKey = 'fyuhls_download_bandwidth_' . hash('sha256', $actorKey . '|' . $usageDate);
+        $stmt = $db->prepare("SELECT GET_LOCK(?, 5)");
+        $stmt->execute([$lockKey]);
+        return (int)$stmt->fetchColumn() === 1;
+    }
+
+    private function releaseDownloadBandwidthLock(\PDO $db, string $actorKey, string $usageDate): void
+    {
+        try {
+            $lockKey = 'fyuhls_download_bandwidth_' . hash('sha256', $actorKey . '|' . $usageDate);
+            $stmt = $db->prepare("SELECT RELEASE_LOCK(?)");
+            $stmt->execute([$lockKey]);
+        } catch (\Throwable $e) {
+        }
     }
 
     private function enforceDailyDownloadLimit(array $package, array $file, ?int $userId, string $ip, string $eventKey): void
@@ -308,32 +481,12 @@ class FileController
         $db = \App\Core\Database::getInstance()->getConnection();
         $actorKey = $this->buildDownloadBandwidthActorKey($userId, $ip);
         $usageDate = gmdate('Y-m-d');
-
-        $stmt = $db->prepare("SELECT bytes_used FROM download_bandwidth_usage WHERE event_key = ? LIMIT 1");
-        $stmt->execute([$eventKey]);
-        $existing = $stmt->fetchColumn();
-        if ($existing !== false) {
-            return;
-        }
-
-        $stmt = $db->prepare("
-            SELECT COALESCE(SUM(bytes_used), 0)
-            FROM download_bandwidth_usage
-            WHERE actor_key = ? AND usage_date = ?
-        ");
-        $stmt->execute([$actorKey, $usageDate]);
-        $usedToday = (int)$stmt->fetchColumn();
-
-        if (($usedToday + $fileSize) > $dailyLimit) {
-            $message = $fileSize > $dailyLimit
-                ? 'This file is larger than your package\'s total daily download bandwidth allowance.'
-                : 'You have reached your daily download bandwidth limit for this package. Please try again later.';
-
+        if (!$this->acquireDownloadBandwidthLock($db, $actorKey, $usageDate)) {
             $this->renderDownloadStatePage(
-                'Download Limit Reached - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
-                'Download Limit Reached',
-                $message,
-                429,
+                'Download Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Please Try Again',
+                'This download could not be started safely right now. Please try again in a moment.',
+                503,
                 $package,
                 $file,
                 $this->buildPublicShareFields($file)
@@ -341,11 +494,47 @@ class FileController
             exit;
         }
 
-        $stmt = $db->prepare("
-            INSERT INTO download_bandwidth_usage (usage_date, actor_key, user_id, event_key, bytes_used)
-            VALUES (?, ?, ?, ?, ?)
-        ");
-        $stmt->execute([$usageDate, $actorKey, $userId, $eventKey, $fileSize]);
+        try {
+            $stmt = $db->prepare("SELECT bytes_used FROM download_bandwidth_usage WHERE event_key = ? LIMIT 1");
+            $stmt->execute([$eventKey]);
+            $existing = $stmt->fetchColumn();
+            if ($existing !== false) {
+                return;
+            }
+
+            $stmt = $db->prepare("
+                SELECT COALESCE(SUM(bytes_used), 0)
+                FROM download_bandwidth_usage
+                WHERE actor_key = ? AND usage_date = ?
+            ");
+            $stmt->execute([$actorKey, $usageDate]);
+            $usedToday = (int)$stmt->fetchColumn();
+
+            if (($usedToday + $fileSize) > $dailyLimit) {
+                $message = $fileSize > $dailyLimit
+                    ? 'This file is larger than your package\'s total daily download bandwidth allowance.'
+                    : 'You have reached your daily download bandwidth limit for this package. Please try again later.';
+
+                $this->renderDownloadStatePage(
+                    'Download Limit Reached - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Download Limit Reached',
+                    $message,
+                    429,
+                    $package,
+                    $file,
+                    $this->buildPublicShareFields($file)
+                );
+                exit;
+            }
+
+            $stmt = $db->prepare("
+                INSERT INTO download_bandwidth_usage (usage_date, actor_key, user_id, event_key, bytes_used)
+                VALUES (?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([$usageDate, $actorKey, $userId, $eventKey, $fileSize]);
+        } finally {
+            $this->releaseDownloadBandwidthLock($db, $actorKey, $usageDate);
+        }
     }
 
     private function logStandardFilePayoutEvent(string $event, array $context = []): void
@@ -378,12 +567,46 @@ class FileController
         return 'active_download:' . $downloadId;
     }
 
-    private function packageHasTrackedConcurrentLimit(array $package): bool
+    private function buildConcurrentDownloadActorId(?int $userId, string $ip, array $context = []): array
     {
-        if (!Auth::check()) {
-            return false;
+        if ($userId !== null && $userId > 0) {
+            return [
+                'lock_key' => 'user:' . $userId,
+                'user_id' => $userId,
+                'ip_hash' => null,
+            ];
         }
 
+        $ipHash = trim((string)($context['ip_hash'] ?? ''));
+        if ($ipHash === '') {
+            $ipHash = hash('sha256', $ip);
+        }
+
+        return [
+            'lock_key' => 'guest:' . $ipHash,
+            'user_id' => null,
+            'ip_hash' => $ipHash,
+        ];
+    }
+
+    private function acquireConcurrentDownloadLock(\PDO $db, string $actorLockKey): bool
+    {
+        $stmt = $db->prepare("SELECT GET_LOCK(?, 5)");
+        $stmt->execute(['fyuhls_concurrent_download_' . hash('sha256', $actorLockKey)]);
+        return (int)$stmt->fetchColumn() === 1;
+    }
+
+    private function releaseConcurrentDownloadLock(\PDO $db, string $actorLockKey): void
+    {
+        try {
+            $stmt = $db->prepare("SELECT RELEASE_LOCK(?)");
+            $stmt->execute(['fyuhls_concurrent_download_' . hash('sha256', $actorLockKey)]);
+        } catch (\Throwable $e) {
+        }
+    }
+
+    private function packageHasTrackedConcurrentLimit(array $package): bool
+    {
         if (Setting::get('track_current_downloads', '0') !== '1') {
             return false;
         }
@@ -391,39 +614,65 @@ class FileController
         return max(0, (int)($package['concurrent_downloads'] ?? 0)) > 0;
     }
 
-    private function enforceConcurrentDownloadLimit(array $package, array $file): void
+    private function claimConcurrentDownloadSlot(array $package, array $file, string $ip, array $context = []): int
     {
-        if (!Auth::check()) {
-            return;
-        }
-
         if (Setting::get('track_current_downloads', '0') !== '1') {
-            return;
+            return 0;
         }
 
+        $userId = Auth::id() ? (int)Auth::id() : null;
         $limit = max(0, (int)($package['concurrent_downloads'] ?? 0));
         if ($limit === 0) {
-            return;
+            return $this->registerActiveDownload((int)$file['id'], $userId, $ip, $context);
         }
 
-        $this->cleanupStaleActiveDownloadsForUser((int)Auth::id());
-
         $db = \App\Core\Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT COUNT(*) FROM active_downloads WHERE user_id = ?");
-        $stmt->execute([(int)Auth::id()]);
-        $activeCount = (int)$stmt->fetchColumn();
-
-        if ($activeCount >= $limit) {
+        $actor = $this->buildConcurrentDownloadActorId($userId, $ip, $context);
+        if (!$this->acquireConcurrentDownloadLock($db, $actor['lock_key'])) {
             $this->renderDownloadStatePage(
-                'Concurrent Download Limit Reached - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
-                'Concurrent Download Limit Reached',
-                'You have reached your concurrent download limit for this package. Please wait for an active download to finish before starting another.',
-                429,
+                'Download Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Please Try Again',
+                'This download could not be started safely right now. Please try again in a moment.',
+                503,
                 $package,
                 $file,
                 $this->buildPublicShareFields($file)
             );
             exit;
+        }
+
+        try {
+            $this->cleanupStaleActiveDownloadsForActor($actor['user_id'], $actor['ip_hash']);
+
+            if ($actor['user_id'] !== null) {
+                $stmt = $db->prepare("SELECT COUNT(*) FROM active_downloads WHERE user_id = ?");
+                $stmt->execute([$actor['user_id']]);
+            } else {
+                $stmt = $db->prepare("SELECT COUNT(*) FROM active_downloads WHERE user_id IS NULL AND ip_hash = ?");
+                $stmt->execute([$actor['ip_hash']]);
+            }
+
+            $activeCount = (int)$stmt->fetchColumn();
+            if ($activeCount >= $limit) {
+                $this->renderDownloadStatePage(
+                    'Concurrent Download Limit Reached - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Concurrent Download Limit Reached',
+                    'You have reached your concurrent download limit for this package. Please wait for an active download to finish before starting another.',
+                    429,
+                    $package,
+                    $file,
+                    $this->buildPublicShareFields($file)
+                );
+                exit;
+            }
+
+            if ($actor['user_id'] === null && empty($context['ip_hash']) && !empty($actor['ip_hash'])) {
+                $context['ip_hash'] = $actor['ip_hash'];
+            }
+
+            return $this->registerActiveDownload((int)$file['id'], $actor['user_id'], $ip, $context);
+        } finally {
+            $this->releaseConcurrentDownloadLock($db, $actor['lock_key']);
         }
     }
 
@@ -433,7 +682,7 @@ class FileController
             return true;
         }
 
-        return Auth::check() && ($file['user_id'] === Auth::id() || Auth::isAdmin());
+        return $this->currentUserOwnsFile($file);
     }
 
     private function enforceFileAccess(array $file): void
@@ -508,59 +757,6 @@ class FileController
         return true;
     }
 
-    private function tryRepairBrokenStoredFileLink(array $file): ?array
-    {
-        $currentStoredFileId = (int)($file['stored_file_id'] ?? 0);
-        $fileHash = trim((string)($file['file_hash'] ?? ''));
-        $fileSize = (int)($file['file_size'] ?? 0);
-
-        if ($currentStoredFileId <= 0 || $fileHash === '' || $fileSize <= 0) {
-            return null;
-        }
-
-        $db = \App\Core\Database::getInstance()->getConnection();
-        $alternatives = \App\Model\StoredFile::findAlternativesByHashAndSize($fileHash, $fileSize, $currentStoredFileId);
-
-        foreach ($alternatives as $candidate) {
-            try {
-                $candidateStorage = \App\Core\StorageManager::getProviderById($candidate['file_server_id'] ? (int)$candidate['file_server_id'] : null, $db);
-                if (!$this->isStoredObjectHealthy($candidateStorage, $candidate)) {
-                    continue;
-                }
-
-                $db->beginTransaction();
-                try {
-                    $db->prepare("UPDATE files SET stored_file_id = ? WHERE id = ?")->execute([(int)$candidate['id'], (int)$file['id']]);
-                    \App\Model\StoredFile::incrementRefCount((int)$candidate['id']);
-                    \App\Model\StoredFile::decrementRefCount($currentStoredFileId);
-                    $db->commit();
-                } catch (\Throwable $e) {
-                    if ($db->inTransaction()) {
-                        $db->rollBack();
-                    }
-                    throw $e;
-                }
-
-                Logger::warning('Repaired broken stored file link during download', [
-                    'file_id' => (int)$file['id'],
-                    'from_stored_file_id' => $currentStoredFileId,
-                    'to_stored_file_id' => (int)$candidate['id'],
-                    'file_hash' => $fileHash,
-                ]);
-
-                return \App\Model\File::findAnyStatus((int)$file['id']);
-            } catch (\Throwable $e) {
-                Logger::error('Stored file link repair failed', [
-                    'file_id' => (int)$file['id'],
-                    'candidate_stored_file_id' => (int)($candidate['id'] ?? 0),
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        return null;
-    }
-
     public function delete()
     {
         header('Content-Type: application/json');
@@ -592,30 +788,36 @@ class FileController
         }
 
         // idor check
-        if ($file['user_id'] !== Auth::id() && !Auth::isAdmin()) {
+        if (!$this->currentUserOwnsFile($file)) {
             http_response_code(403);
             echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
             return;
         }
 
-        $adminAction = Auth::isAdmin();
+        $adminAction = false;
         $deleteReason = trim((string)($_POST['delete_reason'] ?? ''));
+        $deleteFileEarnings = false;
         if ($adminAction && $deleteReason === '') {
             http_response_code(422);
             echo json_encode(['status' => 'error', 'message' => 'A delete reason is required for admin removals.']);
             return;
         }
 
-        File::hardDelete((int)$file['id'], [
-            'deleted_by_user_id' => Auth::id(),
-            'deleted_by_role' => $adminAction ? 'admin' : 'user',
-            'deleted_by_label' => $this->currentActorLabel($adminAction),
-            'delete_reason' => $deleteReason,
-        ]);
-        $activityMessage = "Deleted file: " . $file['filename'] . " (ID: " . $file['id'] . ")";
+        try {
+            File::trash((int)$file['id']);
+        } catch (\Throwable $e) {
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+            return;
+        }
+        $activityMessage = "Moved file to trash: " . $file['filename'] . " (ID: " . $file['id'] . ")";
         Auth::logActivity('delete', $activityMessage);
-        Logger::info('file deleted', ['file_id' => $file['id'], 'user_id' => Auth::id(), 'admin_action' => $adminAction]);
-        echo json_encode(['status' => 'success', 'message' => 'File deleted', 'redirect_url' => '/']);
+        Logger::info('file moved to trash', [
+            'file_id' => $file['id'],
+            'user_id' => Auth::id(),
+            'admin_action' => $adminAction,
+        ]);
+        echo json_encode(['status' => 'success', 'message' => 'File moved to trash', 'redirect_url' => '/trash']);
     }
 
     public function saveToAccount()
@@ -658,7 +860,8 @@ class FileController
             return;
         }
 
-        if (File::userHasStoredFile($userId, (int)$file['stored_file_id'])) {
+        $dedupeEnabled = Setting::get('upload_detect_duplicates', '1') === '1';
+        if ($dedupeEnabled && File::userHasStoredFile($userId, (int)$file['stored_file_id'])) {
             echo json_encode(['status' => 'success', 'message' => 'This file is already in your account.', 'already_saved' => true]);
             return;
         }
@@ -668,12 +871,12 @@ class FileController
             http_response_code(409);
             $quotaExceeded = (int)($package['max_storage_bytes'] ?? 0) > 0
                 && ((int)($file['file_size'] ?? 0) > 0)
-                && !File::userHasStoredFile($userId, (int)$file['stored_file_id']);
+                && (!$dedupeEnabled || !File::userHasStoredFile($userId, (int)$file['stored_file_id']));
             echo json_encode([
                 'status' => 'error',
                 'message' => $quotaExceeded
                     ? 'Saving this file would exceed your storage limit.'
-                    : 'This file is already in your account.'
+                    : ($dedupeEnabled ? 'This file is already in your account.' : 'This file could not be added to your account right now.')
             ]);
             return;
         }
@@ -703,21 +906,26 @@ class FileController
             die(json_encode(['error' => 'Method not allowed']));
         }
 
+        $userId = (int)(Auth::id() ?? 0);
         $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? '';
         if (!Csrf::verify($csrfToken)) {
             http_response_code(403);
             die(json_encode(['error' => 'CSRF Token Invalid']));
         }
-        
-        $package = \App\Model\Package::getUserPackage(Auth::id() ?? 0);
+
+        $package = \App\Model\Package::getUserPackage($userId);
         if (!$package['allow_remote_upload']) die(json_encode(['error' => 'Remote upload not allowed for your package.']));
+        if (!$this->allowRemoteUploadQueueRequest($userId, \App\Service\SecurityService::getClientIp())) {
+            http_response_code(429);
+            die(json_encode(['error' => 'Too many remote upload requests are already pending for this account. Please wait for existing jobs to finish.']));
+        }
 
         $url = $_POST['url'] ?? '';
         $url = trim($url);
         if ($url === '') {
             die(json_encode(['error' => 'A remote URL is required.']));
         }
-        
+
         // ssrf protection: check the protocol
         $scheme = parse_url($url, PHP_URL_SCHEME);
         if (!in_array($scheme, ['http', 'https'])) {
@@ -736,7 +944,7 @@ class FileController
             die(json_encode(['error' => 'Could not resolve host.']));
         }
 
-        $maxRemoteBytes = $this->resolveRemoteUploadByteLimit((int)(Auth::id() ?? 0), $package);
+        $maxRemoteBytes = $this->resolveRemoteUploadByteLimit($userId, $package);
         if ($maxRemoteBytes <= 0) {
             die(json_encode(['error' => 'Remote upload is not available because your remaining limits are exhausted.']));
         }
@@ -746,7 +954,7 @@ class FileController
         $folderId = !empty($_POST['folder_id']) ? (int)$_POST['folder_id'] : null;
         if ($folderId) {
             $folder = \App\Model\Folder::find($folderId);
-            if ($folder && ($folder['user_id'] == (Auth::id() ?? 0) || \App\Core\Auth::isAdmin())) {
+            if ($this->currentUserOwnsFolder($folder)) {
                 $folderId = (int)$folder['id'];
             } else {
                 $folderId = null;
@@ -755,102 +963,132 @@ class FileController
 
         if ($bg) {
             try {
-                $db = \App\Core\Database::getInstance()->getConnection();
-                $this->ensureRemoteUploadQueueSchema($db);
-                $stmt = $db->prepare("INSERT INTO remote_upload_queue (user_id, folder_id, url) VALUES (?, ?, ?)");
-                $stmt->execute([Auth::id(), $folderId, $url]);
+                $jobId = $this->queueRemoteUploadJob($userId, $folderId, $url);
+                \App\Service\NotificationService::sendEvent(
+                    $userId,
+                    'remote_uploads',
+                    'remote_upload:' . $jobId,
+                    'Remote upload queued',
+                    'Your remote upload was added to the queue and will be processed in the background.',
+                    'info',
+                    '/notifications'
+                );
                 die(json_encode(['success' => true, 'message' => 'Upload queued in background. It will appear in your files shortly.']));
+            } catch (\RuntimeException $e) {
+                if ($e->getMessage() === 'remote_upload_pending_limit_reached') {
+                    http_response_code(429);
+                    die(json_encode(['error' => 'Too many remote upload requests are already pending for this account. Please wait for existing jobs to finish.']));
+                }
+                die(json_encode(['error' => 'Could not queue download.']));
             } catch (\Exception $e) {
                 die(json_encode(['error' => 'Could not queue download.']));
             }
         }
 
         // 4. Synchronous Download to temp file
-        $tempPath = sys_get_temp_dir() . '/' . uniqid('remote_');
-        
-        // Use cURL for better security (prevents file:// or other wrapper escapes)
-        $ch = curl_init($url);
-        $fp = fopen($tempPath, 'wb');
-        if ($ch === false || $fp === false) {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        $tempPath = \App\Service\TemporaryArtifactService::createTempFile('remote_');
+        $ch = false;
+        $fp = false;
+
+        try {
+            // Use cURL for better security (prevents file:// or other wrapper escapes)
+            $ch = curl_init($url);
+            $fp = fopen($tempPath, 'wb');
+            if ($ch === false || $fp === false) {
+                echo json_encode(['error' => 'Could not prepare the remote upload on this server.']);
+                return;
+            }
+
+            $resolvedHost = str_contains($host, ':') ? '[' . $host . ']' : $host;
+            $port = (int)(parse_url($url, PHP_URL_PORT) ?: ($scheme === 'https' ? 443 : 80));
+            $resolveEntries = array_map(static fn(string $ip): string => $resolvedHost . ':' . $port . ':' . $ip, $approvedIps);
+            $downloadedBytes = 0;
+            $contentLengthChecked = false;
+            curl_setopt($ch, CURLOPT_FILE, $fp);
+            curl_setopt($ch, CURLOPT_HEADER, 0);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 120); // Slightly larger for remote urls
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false); // Do not follow redirects into internal networks
+            curl_setopt($ch, CURLOPT_MAXREDIRS, 0);
+            curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS); // Force protocols again
+            curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+            curl_setopt($ch, CURLOPT_RESOLVE, $resolveEntries);
+            curl_setopt($ch, CURLOPT_HEADERFUNCTION, static function($curl, string $headerLine) use ($maxRemoteBytes, &$contentLengthChecked) {
+                $length = null;
+                if (stripos($headerLine, 'Content-Length:') === 0) {
+                    $length = (int)trim(substr($headerLine, strlen('Content-Length:')));
+                    $contentLengthChecked = true;
+                    if ($length > 0 && $length > $maxRemoteBytes) {
+                        return -1;
+                    }
+                }
+                return strlen($headerLine);
+            });
+
+            // Cancel Hook: Abort if client disconnects
+            curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+            curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, function($curl, float $downloadTotal, float $downloadNow) use ($maxRemoteBytes, &$downloadedBytes) {
+                $downloadedBytes = (int)$downloadNow;
+                if ($downloadNow > $maxRemoteBytes) {
+                    return 1;
+                }
+                return connection_aborted() ? 1 : 0; // Return non-zero to abort cURL
+            });
+
+            $success = curl_exec($ch);
+            $curlErrNo = curl_errno($ch);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
+            $ch = false;
+            fclose($fp);
+            $fp = false;
+
+            $tempFileSize = file_exists($tempPath) ? (int)filesize($tempPath) : 0;
+
+            if (!$success) {
+                if ($downloadedBytes > $maxRemoteBytes || $curlErrNo === 23 || $curlErrNo === 63) {
+                    echo json_encode(['error' => 'Remote file exceeds your allowed upload size or remaining storage quota.']);
+                    return;
+                }
+                if (!$contentLengthChecked && $tempFileSize > $maxRemoteBytes) {
+                    echo json_encode(['error' => 'Remote file exceeds your allowed upload size or remaining storage quota.']);
+                    return;
+                }
+                echo json_encode(['error' => 'Could not fetch file from URL. ' . ($curlErr ? 'Transfer error: ' . $curlErr : '')]);
+                return;
+            }
+
+            if ($tempFileSize > $maxRemoteBytes) {
+                echo json_encode(['error' => 'Remote file exceeds your allowed upload size or remaining storage quota.']);
+                return;
+            }
+
+            $originalName = basename(parse_url($url, PHP_URL_PATH)) ?: 'downloaded_file';
+
+            try {
+                $processor = $this->makeFileProcessor();
+                $result = $processor->processUpload($tempPath, $originalName, $userId, $folderId);
+                echo json_encode($result);
+                return;
+            } catch (\Exception $e) {
+                Logger::error('Remote upload processing failed', [
+                    'url' => $url,
+                    'error' => $e->getMessage(),
+                ]);
+                echo json_encode(['error' => 'The remote upload could not be completed.']);
+                return;
+            }
+        } finally {
             if (is_resource($fp)) {
                 fclose($fp);
             }
-            @unlink($tempPath);
-            die(json_encode(['error' => 'Could not prepare the remote upload on this server.']));
-        }
-        $resolvedHost = str_contains($host, ':') ? '[' . $host . ']' : $host;
-        $port = (int)(parse_url($url, PHP_URL_PORT) ?: ($scheme === 'https' ? 443 : 80));
-        $resolveEntries = array_map(static fn(string $ip): string => $resolvedHost . ':' . $port . ':' . $ip, $approvedIps);
-        $downloadedBytes = 0;
-        $contentLengthChecked = false;
-        curl_setopt($ch, CURLOPT_FILE, $fp);
-        curl_setopt($ch, CURLOPT_HEADER, 0);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 120); // Slightly larger for remote urls
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false); // Do not follow redirects into internal networks
-        curl_setopt($ch, CURLOPT_MAXREDIRS, 0);
-        curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS); // Force protocols again
-        curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
-        curl_setopt($ch, CURLOPT_RESOLVE, $resolveEntries);
-        curl_setopt($ch, CURLOPT_HEADERFUNCTION, static function($curl, string $headerLine) use ($maxRemoteBytes, &$contentLengthChecked) {
-            $length = null;
-            if (stripos($headerLine, 'Content-Length:') === 0) {
-                $length = (int)trim(substr($headerLine, strlen('Content-Length:')));
-                $contentLengthChecked = true;
-                if ($length > 0 && $length > $maxRemoteBytes) {
-                    return -1;
-                }
+            if ($ch !== false) {
+                curl_close($ch);
             }
-            return strlen($headerLine);
-        });
-        
-        // Cancel Hook: Abort if client disconnects
-        curl_setopt($ch, CURLOPT_NOPROGRESS, false);
-        curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, function($curl, float $downloadTotal, float $downloadNow) use ($maxRemoteBytes, &$downloadedBytes) {
-            $downloadedBytes = (int)$downloadNow;
-            if ($downloadNow > $maxRemoteBytes) {
-                return 1;
-            }
-            return connection_aborted() ? 1 : 0; // Return non-zero to abort cURL
-        });
-        
-        $success = curl_exec($ch);
-        $curlErrNo = curl_errno($ch);
-        $curlErr = curl_error($ch);
-        curl_close($ch);
-        fclose($fp);
-
-        $tempFileSize = file_exists($tempPath) ? (int)filesize($tempPath) : 0;
-
-        if (!$success) {
-            if ($downloadedBytes > $maxRemoteBytes || $curlErrNo === 23 || $curlErrNo === 63) {
-                @unlink($tempPath);
-                die(json_encode(['error' => 'Remote file exceeds your allowed upload size or remaining storage quota.']));
-            }
-            if (!$contentLengthChecked && $tempFileSize > $maxRemoteBytes) {
-                @unlink($tempPath);
-                die(json_encode(['error' => 'Remote file exceeds your allowed upload size or remaining storage quota.']));
-            }
-            @unlink($tempPath);
-            die(json_encode(['error' => 'Could not fetch file from URL. ' . ($curlErr ? 'Transfer error: ' . $curlErr : '')]));
-        }
-
-        if ($tempFileSize > $maxRemoteBytes) {
-            @unlink($tempPath);
-            die(json_encode(['error' => 'Remote file exceeds your allowed upload size or remaining storage quota.']));
-        }
-        
-        $originalName = basename(parse_url($url, PHP_URL_PATH)) ?: 'downloaded_file';
-
-        try {
-            $processor = new \App\Service\FileProcessor();
-            $result = $processor->processUpload($tempPath, $originalName, Auth::id() ?? 0, $folderId);
-            echo json_encode($result);
-        } catch (\Exception $e) {
-            Logger::error('Remote upload processing failed', [
-                'url' => $url,
-                'error' => $e->getMessage(),
-            ]);
-            echo json_encode(['error' => 'The remote upload could not be completed.']);
+            \App\Service\TemporaryArtifactService::cleanup($tempPath);
         }
     }
 
@@ -870,57 +1108,61 @@ class FileController
 
     private function resolveApprovedRemoteIps(?string $host): array
     {
-        if (!$host || !preg_match('/^[a-z0-9.-]+$/i', $host)) {
-            return [];
+        return \App\Service\SecurityService::resolveApprovedRemoteDestinationIps($host);
+    }
+
+    private function allowRemoteUploadQueueRequest(int $userId, string $clientIp): bool
+    {
+        if ($userId <= 0) {
+            return false;
         }
 
-        $records = @dns_get_record($host, DNS_A + DNS_AAAA);
-        if (!is_array($records)) {
-            return [];
+        $perMinuteLimit = max(1, (int)\App\Model\Setting::get('remote_upload_rate_limit', '12'));
+        if (!\App\Service\RateLimiterService::check('remote_upload_user', (string)$userId, $perMinuteLimit, 60)) {
+            return false;
         }
 
-        $approved = [];
-        foreach ($records as $record) {
-            $ip = $record['ip'] ?? $record['ipv6'] ?? null;
-            if (!$ip || !$this->isAllowedRemoteIp($ip)) {
-                continue;
+        if (!\App\Service\RateLimiterService::check('remote_upload_ip', $clientIp, max($perMinuteLimit, 20), 60)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function queueRemoteUploadJob(int $userId, ?int $folderId, string $url): int
+    {
+        $pendingLimit = max(1, (int)\App\Model\Setting::get('remote_upload_pending_limit', '10'));
+        $db = \App\Core\Database::getInstance()->getConnection();
+        $this->ensureRemoteUploadQueueSchema($db);
+        $lockKey = 'fyuhls_remote_upload_queue_' . $userId;
+        $lockStmt = $db->prepare("SELECT GET_LOCK(?, 5)");
+        $lockStmt->execute([$lockKey]);
+        if ((int)$lockStmt->fetchColumn() !== 1) {
+            throw new \RuntimeException('remote_upload_queue_lock_failed');
+        }
+
+        try {
+            $stmt = $db->prepare("SELECT COUNT(*) FROM remote_upload_queue WHERE user_id = ? AND status IN ('pending', 'processing')");
+            $stmt->execute([$userId]);
+            if ((int)$stmt->fetchColumn() >= $pendingLimit) {
+                throw new \RuntimeException('remote_upload_pending_limit_reached');
             }
-            $approved[] = $ip;
-        }
 
-        return array_values(array_unique($approved));
+            $stmt = $db->prepare("INSERT INTO remote_upload_queue (user_id, folder_id, url) VALUES (?, ?, ?)");
+            $stmt->execute([$userId, $folderId, $url]);
+            return (int)$db->lastInsertId();
+        } finally {
+            try {
+                $releaseStmt = $db->prepare("SELECT RELEASE_LOCK(?)");
+                $releaseStmt->execute([$lockKey]);
+            } catch (\Throwable $e) {
+            }
+        }
     }
 
     private function isAllowedRemoteIp(string $ip): bool
     {
-        $blockedRanges = [
-            '127.0.0.0/8',
-            '10.0.0.0/8',
-            '172.16.0.0/12',
-            '192.168.0.0/16',
-            '169.254.0.0/16',
-            '0.0.0.0/8',
-            '100.64.0.0/10',
-            '192.0.0.0/24',
-            '192.0.2.0/24',
-            '198.18.0.0/15',
-            '198.51.100.0/24',
-            '203.0.113.0/24',
-            '224.0.0.0/4',
-            '240.0.0.0/4',
-            '::1/128',
-            'fc00::/7',
-            'fe80::/10',
-            '2001:db8::/32',
-        ];
-
-        foreach ($blockedRanges as $range) {
-            if (\App\Service\SecurityService::ipInCidr($ip, $range)) {
-                return false;
-            }
-        }
-
-        return filter_var($ip, FILTER_VALIDATE_IP) !== false;
+        return \App\Service\SecurityService::isAllowedRemoteDestinationIp($ip);
     }
 
     private function resolveRemoteUploadByteLimit(int $userId, array $package): int
@@ -936,7 +1178,8 @@ class FileController
             $stmt = $db->prepare("SELECT storage_used FROM users WHERE id = ? LIMIT 1");
             $stmt->execute([$userId]);
             $storageUsed = (int)$stmt->fetchColumn();
-            $remaining = max(0, $maxStorage - $storageUsed);
+            $activeReserved = \App\Model\QuotaReservation::activeReservedBytesForUser($userId);
+            $remaining = max(0, $maxStorage - $storageUsed - $activeReserved);
             $limit = min($limit, $remaining);
         }
 
@@ -986,6 +1229,58 @@ class FileController
         return 'Administrator';
     }
 
+    private function renderCountryLookupUnavailableStatePage(?array $package = null, ?array $file = null): void
+    {
+        $shareFields = $file !== null ? $this->buildPublicShareFields($file) : [];
+        $this->renderDownloadStatePage(
+            'Download Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+            'Download Temporarily Unavailable',
+            'Your region could not be verified safely right now, so downloads are temporarily unavailable. Please try again later.',
+            503,
+            $package,
+            $file,
+            $shareFields
+        );
+    }
+
+    private function enforceCountryDownloadPolicy(SecurityService $security, ?array $package = null, ?array $file = null, bool $ajax = false): bool
+    {
+        $decision = $security->evaluateCountryBlock(\App\Service\SecurityService::getClientIp());
+        if (!empty($decision['blocked'])) {
+            if ($ajax) {
+                $this->respondJson([
+                    'status' => 'error',
+                    'message' => 'Downloads are not available in your region.',
+                ], 403);
+            } else {
+                $this->renderDownloadStatePage(
+                    'Region Blocked - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Downloads Unavailable',
+                    'Downloads are not available in your region.',
+                    403,
+                    $package,
+                    $file,
+                    $file !== null ? $this->buildPublicShareFields($file) : []
+                );
+            }
+            return false;
+        }
+
+        if (\App\Service\SecurityService::countryLookupRequiresFailClosed($decision)) {
+            if ($ajax) {
+                $this->respondJson([
+                    'status' => 'error',
+                    'message' => 'Your region could not be verified safely right now. Please try again later.',
+                ], 503);
+            } else {
+                $this->renderCountryLookupUnavailableStatePage($package, $file);
+            }
+            return false;
+        }
+
+        return true;
+    }
+
     public function emptyTrash()
     {
         if (!Auth::check()) {
@@ -1016,20 +1311,30 @@ class FileController
 
         $userId = Auth::id();
         $db = \App\Core\Database::getInstance()->getConnection();
-        
+
         // Find all hard-deleted eligible files for this user
         $stmt = $db->prepare("SELECT id, stored_file_id FROM files WHERE user_id = ? AND status = 'deleted'");
         $stmt->execute([$userId]);
         $filesToEmpty = $stmt->fetchAll();
+        $fileIdsToEmpty = array_values(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $filesToEmpty));
+        $trashAudit = [
+            'deleted_by_user_id' => $userId,
+            'deleted_by_role' => Auth::isAdmin() ? 'admin' : 'user',
+            'deleted_by_label' => $this->currentActorLabel(Auth::isAdmin()),
+            'delete_reason' => 'Removed from trash.',
+        ];
+
+        try {
+            \App\Model\File::validateHardDeleteBatch($fileIdsToEmpty, $trashAudit);
+        } catch (\Throwable $e) {
+            http_response_code(409);
+            echo json_encode(['error' => $e->getMessage()]);
+            return;
+        }
 
         foreach ($filesToEmpty as $file) {
             try {
-                \App\Model\File::hardDelete((int)$file['id'], [
-                    'deleted_by_user_id' => $userId,
-                    'deleted_by_role' => Auth::isAdmin() ? 'admin' : 'user',
-                    'deleted_by_label' => $this->currentActorLabel(Auth::isAdmin()),
-                    'delete_reason' => 'Removed from trash.',
-                ]);
+                \App\Model\File::hardDelete((int)$file['id'], $trashAudit);
             } catch (\Exception $e) {
                 // Ignore silent errors for individual files so others continue
                 \App\Core\Logger::error("Failed to empty trash file ID: " . $file['id'], ['error' => $e->getMessage()]);
@@ -1052,7 +1357,11 @@ class FileController
 
         $captchaEnabled = Setting::get('captcha_report_file', '0') === '1';
         $captchaSiteKey = Setting::get('captcha_site_key', Config::get('turnstile.site_key'));
-        if ($captchaEnabled && $captchaSiteKey && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
+        if ($captchaEnabled && $captchaSiteKey === '') {
+            http_response_code(503);
+            die("File reports are temporarily unavailable because CAPTCHA is enabled but not fully configured.");
+        }
+        if ($captchaEnabled && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
             http_response_code(403);
             die("Captcha verification failed.");
         }
@@ -1122,10 +1431,10 @@ class FileController
         if (!Auth::check()) die("Login required");
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') die("Method Not Allowed");
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) die("CSRF Mismatch");
-        
+
         $fileId = (int)$_POST['file_id'];
         $status = (int)$_POST['status']; // 1 or 0
-        
+
         $file = File::find($fileId);
         if ($file && $file['user_id'] === Auth::id()) {
             $db = \App\Core\Database::getInstance()->getConnection();
@@ -1158,12 +1467,6 @@ class FileController
             return;
         }
 
-        // Referral Tracking (PPS)
-        if (\App\Service\FeatureService::affiliateEnabled() && $file['user_id'] && Setting::get('pps_global_status', '1') === '1' && !Auth::check() && empty($_COOKIE['ref'])) {
-            // Set referral cookie for 30 days
-            $this->issueReferralCookie((int)$file['user_id'], 'pps');
-        }
-
         // Determine User Package
         $package = Auth::check() ? Package::getUserPackage(Auth::id() ?? 0) : Package::getGuestPackage();
 
@@ -1183,17 +1486,7 @@ class FileController
             return;
         }
 
-        // check blocked countries
-        if ($security->isCountryBlocked(\App\Service\SecurityService::getClientIp())) {
-            $this->renderDownloadStatePage(
-                'Region Blocked - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
-                'Downloads Unavailable',
-                'Downloads are not available in your region.',
-                403,
-                $package,
-                $file,
-                $this->buildPublicShareFields($file)
-            );
+        if (!$this->enforceCountryDownloadPolicy($security, $package, $file)) {
             return;
         }
 
@@ -1202,19 +1495,35 @@ class FileController
         $vpnScope = \App\Service\SecurityService::getVpnProtectionScope();
         $clientIp = \App\Service\SecurityService::getClientIp();
         $downloadVpnProtectionEnabled = $vpnScope === 'download_pages' || !empty($package['block_vpn']);
-        if ($vpnMode === 'enforcement' && $downloadVpnProtectionEnabled && $security->isVpnOrProxy($clientIp)) {
+        $proxyIntel = null;
+        if ($vpnMode === 'enforcement' && $downloadVpnProtectionEnabled) {
+            $proxyIntel = $security->lookupProxyIntel($clientIp);
+        }
+        if ($vpnMode === 'enforcement' && $downloadVpnProtectionEnabled && (!empty($proxyIntel['is_proxy']) || \App\Service\SecurityService::proxyIntelRequiresFailClosed($proxyIntel ?? []))) {
             $this->renderVpnBlockedStatePage($package, $file);
             return;
-        } elseif ($vpnMode === 'intelligence') {
-            // fire the lookup so it gets cached and logged; result feeds fraud scoring later
-            $security->lookupProxyIntel($clientIp);
         }
 
         // Eligible packages should auto-start downloads from the normal file URL.
         // The legacy `?direct=1` hint still works, but it is no longer required.
         if ($package['allow_direct_links']) {
-            File::incrementDownloads((int)$file['id']);
-            $this->serveFile($file, null, false);
+            try {
+                header('Location: ' . $this->issueTrackedDownloadUrl($file));
+            } catch (\Throwable $e) {
+                Logger::error('Direct download session issue failed', [
+                    'file_id' => (int)($file['id'] ?? 0),
+                    'error' => $e->getMessage(),
+                ]);
+                $this->renderDownloadStatePage(
+                    'Download Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Download Temporarily Unavailable',
+                    'This download could not be started right now. Please refresh the file page and try again.',
+                    503,
+                    $package,
+                    $file,
+                    $this->buildPublicShareFields($file)
+                );
+            }
             exit;
         }
 
@@ -1224,8 +1533,12 @@ class FileController
         $captchaDownload = (bool)$viewModel['captchaDownload'];
         $captchaSiteKey = (string)$viewModel['captchaSiteKey'];
         $waitTime = (int)$viewModel['waitTime'];
+        if ($waitTime > 0) {
+            $_SESSION['download_wait_starts'][$this->downloadWaitSessionKey($file, Auth::id() ? (int)Auth::id() : null)] = time();
+        }
         $fraud = new \App\Service\RewardFraudService();
         $fraud->ensureVisitorCookie();
+        $fraud->rememberDownloadPageReferrer((int)$file['id']);
         $streamingEligible = (bool)$viewModel['streamingEligible'];
         $streamSessionId = null;
         $streamUrl = null;
@@ -1235,16 +1548,16 @@ class FileController
             $streamSession = $fraud->createDownloadSession($file, Auth::id() ? (int)Auth::id() : null, [], 'stream');
             $streamSessionId = $streamSession['public_id'] ?? null;
             if ($streamSessionId !== null) {
-                $streamUrl = (new DownloadManager())->generateSignedUrl((string)($file['short_id'] ?? $file['id']), $file['filename'], $streamSessionId) . '&stream=1';
+                $streamUrl = (new DownloadManager())->generateSignedUrl((string)($file['short_id'] ?? $file['id']), $file['filename'], $streamSessionId, 'stream') . '&stream=1';
             }
         }
         $displayMimeType = $downloadPageService->resolveDisplayMimeType($file);
         $downloadActionVisible = $this->canCurrentUserSaveDownloadedFile($file, $package);
-        $downloadAlreadySaved = Auth::check()
+        $downloadAlreadySaved = Auth::check() && Setting::get('upload_detect_duplicates', '1') === '1'
             ? File::userHasStoredFile((int)(Auth::id() ?? 0), (int)$file['stored_file_id'])
             : false;
-        $canDeleteFile = Auth::check() && ((int)($file['user_id'] ?? 0) === (int)(Auth::id() ?? 0) || Auth::isAdmin());
-        $deleteRequiresReason = Auth::isAdmin();
+        $canDeleteFile = $this->currentUserOwnsFile($file);
+        $deleteRequiresReason = false;
         $title = (string)$viewModel['title'];
         $metaDescription = (string)$viewModel['metaDescription'];
 
@@ -1298,6 +1611,9 @@ class FileController
         $security = new SecurityService();
         $fraud = new \App\Service\RewardFraudService();
         $file = File::findByShortId($fileId);
+        if (is_array($file)) {
+            $this->maybeIssuePpsReferralCookie($file);
+        }
         $shareFields = is_array($file) ? $this->buildPublicShareFields($file) : [];
 
         // check require_account_to_download (again, to stop direct POST manipulation)
@@ -1317,20 +1633,7 @@ class FileController
             return;
         }
 
-        // check blocked countries (again)
-        if ($security->isCountryBlocked(\App\Service\SecurityService::getClientIp())) {
-            if ($isAjax) {
-                $respondJsonError('Downloads are not available in your region.', 403);
-            }
-            $this->renderDownloadStatePage(
-                'Region Blocked - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
-                'Downloads Unavailable',
-                'Downloads are not available in your region.',
-                403,
-                $package,
-                is_array($file) ? $file : null,
-                $shareFields
-            );
+        if (!$this->enforceCountryDownloadPolicy($security, $package, is_array($file) ? $file : null, $isAjax)) {
             return;
         }
 
@@ -1338,20 +1641,43 @@ class FileController
         $vpnMode = $vpnMode ?? \App\Service\SecurityService::getVpnProtectionMode();
         $vpnScope = $vpnScope ?? \App\Service\SecurityService::getVpnProtectionScope();
         $downloadVpnProtectionEnabled = $vpnScope === 'download_pages' || !empty($package['block_vpn']);
-        if ($vpnMode === 'enforcement' && $downloadVpnProtectionEnabled && $security->isVpnOrProxy(\App\Service\SecurityService::getClientIp())) {
+        $downloadClientIp = \App\Service\SecurityService::getClientIp();
+        $proxyIntel = null;
+        if ($vpnMode === 'enforcement' && $downloadVpnProtectionEnabled) {
+            $proxyIntel = $security->lookupProxyIntel($downloadClientIp);
+        }
+        if ($vpnMode === 'enforcement' && $downloadVpnProtectionEnabled && (!empty($proxyIntel['is_proxy']) || \App\Service\SecurityService::proxyIntelRequiresFailClosed($proxyIntel ?? []))) {
             $file = File::findByShortId($fileId);
             if ($isAjax) {
                 $respondJsonError('VPN or proxy use is blocked for this download. Disable it, refresh the file page, and try again.', 403);
             }
             $this->renderVpnBlockedStatePage($package, is_array($file) ? $file : null);
             return;
-        } elseif ($vpnMode === 'intelligence') {
-            // fire the lookup (uses runtime cache, so this is a no-op if already called above)
-            $security->lookupProxyIntel(\App\Service\SecurityService::getClientIp());
         }
 
         // check rate limit
-        if (!$manager->checkRateLimit(\App\Service\SecurityService::getClientIp())) {
+        try {
+            $withinRateLimit = $manager->checkRateLimit(\App\Service\SecurityService::getClientIp());
+        } catch (\RuntimeException $e) {
+            if ($e->getMessage() === DownloadManager::DOWNLOAD_RATE_LIMIT_STORAGE_UNAVAILABLE_MESSAGE) {
+                if ($isAjax) {
+                    $respondJsonError($e->getMessage(), 503);
+                }
+                $this->renderDownloadStatePage(
+                    'Download Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Download Temporarily Unavailable',
+                    $e->getMessage(),
+                    503,
+                    $package,
+                    is_array($file) ? $file : null,
+                    $shareFields
+                );
+                return;
+            }
+            throw $e;
+        }
+
+        if (!$withinRateLimit) {
             if ($isAjax) {
                 $respondJsonError('Too many download attempts were made from your connection. Please try again in 10 minutes.', 429);
             }
@@ -1388,9 +1714,22 @@ class FileController
         $captchaSiteKey = Setting::get('captcha_site_key', '');
         $isGuest = !Auth::check();
         $needCaptcha = false;
-        if ($captchaSiteKey) {
-            if ($isGuest  && Setting::get('captcha_download_guest', '0') === '1') $needCaptcha = true;
-            if (!$isGuest && Setting::get('captcha_download_free', '0')  === '1') $needCaptcha = true;
+        if ($isGuest && Setting::get('captcha_download_guest', '0') === '1') $needCaptcha = true;
+        if (!$isGuest && Setting::get('captcha_download_free', '0')  === '1') $needCaptcha = true;
+        if ($needCaptcha && $captchaSiteKey === '') {
+            if ($isAjax) {
+                $respondJsonError('Download verification is temporarily unavailable because CAPTCHA is enabled but not fully configured.', 503);
+            }
+            $this->renderDownloadStatePage(
+                'Download Verification Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                'Download Verification Unavailable',
+                'This download is temporarily unavailable because CAPTCHA verification is enabled but not fully configured.',
+                503,
+                $package,
+                is_array($file) ? $file : null,
+                $shareFields
+            );
+            return;
         }
         if ($needCaptcha && !$manager->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
             if ($isAjax) {
@@ -1430,17 +1769,56 @@ class FileController
             $this->renderPrivateFilePage($file);
             return;
         }
-        $sessionId = null;
-        if ($fraud->shouldRequireVerifiedCompletion($file)) {
-            $session = $fraud->createDownloadSession($file, Auth::id() ? (int)Auth::id() : null, [
+
+        $waitTime = ((int)($package['wait_time_enabled'] ?? 0)) === 1 ? max(0, (int)($package['wait_time'] ?? 0)) : 0;
+        if ($waitTime > 0) {
+            $waitKey = $this->downloadWaitSessionKey($file, Auth::id() ? (int)Auth::id() : null);
+            $startedAt = (int)($_SESSION['download_wait_starts'][$waitKey] ?? 0);
+            if ($startedAt <= 0 || (time() - $startedAt) < $waitTime) {
+                $remaining = $startedAt > 0 ? max(1, $waitTime - (time() - $startedAt)) : $waitTime;
+                $message = 'Please wait ' . $remaining . ' more seconds on the download page before starting this file.';
+                if ($isAjax) {
+                    $respondJsonError($message, 429);
+                }
+                $this->renderDownloadStatePage(
+                    'Please Wait Before Downloading - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Please Wait Before Downloading',
+                    $message,
+                    429,
+                    $package,
+                    $file,
+                    $shareFields
+                );
+                return;
+            }
+        }
+        try {
+            $url = $this->issueTrackedDownloadUrl($file, [
                 'timezone_offset' => $_POST['timezone_offset'] ?? null,
                 'platform_bucket' => $_POST['platform_bucket'] ?? '',
                 'screen_bucket' => $_POST['screen_bucket'] ?? '',
             ]);
-            $sessionId = $session['public_id'] ?? null;
+            if ($waitTime > 0) {
+                unset($_SESSION['download_wait_starts'][$waitKey]);
+            }
+        } catch (\RuntimeException $e) {
+            if ($e->getMessage() === DownloadManager::DOWNLOAD_LINK_TRACKING_UNAVAILABLE_MESSAGE) {
+                if ($isAjax) {
+                    $respondJsonError($e->getMessage(), 503);
+                }
+                $this->renderDownloadStatePage(
+                    'Download Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Download Temporarily Unavailable',
+                    $e->getMessage(),
+                    503,
+                    $package,
+                    is_array($file) ? $file : null,
+                    $shareFields
+                );
+                return;
+            }
+            throw $e;
         }
-
-        $url = $manager->generateSignedUrl((string)($file['short_id'] ?? $fileId), $file['filename'], $sessionId);
 
         if ($isAjax) {
             header('Content-Type: application/json');
@@ -1462,6 +1840,7 @@ class FileController
         $expires = (int)($_GET['expires'] ?? 0);
         $sessionId = trim((string)($_GET['session'] ?? ''));
         $streamMode = isset($_GET['stream']) && $_GET['stream'] === '1';
+        $downloadLinkContext = null;
         $file = File::findByShortId($id);
         if (!$file) {
             $this->renderDownloadStatePage(
@@ -1480,10 +1859,10 @@ class FileController
 
         // validate token (anti-leech)
         // Bypass signature check if the user is the owner or an admin
-        $isOwner = Auth::check() && ($file['user_id'] === Auth::id() || Auth::isAdmin());
+        $isOwner = $this->currentUserOwnsFile($file);
         if (!$isOwner) {
             $manager = new \App\Service\DownloadManager();
-            if (!$manager->validateSignature($id, $token, $expires, $sessionId !== '' ? $sessionId : null)) {
+            if (!$manager->validateSignature($id, $token, $expires, $sessionId !== '' ? $sessionId : null, $streamMode ? 'stream' : 'download')) {
                 $package = Auth::check() ? Package::getUserPackage(Auth::id() ?? 0) : Package::getGuestPackage();
                 $this->renderDownloadStatePage(
                     'Download Link Expired - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
@@ -1496,23 +1875,28 @@ class FileController
                 );
                 return;
             }
+            if (!$streamMode) {
+                $downloadLinkContext = [
+                    'file_id' => (string)$id,
+                    'token' => (string)$token,
+                    'session_id' => $sessionId !== '' ? $sessionId : null,
+                ];
+            }
         }
 
         $package = Auth::check() ? Package::getUserPackage(Auth::id() ?? 0) : Package::getGuestPackage();
+        $security = new SecurityService();
+        if (!$this->enforceCountryDownloadPolicy($security, $package, $file)) {
+            return;
+        }
         $clientIp = \App\Service\SecurityService::getClientIp();
-        $downloadEventKey = hash('sha256', implode('|', [
-            (string)$id,
-            (string)$token,
-            (string)$expires,
-            (string)$sessionId,
-            $streamMode ? 'stream' : 'download',
-        ]));
+        $downloadEventKey = $this->buildDownloadBandwidthEventKey((string)$id, (string)$token, (int)$expires, (string)$sessionId, $streamMode, $isOwner);
         $this->enforceDailyDownloadLimit($package ?? [], $file, Auth::id() ? (int)Auth::id() : null, $clientIp, $downloadEventKey);
 
         $fraud = new \App\Service\RewardFraudService();
         $rewardSessionId = null;
         $validatedSession = null;
-        if ($sessionId !== '' && ($streamMode || $fraud->shouldRequireVerifiedCompletion($file))) {
+        if ($sessionId !== '') {
             $validatedSession = $fraud->validateSessionForCurrentVisitor($sessionId, $file);
             if (!$validatedSession) {
                 $this->renderDownloadStatePage(
@@ -1526,7 +1910,7 @@ class FileController
                 );
                 return;
             }
-            if ($fraud->shouldRequireVerifiedCompletion($file)) {
+            if ($streamMode || $fraud->shouldRequireVerifiedCompletion($file)) {
                 $rewardSessionId = $sessionId;
             }
         }
@@ -1534,12 +1918,10 @@ class FileController
         // use the database ID for subsequent calls
         $fileId = $file['id'];
 
-        if (!$streamMode || $validatedSession === null || (string)($validatedSession['status'] ?? 'created') === 'created') {
-            $this->markDownloadStarted($file);
-        }
+        $shouldCommitObservedStart = $this->shouldCommitObservedDownloadStart($streamMode, $validatedSession);
 
         // serving logic
-        $this->serveFile($file, $rewardSessionId, true, $streamMode, $validatedSession);
+        $this->serveFile($file, $rewardSessionId, true, $streamMode, $validatedSession, $shouldCommitObservedStart, $downloadLinkContext);
     }
 
     public function streamHeartbeat()
@@ -1617,7 +1999,7 @@ class FileController
         exit;
     }
 
-    private function serveFile(array $file, ?string $rewardSessionId = null, bool $allowRewardTracking = true, bool $streamMode = false, ?array $validatedSession = null)
+    private function serveFile(array $file, ?string $rewardSessionId = null, bool $allowRewardTracking = true, bool $streamMode = false, ?array $validatedSession = null, bool $shouldCommitObservedStart = true, ?array $downloadLinkContext = null)
     {
         $db = \App\Core\Database::getInstance()->getConnection();
         $minPercent = (int)\App\Model\Setting::get('ppd_min_download_percent', '0');
@@ -1627,13 +2009,25 @@ class FileController
         $package = Auth::check() ? Package::getUserPackage(Auth::id() ?? 0) : Package::getGuestPackage();
         $requiresTrackedConcurrency = $this->packageHasTrackedConcurrentLimit($package);
         $speedLimit = (int)($package['download_speed'] ?? 0);
+        $needsObservedStartCommit = $shouldCommitObservedStart && $this->downloadStartWouldMutateState($file, $validatedSession);
 
         // Try the fast provider-direct path before any storage HEAD/repair work.
         // For cloud-backed downloads this avoids an extra round trip before the browser
         // is redirected to the provider.
-        if ($minPercent <= 0 && !$requiresVerified && !$streamMode && !$requiresTrackedConcurrency && $speedLimit <= 0) {
-            $delivery = (new DownloadManager())->previewDelivery($file);
+        if (!$needsObservedStartCommit && $minPercent <= 0 && !$requiresVerified && !$streamMode && !$requiresTrackedConcurrency && $speedLimit <= 0) {
+            try {
+                $delivery = (new DownloadManager())->previewDelivery($file);
+            } catch (\RuntimeException $e) {
+                if ($e->getMessage() === \App\Core\StorageManager::MISSING_FILE_SERVER_MESSAGE) {
+                    $this->renderStorageNodeUnavailableStatePage($package, $file);
+                    return;
+                }
+                throw $e;
+            }
             if (!empty($delivery['url'])) {
+                if (!$this->consumeDownloadLinkAtDeliveryBoundary($downloadLinkContext, $package, $file)) {
+                    return;
+                }
                 if ($file['user_id']) {
                     (new \App\Service\RewardService())->trackDownload(
                         $file['id'],
@@ -1646,14 +2040,14 @@ class FileController
             }
         }
 
-        $storage = \App\Core\StorageManager::getProviderById($file['file_server_id'] ? (int)$file['file_server_id'] : null, $db);
-
-        if (!$this->isStoredObjectHealthy($storage, $file)) {
-            $repaired = $this->tryRepairBrokenStoredFileLink($file);
-            if ($repaired) {
-                $file = $repaired;
-                $storage = \App\Core\StorageManager::getProviderById($file['file_server_id'] ? (int)$file['file_server_id'] : null, $db);
+        try {
+            $storage = \App\Core\StorageManager::getProviderById($file['file_server_id'] ? (int)$file['file_server_id'] : null, $db);
+        } catch (\RuntimeException $e) {
+            if ($e->getMessage() === \App\Core\StorageManager::MISSING_FILE_SERVER_MESSAGE) {
+                $this->renderStorageNodeUnavailableStatePage($package, $file);
+                return;
             }
+            throw $e;
         }
 
         if (!$this->isStoredObjectHealthy($storage, $file)) {
@@ -1744,12 +2138,13 @@ class FileController
             $method = 'php';
         }
 
+        if ($needsObservedStartCommit && !in_array($method, ['php', 'nginx'], true)) {
+            $method = 'php';
+        }
+
         $activeSessionId = $rewardSessionId;
         if ($activeSessionId === null && $streamMode) {
             $activeSessionId = trim((string)($_GET['session'] ?? '')) ?: null;
-        }
-        if ($activeSessionId !== null) {
-            $fraud->markSessionStarted($activeSessionId, $streamMode ? 'stream_php' : (string)$method);
         }
 
         $clientIp = \App\Service\SecurityService::getClientIp();
@@ -1760,11 +2155,9 @@ class FileController
             && $rewardSessionId === null
             && !empty($file['user_id'])
             && \App\Service\FeatureService::rewardsEnabled();
-        if ($shouldTrackConnections) {
-            $this->enforceConcurrentDownloadLimit($package, $file);
-        }
+        $needsNginxDownloadStartState = $method === 'nginx' && $needsObservedStartCommit;
         $activeDownloadContext = [];
-        if ($shouldTrackConnections || $needsNginxPayoutState) {
+        if ($shouldTrackConnections || $needsNginxPayoutState || $needsNginxDownloadStartState) {
             if (is_array($validatedSession) && !empty($validatedSession)) {
                 $activeDownloadContext = $fraud->exportRewardSignalContext($validatedSession);
                 $activeDownloadContext['session_id'] = (int)($validatedSession['id'] ?? 0);
@@ -1772,8 +2165,18 @@ class FileController
                 $activeDownloadContext = $fraud->buildClientSignals([], $clientIp);
             }
         }
-        if ($shouldTrackConnections || $needsNginxPayoutState) {
+        if ($shouldTrackConnections) {
+            $activeDownloadId = $this->claimConcurrentDownloadSlot($package, $file, $clientIp, $activeDownloadContext);
+        } elseif ($needsNginxPayoutState || $needsNginxDownloadStartState) {
             $activeDownloadId = $this->registerActiveDownload((int)$file['id'], Auth::id() ? (int)Auth::id() : null, $clientIp, $activeDownloadContext);
+        }
+
+        if (!$this->consumeDownloadLinkAtDeliveryBoundary($downloadLinkContext, $package, $file, $activeDownloadId)) {
+            return;
+        }
+
+        if ($activeSessionId !== null) {
+            $fraud->markSessionStarted($activeSessionId, $streamMode ? 'stream_php' : (string)$method);
         }
 
         if ($method === 'nginx') {
@@ -1821,16 +2224,22 @@ class FileController
             ignore_user_abort(true);
 
             $credited = false;
+            $downloadStartCommitted = !$needsObservedStartCommit;
             $fileSize = (float)$file['file_size'];
 
             // 2. Stream with Progress Callback
-            $storage->stream($file['storage_path'], $seekStart, function($bytesSent) use ($db, $downloadId, $file, $ip, $minPercent, $fileSize, &$credited, $rewardSessionId, $fraud, $streamMode, $payoutPolicy) {
+            $storage->stream($file['storage_path'], $seekStart, function($bytesSent) use ($db, $downloadId, $file, $ip, $minPercent, $fileSize, &$credited, $rewardSessionId, $fraud, $streamMode, $payoutPolicy, &$downloadStartCommitted, $validatedSession) {
                 // Update active_downloads periodically
                 static $lastUpdate = 0;
                 if ($downloadId > 0 && time() - $lastUpdate >= 2) {
                     $upd = $db->prepare("UPDATE active_downloads SET bytes_sent = ? WHERE id = ?");
                     $upd->execute([$bytesSent, $downloadId]);
                     $lastUpdate = time();
+                }
+
+                if (!$downloadStartCommitted && $bytesSent > 0) {
+                    $this->commitObservedDownloadStart($file, $validatedSession);
+                    $downloadStartCommitted = true;
                 }
 
                 if ($rewardSessionId !== null && !$streamMode) {
@@ -1867,6 +2276,11 @@ class FileController
                 }
             }, $contentLength);
 
+            if (!$downloadStartCommitted && $contentLength === 0) {
+                $this->commitObservedDownloadStart($file, $validatedSession);
+                $downloadStartCommitted = true;
+            }
+
             // 3. Final instant credit if minPercent is 0 and we haven't credited yet
             if ($rewardSessionId !== null && !$streamMode && $file['user_id']) {
                 $sessionResult = $fraud->finalizeDownloadSession($rewardSessionId, $file, $ip, Auth::id() ? (int)Auth::id() : null);
@@ -1890,6 +2304,59 @@ class FileController
         exit;
     }
 
+    private function consumeDownloadLinkAtDeliveryBoundary(?array $downloadLinkContext, array $package, array $file, int $activeDownloadId = 0): bool
+    {
+        if (!is_array($downloadLinkContext) || $downloadLinkContext === []) {
+            return true;
+        }
+
+        try {
+            $consumed = (new DownloadManager())->consumeIssuedDownloadLink(
+                (string)($downloadLinkContext['file_id'] ?? ''),
+                (string)($downloadLinkContext['token'] ?? ''),
+                isset($downloadLinkContext['session_id']) && $downloadLinkContext['session_id'] !== ''
+                    ? (string)$downloadLinkContext['session_id']
+                    : null
+            );
+        } catch (\RuntimeException $e) {
+            if ($activeDownloadId > 0) {
+                $this->removeActiveDownload($activeDownloadId);
+            }
+            if ($e->getMessage() === DownloadManager::DOWNLOAD_LINK_TRACKING_UNAVAILABLE_MESSAGE) {
+                $this->renderDownloadStatePage(
+                    'Download Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+                    'Download Temporarily Unavailable',
+                    $e->getMessage(),
+                    503,
+                    $package,
+                    $file,
+                    $this->buildPublicShareFields($file)
+                );
+                return false;
+            }
+            throw $e;
+        }
+
+        if ($consumed) {
+            return true;
+        }
+
+        if ($activeDownloadId > 0) {
+            $this->removeActiveDownload($activeDownloadId);
+        }
+
+        $this->renderDownloadStatePage(
+            'Download Link Expired - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+            'Download Link Expired',
+            'This download link has already been used or has expired. Please return to the file page and try again.',
+            403,
+            $package,
+            $file,
+            $this->buildPublicShareFields($file)
+        );
+        return false;
+    }
+
     private function isVideoFile(array $file): bool
     {
         return str_starts_with($this->resolveDisplayMimeType($file), 'video/');
@@ -1904,25 +2371,39 @@ class FileController
         return preg_match('#^[a-z0-9.+-]+/[a-z0-9.+-]+$#i', $mimeType) ? $mimeType : 'application/octet-stream';
     }
 
-    private function markDownloadStarted(array $file): void
+    private function shouldCommitObservedDownloadStart(bool $streamMode, ?array $validatedSession = null): bool
     {
-        $fileId = (int)$file['id'];
-        File::incrementDownloads($fileId);
-
-        if ($file['user_id']) {
-            $ownerPackage = Package::getUserPackage((int)$file['user_id']);
-        } else {
-            $ownerPackage = Package::getGuestPackage();
+        if (!$streamMode) {
+            return true;
         }
 
-        $expiryDays = (int)($ownerPackage['file_expiry_days'] ?? 0);
-        $db = \App\Core\Database::getInstance()->getConnection();
-        if ($expiryDays > 0) {
-            $newDeleteAt = date('Y-m-d H:i:s', strtotime("+{$expiryDays} days"));
-            $db->prepare("UPDATE files SET delete_at = ? WHERE id = ?")->execute([$newDeleteAt, $fileId]);
-        } else {
-            $db->prepare("UPDATE files SET delete_at = NULL WHERE id = ?")->execute([$fileId]);
+        if (!is_array($validatedSession) || empty($validatedSession)) {
+            return true;
         }
+
+        return empty($validatedSession['download_counted_at']);
+    }
+
+    private function downloadStartWouldMutateState(array $file, ?array $validatedSession = null): bool
+    {
+        return (new \App\Service\DownloadStartService())->wouldMutateState(
+            $file,
+            Auth::id() ? (int)Auth::id() : null,
+            $validatedSession
+        );
+    }
+
+    private function commitObservedDownloadStart(array $file, ?array $validatedSession = null): bool
+    {
+        $sessionId = is_array($validatedSession) && !empty($validatedSession['id'])
+            ? (int)$validatedSession['id']
+            : null;
+
+        return (new \App\Service\DownloadStartService())->commit(
+            $file,
+            Auth::id() ? (int)Auth::id() : null,
+            $sessionId
+        );
     }
 
     public function nginxDownloadCompleted()
@@ -1999,52 +2480,67 @@ class FileController
             $this->checkAuth();
             $ids = $_POST['ids'] ?? [];
             if (empty($ids)) {
-                echo json_encode(['status' => 'error', 'error' => 'No items selected']);
+                $this->respondJson(['status' => 'error', 'error' => 'No items selected'], 422);
                 return;
             }
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-                echo json_encode(['status' => 'error', 'error' => 'CSRF mismatch']);
+                $this->respondJson(['status' => 'error', 'error' => 'CSRF mismatch'], 403);
                 return;
             }
 
+            $items = $this->resolveOwnedBulkItems((array)$ids, 'any', 'any');
             $deletedCount = 0;
-            foreach ($ids as $item) {
-                $rawId = $item['id'];
+            foreach ($items as $item) {
                 if ($item['type'] === 'file') {
-                    $file = File::find($rawId);
-                    if ($file && ($file['user_id'] === Auth::id() || Auth::isAdmin())) {
-                        File::hardDelete((int)$file['id'], [
-                            'deleted_by_user_id' => Auth::id(),
-                            'deleted_by_role' => Auth::isAdmin() ? 'admin' : 'user',
-                            'deleted_by_label' => $this->currentActorLabel(Auth::isAdmin()),
-                            'delete_reason' => 'Deleted from bulk action.',
-                        ]);
-                        $deletedCount++;
-                        Auth::logActivity('delete_file', "Bulk deleted file: " . $file['filename']);
-                    }
+                    $file = $item['row'];
+                    File::hardDelete((int)$file['id'], [
+                        'deleted_by_user_id' => Auth::id(),
+                        'deleted_by_role' => 'user',
+                        'deleted_by_label' => $this->currentActorLabel(false),
+                        'delete_reason' => 'Deleted from bulk action.',
+                    ]);
+                    $deletedCount++;
+                    Auth::logActivity('delete_file', "Bulk deleted file: " . $file['filename']);
                 } else {
-                    $folder = \App\Model\Folder::find($rawId);
-                    if ($folder && ($folder['user_id'] === Auth::id() || Auth::isAdmin())) {
-                        $folderId = (int)$folder['id'];
-                        $subfolderIds = \App\Model\Folder::getRecursiveSubfolderIds($folderId);
-                        $allFolderIds = array_merge([$folderId], $subfolderIds);
-                        $db = \App\Core\Database::getInstance()->getConnection();
-                        $inClause = implode(',', array_map('intval', $allFolderIds));
-                        $stmt = $db->query("SELECT COUNT(*) FROM files WHERE folder_id IN ($inClause)");
-                        $deletedCount += (int)$stmt->fetchColumn();
+                    $folder = $item['row'];
+                    $folderId = (int)$folder['id'];
+                    $subfolderIds = \App\Model\Folder::getRecursiveSubfolderIds($folderId);
+                    $allFolderIds = array_merge([$folderId], $subfolderIds);
+                    $db = \App\Core\Database::getInstance()->getConnection();
+                    $inClause = implode(',', array_map('intval', $allFolderIds));
+                    $stmt = $db->query("SELECT COUNT(*) FROM files WHERE folder_id IN ($inClause)");
+                    $deletedCount += (int)$stmt->fetchColumn();
 
-                        \App\Model\Folder::hardDeleteTree($folderId);
-                        $deletedCount++;
-                        Auth::logActivity('delete_folder', "Bulk deleted folder (and contents): " . $folder['name']);
-                    }
+                    \App\Model\Folder::hardDeleteTree($folderId, [
+                        'deleted_by_user_id' => Auth::id(),
+                        'deleted_by_role' => 'user',
+                        'deleted_by_label' => $this->currentActorLabel(false),
+                        'delete_reason' => 'Deleted from bulk action.',
+                    ]);
+                    $deletedCount++;
+                    Auth::logActivity('delete_folder', "Bulk deleted folder (and contents): " . $folder['name']);
                 }
             }
-            echo json_encode(['status' => 'success', 'message' => "Deleted $deletedCount items"]);
+            $this->respondJson(['status' => 'success', 'message' => "Deleted $deletedCount items"]);
+        } catch (\RuntimeException $e) {
+            $this->respondJson(['status' => 'error', 'error' => $e->getMessage()], 409);
         } catch (\Throwable $e) {
             Logger::error('Bulk delete failed', ['error' => $e->getMessage()]);
-            http_response_code(500);
-            echo json_encode(['status' => 'error', 'error' => 'Server error. Please try again.']);
+            $this->respondJson(['status' => 'error', 'error' => 'Server error. Please try again.'], 500);
         }
+    }
+
+    private function renderStorageNodeUnavailableStatePage(array $package, array $file): void
+    {
+        $this->renderDownloadStatePage(
+            'Download Temporarily Unavailable - ' . \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
+            'Download Temporarily Unavailable',
+            'This file is temporarily unavailable until an administrator repairs file storage.',
+            503,
+            $package,
+            $file,
+            $this->buildPublicShareFields($file)
+        );
     }
 
     public function bulkTrash()
@@ -2054,34 +2550,39 @@ class FileController
         if (empty($ids)) die(json_encode(['status' => 'error', 'error' => 'No items selected']));
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) die(json_encode(['status' => 'error', 'error' => 'CSRF mismatch']));
 
-        foreach ($ids as $item) {
-            $id = (int)$item['id'];
-            if ($item['type'] === 'file') {
-                $file = File::find($id);
-                if ($file && ($file['user_id'] === Auth::id() || Auth::isAdmin())) {
-                    File::trash($id);
-                }
-            } else {
-                $folder = \App\Model\Folder::find($id);
-                if ($folder && ($folder['user_id'] === Auth::id() || Auth::isAdmin())) {
-                    $subfolderIds = \App\Model\Folder::getRecursiveSubfolderIds($id);
-                    $allFolderIds = array_merge([$id], $subfolderIds);
-                    $db = \App\Core\Database::getInstance()->getConnection();
-                    $inClause = implode(',', array_map('intval', $allFolderIds));
-                    $db->exec("
-                        UPDATE files
-                        SET deleted_restore_status = CASE
-                                WHEN status <> 'deleted' THEN status
-                                ELSE deleted_restore_status
-                            END,
-                            status = 'deleted'
-                        WHERE folder_id IN ($inClause)
-                    ");
-                    \App\Model\Folder::softDeleteTree($id);
+        $db = \App\Core\Database::getInstance()->getConnection();
+        $bonusTouchUserIds = [];
+        try {
+            $items = $this->resolveOwnedBulkItems((array)$ids, 'active', 'active');
+            $db->beginTransaction();
+            foreach ($items as $item) {
+                if ($item['type'] === 'file') {
+                    $bonusTouchUserIds = array_merge($bonusTouchUserIds, File::trash((int)$item['row']['id']));
+                } else {
+                    $bonusTouchUserIds = array_merge($bonusTouchUserIds, \App\Model\Folder::trashTree((int)$item['row']['id']));
                 }
             }
+            $db->commit();
+            $bonusTouchUserIds = array_values(array_unique(array_filter(array_map('intval', $bonusTouchUserIds), static fn (int $userId): bool => $userId > 0)));
+            if ($bonusTouchUserIds !== []) {
+                \App\Service\BonusOfferService::touchUsersFailSoft($bonusTouchUserIds, true, [
+                    'workflow' => 'bulk_trash',
+                    'item_count' => count($items),
+                ]);
+            }
+            $this->respondJson(['status' => 'success']);
+        } catch (\RuntimeException $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            $this->respondJson(['status' => 'error', 'error' => $e->getMessage()], 409);
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            Logger::error('Bulk trash failed', ['error' => $e->getMessage()]);
+            $this->respondJson(['status' => 'error', 'error' => 'Server error. Please try again.'], 500);
         }
-        echo json_encode(['status' => 'success']);
     }
 
     public function bulkRestore()
@@ -2091,32 +2592,40 @@ class FileController
         if (empty($ids)) die(json_encode(['status' => 'error', 'error' => 'No items selected']));
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) die(json_encode(['status' => 'error', 'error' => 'CSRF mismatch']));
 
-        foreach ($ids as $item) {
-            $id = (int)$item['id'];
-            if (($item['type'] ?? '') === 'file') {
-                $file = File::findAnyStatus($id);
-                if ($file && $file['status'] === 'deleted' && ($file['user_id'] === Auth::id() || Auth::isAdmin())) {
-                    File::restore((int)$file['id']);
+        $db = \App\Core\Database::getInstance()->getConnection();
+        $bonusTouchUserIds = [];
+        try {
+            $items = $this->resolveOwnedBulkItems((array)$ids, 'deleted', 'deleted');
+            $db->beginTransaction();
+            foreach ($items as $item) {
+                if ($item['type'] === 'file') {
+                    $bonusTouchUserIds = array_merge($bonusTouchUserIds, File::restore((int)$item['row']['id']));
+                    continue;
                 }
-                continue;
-            }
 
-            $folder = \App\Model\Folder::find($id);
-            if ($folder && ($folder['status'] ?? 'active') === 'deleted' && ($folder['user_id'] === Auth::id() || Auth::isAdmin())) {
-                $allFolderIds = \App\Model\Folder::getTreeIds((int)$folder['id']);
-                $db = \App\Core\Database::getInstance()->getConnection();
-                $inClause = implode(',', array_map('intval', $allFolderIds));
-                $db->exec("
-                    UPDATE files
-                    SET status = COALESCE(NULLIF(deleted_restore_status, ''), 'active'),
-                        deleted_restore_status = NULL
-                    WHERE folder_id IN ($inClause) AND status = 'deleted'
-                ");
-                \App\Model\Folder::restoreTree((int)$folder['id']);
+                $bonusTouchUserIds = array_merge($bonusTouchUserIds, \App\Model\Folder::restoreTree((int)$item['row']['id']));
             }
+            $db->commit();
+            $bonusTouchUserIds = array_values(array_unique(array_filter(array_map('intval', $bonusTouchUserIds), static fn (int $userId): bool => $userId > 0)));
+            if ($bonusTouchUserIds !== []) {
+                \App\Service\BonusOfferService::touchUsersFailSoft($bonusTouchUserIds, true, [
+                    'workflow' => 'bulk_restore',
+                    'item_count' => count($items),
+                ]);
+            }
+            $this->respondJson(['status' => 'success']);
+        } catch (\RuntimeException $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            $this->respondJson(['status' => 'error', 'error' => $e->getMessage()], 409);
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            Logger::error('Bulk restore failed', ['error' => $e->getMessage()]);
+            $this->respondJson(['status' => 'error', 'error' => 'Server error. Please try again.'], 500);
         }
-
-        echo json_encode(['status' => 'success']);
     }
 
     public function bulkMove()
@@ -2125,58 +2634,68 @@ class FileController
         $ids = $_POST['ids'] ?? [];
         $targetFolderId = ($_POST['target_folder_id'] ?? 'root');
         $targetFolderId = ($targetFolderId === 'root') ? null : $targetFolderId;
-        
+
         if (empty($ids)) die(json_encode(['status' => 'error', 'error' => 'No items selected']));
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) die(json_encode(['status' => 'error', 'error' => 'CSRF mismatch']));
 
         // Resolve target folder if it's a slug
         if ($targetFolderId !== null) {
             $target = \App\Model\Folder::find($targetFolderId);
-            if (!$target || ($target['status'] ?? 'active') !== 'active' || ($target['user_id'] !== Auth::id() && !Auth::isAdmin())) {
+            if (!$target || ($target['status'] ?? 'active') !== 'active' || !$this->currentUserOwnsFolder($target)) {
                 die(json_encode(['status' => 'error', 'error' => 'Invalid destination']));
             }
             $targetFolderId = (int)$target['id'];
         }
 
-        foreach ($ids as $item) {
-            $id = $item['id'];
-            if ($item['type'] === 'file') {
-                $file = File::findAnyStatus($id);
-                if ($file && ($file['user_id'] === Auth::id() || Auth::isAdmin())) {
-                    $update = ['folder_id' => $targetFolderId];
-                    if ($file['status'] === 'deleted') {
-                        $update['status'] = (!empty($file['deleted_restore_status'])) ? $file['deleted_restore_status'] : 'active';
-                        $update['deleted_restore_status'] = null;
-                    }
-                    File::update($file['id'], $update);
+        $db = \App\Core\Database::getInstance()->getConnection();
+        $bonusTouchUserIds = [];
+        try {
+            $items = $this->resolveOwnedBulkItems((array)$ids, 'any', 'any');
+            foreach ($items as $item) {
+                if ($item['type'] === 'folder' && $targetFolderId !== null && \App\Model\Folder::isSubfolderOf($targetFolderId, (int)$item['row']['id'])) {
+                    throw new \RuntimeException('A folder cannot be moved into itself or one of its descendants.');
                 }
-            } else {
-                $folder = \App\Model\Folder::find($id);
-                if (!$folder || ($folder['user_id'] !== Auth::id() && !Auth::isAdmin())) continue;
-                
-                $folderId = $folder['id'];
-                // Folder recursion check
-                if ($targetFolderId !== null && \App\Model\Folder::isSubfolderOf($targetFolderId, $folderId)) {
+            }
+
+            $db->beginTransaction();
+            foreach ($items as $item) {
+                if ($item['type'] === 'file') {
+                    $file = $item['row'];
+                    if (($file['status'] ?? 'active') === 'deleted') {
+                        $bonusTouchUserIds = array_merge($bonusTouchUserIds, File::restore((int)$file['id']));
+                    }
+                    File::update((int)$file['id'], ['folder_id' => $targetFolderId]);
                     continue;
                 }
 
+                $folder = $item['row'];
                 if (($folder['status'] ?? 'active') === 'deleted') {
-                    $allFolderIds = \App\Model\Folder::getTreeIds((int)$folderId);
-                    $db = \App\Core\Database::getInstance()->getConnection();
-                    $inClause = implode(',', array_map('intval', $allFolderIds));
-                    $db->exec("
-                        UPDATE files
-                        SET status = COALESCE(NULLIF(deleted_restore_status, ''), 'active'),
-                            deleted_restore_status = NULL
-                        WHERE folder_id IN ($inClause) AND status = 'deleted'
-                    ");
-                    \App\Model\Folder::restoreTree((int)$folderId);
+                    $bonusTouchUserIds = array_merge($bonusTouchUserIds, \App\Model\Folder::restoreTree((int)$folder['id']));
                 }
-                
-                \App\Model\Folder::update($folderId, ['parent_id' => $targetFolderId]);
+
+                \App\Model\Folder::update((int)$folder['id'], ['parent_id' => $targetFolderId]);
             }
+            $db->commit();
+            $bonusTouchUserIds = array_values(array_unique(array_filter(array_map('intval', $bonusTouchUserIds), static fn (int $userId): bool => $userId > 0)));
+            if ($bonusTouchUserIds !== []) {
+                \App\Service\BonusOfferService::touchUsersFailSoft($bonusTouchUserIds, true, [
+                    'workflow' => 'bulk_move_restore',
+                    'item_count' => count($items),
+                ]);
+            }
+            $this->respondJson(['status' => 'success']);
+        } catch (\RuntimeException $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            $this->respondJson(['status' => 'error', 'error' => $e->getMessage()], 409);
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            Logger::error('Bulk move failed', ['error' => $e->getMessage()]);
+            $this->respondJson(['status' => 'error', 'error' => 'Server error. Please try again.'], 500);
         }
-        echo json_encode(['status' => 'success']);
     }
 
 
@@ -2190,7 +2709,7 @@ class FileController
         if (empty($name)) die(json_encode(['status' => 'error', 'error' => 'Name cannot be empty']));
 
         $file = File::find($id);
-        if (!$file || ($file['user_id'] !== Auth::id() && !Auth::isAdmin())) {
+        if (!$this->currentUserOwnsFile($file)) {
             http_response_code(403);
             die(json_encode(['status' => 'error', 'error' => 'Unauthorized']));
         }
@@ -2214,28 +2733,43 @@ class FileController
 
         if ($targetFolderId !== null) {
             $target = \App\Model\Folder::find($targetFolderId);
-            if (!$target || ($target['status'] ?? 'active') !== 'active' || ($target['user_id'] !== Auth::id() && !Auth::isAdmin())) {
+            if (!$target || ($target['status'] ?? 'active') !== 'active' || !$this->currentUserOwnsFolder($target)) {
                 die(json_encode(['status' => 'error', 'error' => 'Invalid destination']));
             }
             $targetFolderId = (int)$target['id'];
         }
 
-        foreach ($ids as $item) {
-            $id = $item['id'];
-            if ($item['type'] === 'file') {
-                $file = File::find($id);
-                if ($file && ($file['user_id'] === Auth::id() || Auth::isAdmin())) {
-                    File::copy($file['id'], $targetFolderId);
-                }
-            } else {
-                $folder = \App\Model\Folder::find($id);
-                if ($folder && ($folder['user_id'] === Auth::id() || Auth::isAdmin())) {
-                    \App\Model\Folder::copyTree((int)$folder['id'], (int)$folder['user_id'], $targetFolderId);
-                }
-            }
-        }
+        try {
+            $items = $this->resolveOwnedBulkItems((array)$ids, 'active', 'active');
+            $db = \App\Core\Database::getInstance()->getConnection();
+            $db->beginTransaction();
+            try {
+                foreach ($items as $item) {
+                    if ($item['type'] === 'file') {
+                        if (!File::copy((int)$item['row']['id'], $targetFolderId)) {
+                            throw new \RuntimeException('Could not copy every selected item.');
+                        }
+                        continue;
+                    }
 
-        echo json_encode(['status' => 'success']);
+                    if (\App\Model\Folder::copyTree((int)$item['row']['id'], (int)$item['row']['user_id'], $targetFolderId) === null) {
+                        throw new \RuntimeException('Could not copy every selected item.');
+                    }
+                }
+                $db->commit();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                throw $e;
+            }
+
+            $this->respondJson(['status' => 'success']);
+        } catch (\RuntimeException $e) {
+            $this->respondJson(['status' => 'error', 'error' => $e->getMessage()], 409);
+        } catch (\Throwable $e) {
+            $this->respondJson(['status' => 'error', 'error' => 'Could not copy every selected item.'], 500);
+        }
     }
 
     public function bulkRename()
@@ -2252,21 +2786,20 @@ class FileController
             die(json_encode(['status' => 'error', 'error' => 'No items selected']));
         }
 
+        try {
+            $resolvedItems = $this->resolveOwnedBulkItems((array)$items, 'active', 'active');
+        } catch (\RuntimeException $e) {
+            $this->respondJson(['status' => 'error', 'error' => $e->getMessage()], 409);
+            return;
+        }
+
         $preview = [];
         $updated = 0;
         $index = 0;
-        foreach ($items as $item) {
-            $type = $item['type'] ?? '';
-            $id = (int)($item['id'] ?? 0);
-            if ($id <= 0 || !in_array($type, ['file', 'folder'], true)) {
-                continue;
-            }
-
-            $row = $type === 'file' ? File::find($id) : \App\Model\Folder::find($id);
-            if (!$row || ((int)($row['user_id'] ?? 0) !== (int)Auth::id() && !Auth::isAdmin())) {
-                continue;
-            }
-
+        foreach ($resolvedItems as $item) {
+            $type = $item['type'];
+            $id = (int)$item['row']['id'];
+            $row = $item['row'];
             $oldName = (string)($type === 'file' ? $row['filename'] : $row['name']);
             $newName = $this->buildMassRenameName($oldName, $index);
             $index++;
@@ -2291,7 +2824,7 @@ class FileController
             }
         }
 
-        echo json_encode(['status' => 'success', 'preview' => $preview, 'updated' => $updated]);
+        $this->respondJson(['status' => 'success', 'preview' => $preview, 'updated' => $updated]);
     }
 
     private function buildMassRenameName(string $name, int $index): string
@@ -2366,32 +2899,33 @@ class FileController
 
         $db = \App\Core\Database::getInstance()->getConnection();
 
-        foreach ($ids as $item) {
-            $id   = $item['id'] ?? null;
-            $type = $item['type'] ?? '';
+        try {
+            $items = $this->resolveOwnedBulkItems((array)$ids, 'active', 'active');
+            $db->beginTransaction();
+            foreach ($items as $item) {
+                if ($item['type'] !== 'file') {
+                    throw new \RuntimeException('Visibility changes only apply to files.');
+                }
 
-            // visibility only applies to files, not folders
-            if ($type !== 'file' || !$id) {
-                continue;
+                $stmt = $db->prepare('UPDATE files SET is_public = ? WHERE id = ?');
+                if ($stmt->execute([$isPublic, (int)$item['row']['id']])) {
+                    $updated++;
+                }
             }
-
-            $file = File::find($id);
-            if (!$file) {
-                continue;
+            $db->commit();
+            $this->respondJson(['status' => 'success', 'updated' => $updated]);
+        } catch (\RuntimeException $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
             }
-
-            // IDOR check - must own the file or be admin
-            if ($file['user_id'] !== $userId && !Auth::isAdmin()) {
-                continue;
+            $this->respondJson(['status' => 'error', 'error' => $e->getMessage()], 409);
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
             }
-
-            $stmt = $db->prepare('UPDATE files SET is_public = ? WHERE id = ?');
-            if ($stmt->execute([$isPublic, (int)$file['id']])) {
-                $updated++;
-            }
+            Logger::error('Bulk visibility failed', ['error' => $e->getMessage()]);
+            $this->respondJson(['status' => 'error', 'error' => 'Server error. Please try again.'], 500);
         }
-
-        echo json_encode(['status' => 'success', 'updated' => $updated]);
     }
 
     public function cancelRemoteUpload()
@@ -2423,7 +2957,7 @@ class FileController
 
         $db = \App\Core\Database::getInstance()->getConnection();
         $this->ensureRemoteUploadQueueSchema($db);
-        
+
         $stmt = $db->prepare("SELECT user_id, status FROM remote_upload_queue WHERE id = ?");
         $stmt->execute([$jobId]);
         $job = $stmt->fetch();
@@ -2433,7 +2967,7 @@ class FileController
             return;
         }
 
-        if ($job['user_id'] != \App\Core\Auth::id() && !\App\Core\Auth::isAdmin()) {
+        if ((int)($job['user_id'] ?? 0) !== (int)(\App\Core\Auth::id() ?? 0)) {
             http_response_code(403);
             echo json_encode(['status' => 'error', 'error' => 'Unauthorized']);
             return;
@@ -2444,7 +2978,7 @@ class FileController
             return;
         }
 
-        $stmt = $db->prepare("UPDATE remote_upload_queue SET status = 'canceled' WHERE id = ?");
+        $stmt = $db->prepare("UPDATE remote_upload_queue SET status = 'canceled', error_message = 'Canceled by user.', processed_at = NOW() WHERE id = ? AND status IN ('pending', 'processing')");
         $stmt->execute([$jobId]);
 
         \App\Core\Logger::info("Remote Upload Canceled", ['job_id' => $jobId, 'user' => \App\Core\Auth::id()]);
@@ -2453,10 +2987,7 @@ class FileController
 
     private function ensureRemoteUploadQueueSchema(\PDO $db): void
     {
-        try {
-            $db->exec("ALTER TABLE remote_upload_queue MODIFY status ENUM('pending', 'processing', 'completed', 'failed', 'canceled') NOT NULL DEFAULT 'pending'");
-        } catch (\Throwable $e) {
-        }
+        \App\Service\Database\SchemaService::ensureTables(['remote_upload_queue'], false);
     }
 
     private function checkAuth()

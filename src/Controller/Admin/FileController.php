@@ -7,13 +7,15 @@ use App\Core\Database;
 use App\Core\View;
 use App\Core\Csrf;
 use App\Service\EncryptedSearchService;
+use App\Service\RewardService;
+use App\Service\StaffActivityService;
 
 class FileController
 {
 
     private function checkAuth()
     {
-        Auth::requireAdmin();
+        Auth::requireCapability('files.moderate');
     }
 
     public function index()
@@ -136,13 +138,19 @@ class FileController
 
             $fileId = (int)$_POST['file_id'];
             $deleteReason = trim((string)($_POST['delete_reason'] ?? ''));
+            $deleteEarnings = !empty($_POST['delete_file_earnings']);
             if ($deleteReason === '') {
                 $_SESSION['error'] = "A deletion reason is required.";
                 header("Location: /admin/files");
                 exit;
             }
 
-            $db = Database::getInstance()->getConnection();
+            if ($deleteEarnings && !Auth::hasCapability('rewards_fraud.manage')) {
+                $_SESSION['error'] = "Removing attached rewards during file moderation requires rewards-fraud review permission.";
+                header("Location: /admin/files");
+                exit;
+            }
+
             $file = \App\Model\File::findAnyStatus($fileId);
             if (!$file) {
                 $_SESSION['error'] = "File not found.";
@@ -150,23 +158,51 @@ class FileController
                 exit;
             }
 
-            if (!empty($file['user_id']) && !\App\Model\FileDeletionLog::hasOriginalFileId($fileId)) {
-                \App\Model\FileDeletionLog::record(
-                    (int)$file['user_id'],
-                    $fileId,
-                    (string)($file['filename'] ?? 'Deleted file'),
-                    $deleteReason,
-                    Auth::id() ? (int)Auth::id() : null,
-                    'admin',
-                    'Administrator'
-                );
+            try {
+                $earningsResult = \App\Model\File::markPendingPurge($fileId, [
+                    'deleted_by_user_id' => Auth::id() ? (int)Auth::id() : null,
+                    'deleted_by_role' => 'admin',
+                    'deleted_by_label' => 'Administrator',
+                    'delete_reason' => $deleteReason,
+                    'delete_file_earnings' => $deleteEarnings,
+                    'delete_file_earnings_authorized' => $deleteEarnings && Auth::hasCapability('rewards_fraud.manage'),
+                    'rewards_reviewer_id' => Auth::id() ? (int)Auth::id() : null,
+                ]);
+            } catch (\Throwable $e) {
+                $_SESSION['error'] = $e->getMessage();
+                header("Location: /admin/files");
+                exit;
             }
 
-            // Mark for background purge instead of instant hard delete
-            $stmt = $db->prepare("UPDATE files SET status = 'pending_purge' WHERE id = ?");
-            $stmt->execute([$fileId]);
+            $activityMessage = 'Marked file for background deletion. Reason: ' . $deleteReason;
+            if ($deleteEarnings && (int)($earningsResult['count'] ?? 0) > 0) {
+                $activityMessage .= sprintf(
+                    ' Removed %d reward entr%s totaling $%0.4f.',
+                    (int)$earningsResult['count'],
+                    (int)$earningsResult['count'] === 1 ? 'y' : 'ies',
+                    (float)($earningsResult['amount'] ?? 0)
+                );
+            } elseif ($deleteEarnings) {
+                $activityMessage .= ' No qualifying rewards were attached to this file.';
+            }
 
-            $_SESSION['success'] = "File has been marked for background deletion.";
+            StaffActivityService::log(
+                'file_moderated_delete',
+                'file',
+                $fileId,
+                $activityMessage,
+                [
+                    'reason' => $deleteReason,
+                    'delete_file_earnings' => $deleteEarnings,
+                    'reversed_earning_count' => (int)($earningsResult['count'] ?? 0),
+                    'reversed_earning_amount' => (float)($earningsResult['amount'] ?? 0),
+                ],
+                (int)($file['user_id'] ?? 0)
+            );
+
+            $_SESSION['success'] = $deleteEarnings
+                ? ('File has been marked for background deletion and attached rewards were removed (' . number_format((float)($earningsResult['amount'] ?? 0), 4) . ').')
+                : "File has been marked for background deletion.";
             header("Location: /admin/files");
             exit;
         }

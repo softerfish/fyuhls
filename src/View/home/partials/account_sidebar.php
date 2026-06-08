@@ -8,6 +8,7 @@ $isRewardsArea = str_contains($requestUri, '/rewards');
 $isAffiliateArea = str_contains($requestUri, '/affiliate');
 $isPlansArea = str_contains($requestUri, '/plans');
 $isPaymentsArea = str_contains($requestUri, '/payments');
+$isPromotionsArea = str_contains($requestUri, '/promotions');
 $isRecentArea = str_contains($requestUri, '/recent');
 $isSharedArea = str_contains($requestUri, '/shared');
 $isNotificationsArea = str_contains($requestUri, '/notifications');
@@ -18,6 +19,7 @@ $isAllFilesArea = (!isset($isTrash) || !$isTrash)
     && !$isAffiliateArea
     && !$isPlansArea
     && !$isPaymentsArea
+    && !$isPromotionsArea
     && !$isRecentArea
     && !$isSharedArea
     && !$isNotificationsArea
@@ -40,7 +42,16 @@ if ($currentUserId) {
             $pkgNameStr = $userPkg['name'] ?? 'Free Plan';
             $isPaidPlan = strtolower((string)($userPkg['level_type'] ?? 'free')) === 'paid';
             if (!empty($userPkg['premium_expiry'])) {
-                $expiryStr = 'Renews on ' . date('M d, Y', strtotime($userPkg['premium_expiry']));
+                $expiryPrefix = 'Expires on ';
+                try {
+                    $db = \App\Core\Database::getInstance()->getConnection();
+                    $stmt = $db->prepare("SELECT auto_renew FROM subscriptions WHERE user_id = ? AND status = 'active' AND expires_at > NOW() ORDER BY expires_at DESC, id DESC LIMIT 1");
+                    $stmt->execute([(int)$currentUserId]);
+                    $expiryPrefix = ((int)($stmt->fetchColumn() ?: 0) === 1) ? 'Renews on ' : 'Expires on ';
+                } catch (\Throwable $e) {
+                    $expiryPrefix = 'Expires on ';
+                }
+                $expiryStr = $expiryPrefix . date('M d, Y', strtotime($userPkg['premium_expiry']));
             } elseif ($isPaidPlan) {
                 $expiryStr = 'Paid account active';
             }
@@ -84,6 +95,10 @@ if ($currentUserId > 0) {
         $trashItemCount = 0;
     }
 }
+
+$showPromotionsLink = $currentUserId > 0
+    && \App\Service\FeatureService::rewardsEnabled()
+    && \App\Service\BonusOfferService::hasVisiblePromotions($currentUserId);
 
 ?>
 <div class="fm-sidebar">
@@ -172,9 +187,11 @@ if ($currentUserId > 0) {
             <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
                 <li data-nav-url="/rewards" class="<?= $isRewardsArea ? 'active' : '' ?>">My Rewards</li>
                 <li data-nav-url="/affiliate" class="<?= $isAffiliateArea ? 'active' : '' ?>">Affiliate</li>
+                <?php if ($showPromotionsLink): ?>
+                    <li data-nav-url="/promotions" class="<?= $isPromotionsArea ? 'active' : '' ?>">Promotions</li>
+                <?php endif; ?>
             <?php endif; ?>
         </ul>
         <?php endif; ?>
     </div>
 </div>
-

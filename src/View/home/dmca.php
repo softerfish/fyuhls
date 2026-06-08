@@ -101,7 +101,15 @@ include __DIR__ . '/partials/public_form_shell_styles.php';
                 <label class="dmca-confirm-label">
                     <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
                         <strong class="dmca-confirm-title" style="margin: 0;"><?= htmlspecialchars((string)($dmcaFields['confirmation_title'] ?? 'Confirmation:')) ?></strong>
-                        <input type="checkbox" required class="dmca-confirm-checkbox" style="margin: 0;">
+                        <input
+                            type="checkbox"
+                            name="dmca_confirmation"
+                            value="1"
+                            required
+                            class="dmca-confirm-checkbox"
+                            style="margin: 0;"
+                            <?= !empty($_POST['dmca_confirmation']) ? 'checked' : '' ?>
+                        >
                     </div>
                     <div style="display:block;"><?= SiteContentService::renderMarkdown((string)($dmcaFields['confirmation_body'] ?? ''), $siteContentTokens) ?></div>
                 </label>
@@ -113,4 +121,3 @@ include __DIR__ . '/partials/public_form_shell_styles.php';
     </div>
 
 <?php include __DIR__ . '/footer.php'; ?>
-

@@ -10,6 +10,160 @@
     --text-color: #1e293b;
 }
 
+.admin-action-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(15, 23, 42, 0.58);
+    backdrop-filter: blur(6px);
+}
+
+.admin-action-modal[hidden] {
+    display: none !important;
+}
+
+.admin-action-modal.is-open {
+    display: flex;
+}
+
+.admin-action-modal__card {
+    width: min(460px, 100%);
+    border-radius: 22px;
+    background: #ffffff;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+    overflow: hidden;
+    transform: translateY(8px) scale(0.98);
+    animation: adminActionModalIn 160ms ease forwards;
+}
+
+.admin-action-modal__header {
+    display: flex;
+    gap: 0.9rem;
+    align-items: center;
+    padding: 1.35rem 1.45rem 0.7rem;
+}
+
+.admin-action-modal__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.45rem;
+    height: 2.45rem;
+    border-radius: 999px;
+    background: #fff7ed;
+    color: #c2410c;
+    flex: 0 0 auto;
+}
+
+.admin-action-modal__icon--info {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.admin-action-modal__title {
+    margin: 0;
+    font-size: 1.08rem;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.admin-action-modal__body {
+    padding: 0 1.45rem 1.2rem;
+}
+
+.admin-action-modal__message {
+    margin: 0;
+    color: #475569;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.admin-action-modal__input-wrap {
+    margin-top: 1rem;
+}
+
+.admin-action-modal__input-wrap.is-hidden {
+    display: none;
+}
+
+.admin-action-modal__label,
+.admin-action-modal__hint {
+    display: block;
+    font-size: 0.82rem;
+    color: #64748b;
+}
+
+.admin-action-modal__label {
+    margin-bottom: 0.45rem;
+    font-weight: 700;
+}
+
+.admin-action-modal__hint {
+    margin-top: 0.45rem;
+}
+
+.admin-action-modal__input {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    padding: 0.68rem 0.78rem;
+    font: inherit;
+    color: #0f172a;
+    background: #f8fafc;
+}
+
+.admin-action-modal__input:focus {
+    outline: 3px solid rgba(37, 99, 235, 0.16);
+    border-color: #2563eb;
+    background: #ffffff;
+}
+
+.admin-action-modal__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.45rem 1.35rem;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.admin-action-modal__cancel,
+.admin-action-modal__confirm {
+    border: 0;
+    border-radius: 999px;
+    padding: 0.68rem 1.05rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.admin-action-modal__cancel {
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.admin-action-modal__confirm {
+    background: #dc2626;
+    color: #ffffff;
+}
+
+.admin-action-modal__confirm.admin-action-modal__confirm--info {
+    background: #2563eb;
+}
+
+.admin-action-modal__confirm:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+@keyframes adminActionModalIn {
+    to {
+        transform: translateY(0) scale(1);
+    }
+}
+
 body {
     font-family: 'Inter', -apple-system, sans-serif;
     margin: 0;

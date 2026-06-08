@@ -41,11 +41,25 @@ renderAdminCardStart(null, ['headerHtml' => $userEditHeader]);
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold small">Role</label>
                     <select class="form-select" name="role">
-                        <option value="user" <?= $user['role'] === 'user' ? 'selected' : '' ?>>User</option>
-                        <option value="admin" <?= $user['role'] === 'admin' ? 'selected' : '' ?>>Admin</option>
+                        <?php foreach (($roleOptions ?? []) as $roleKey => $roleLabel): ?>
+                            <?php if (!$canManageStaffPermissions && !( !empty($user['is_super_admin']) && !empty($canEditProtectedSuperAdmin)) && $roleKey !== 'user') continue; ?>
+                            <option value="<?= htmlspecialchars($roleKey) ?>" <?= $user['role'] === $roleKey ? 'selected' : '' ?>><?= htmlspecialchars($roleLabel) ?></option>
+                        <?php endforeach; ?>
                     </select>
-                    <?php if (!empty($demoMode) && (int)($demoAdminUserId ?? 0) === (int)$user['id']): ?>
-                        <small class="text-muted">This account is currently marked as the demo admin.</small>
+                    <?php if ((int)($demoAdminUserId ?? 0) === (int)$user['id']): ?>
+                        <small class="text-muted">
+                            <?= !empty($demoMode)
+                                ? 'This account is currently marked as the demo admin.'
+                                : 'This account is designated as the demo admin and will become the read-only demo account when demo mode is enabled.' ?>
+                        </small>
+                    <?php endif; ?>
+                    <?php if (!empty($user['is_super_admin'])): ?>
+                        <small class="text-warning d-block mt-2">This is the protected super admin account created during setup. Only staff with explicit super-admin edit access can change it from User Management.</small>
+                    <?php endif; ?>
+                    <?php if (!$canManageStaffPermissions && !( !empty($user['is_super_admin']) && !empty($canEditProtectedSuperAdmin))): ?>
+                        <small class="text-muted d-block mt-2">Only staff with permission management access can assign or remove staff roles.</small>
+                    <?php else: ?>
+                        <small class="text-muted d-block mt-2">Changing the role resets this account to that role's default permissions. Save first, then fine-tune the permissions below if needed.</small>
                     <?php endif; ?>
                 </div>
                 <div class="col-md-4 mb-3">
@@ -57,11 +71,30 @@ renderAdminCardStart(null, ['headerHtml' => $userEditHeader]);
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold small">Package</label>
-                    <select class="form-select" name="package_id">
-                        <?php foreach ($packages as $pkg): ?>
-                            <option value="<?= $pkg['id'] ?>" <?= $user['package_id'] == $pkg['id'] ? 'selected' : '' ?>><?= htmlspecialchars($pkg['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <?php if (!empty($canManagePackages) && empty($currentPackageIsPaid)): ?>
+                        <select class="form-select" name="package_id">
+                            <?php foreach ($packages as $pkg): ?>
+                                <option value="<?= $pkg['id'] ?>" <?= $user['package_id'] == $pkg['id'] ? 'selected' : '' ?>><?= htmlspecialchars($pkg['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php else: ?>
+                        <?php
+                        $currentPackageName = 'Current package';
+                        foreach ($packages as $pkg) {
+                            if ((int)$user['package_id'] === (int)$pkg['id']) {
+                                $currentPackageName = (string)$pkg['name'];
+                                break;
+                            }
+                        }
+                        ?>
+                        <input type="hidden" name="package_id" value="<?= (int)$user['package_id'] ?>">
+                        <input type="text" class="form-control" value="<?= htmlspecialchars($currentPackageName) ?>" disabled>
+                        <small class="text-muted d-block mt-2">
+                            <?= !empty($currentPackageIsPaid)
+                                ? 'This account is currently on a paid package. Package changes must go through Subscriptions so billing history stays intact.'
+                                : 'Package changes require subscription-management access.' ?>
+                        </small>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -69,50 +102,128 @@ renderAdminCardStart(null, ['headerHtml' => $userEditHeader]);
 
             <div class="mb-3">
                 <label class="form-label fw-bold small">Reset Password (Optional)</label>
-                <input type="text" class="form-control" name="new_password" placeholder="Enter new password to reset...">
+                <input type="password" class="form-control" name="new_password" placeholder="Enter new password to reset..." autocomplete="new-password">
                 <small class="text-muted">Leave blank to keep the current password.</small>
             </div>
 
             <hr class="my-4">
 
-            <!-- Wallet & Earnings Section -->
-            <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
-                <div class="row g-4 bg-light p-4 rounded-3 border mx-0">
-                    <div class="col-md-6">
-                        <h5 class="fw-bold mb-3"><i class="bi bi-wallet2 me-2"></i>Wallet & Earnings</h5>
-                        <?php
-                        $uId = (int)$user['id'];
-                        $stmtBalance = $db->prepare("SELECT SUM(amount) FROM earnings WHERE user_id = ? AND status = 'cleared'");
-                        $stmtBalance->execute([$uId]);
-                        $balance = (float)($stmtBalance->fetchColumn() ?: 0);
+            <?php if (($canManageStaffPermissions || (!empty($user['is_super_admin']) && !empty($canEditProtectedSuperAdmin))) && in_array((string)$user['role'], ['admin', 'moderator'], true)): ?>
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-bold mb-1">Staff permissions</h5>
+                            <div class="text-muted small">Turn tools on or off for this <?= htmlspecialchars($user['role']) ?> account. Admins start with everything. Moderators start with just moderation access.</div>
+                            <?php if (!empty($user['is_super_admin'])): ?>
+                                <div class="small text-warning mt-2">Protected super admin access is a separate default-off permission. Other admins will not be able to edit this account unless you explicitly grant it.</div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="row g-4">
+                        <?php foreach (($staffCapabilities ?? []) as $groupLabel => $capabilities): ?>
+                            <div class="col-md-6">
+                                <div class="border rounded-3 p-3 h-100 bg-white shadow-sm">
+                                    <div class="fw-semibold mb-3"><?= htmlspecialchars($groupLabel) ?></div>
+                                    <?php foreach ($capabilities as $capabilityKey => $capability): ?>
+                                        <?php $isProtectedSuperAdminEdit = $capabilityKey === 'staff.edit_super_admin'; ?>
+                                        <?php if ($isProtectedSuperAdminEdit): ?>
+                                            <div class="mb-2 user-edit-danger-capability border border-danger-subtle rounded-3 p-3 bg-danger-subtle">
+                                                <div class="d-flex align-items-start gap-3">
+                                                    <div class="form-check m-0 pt-1">
+                                                        <input
+                                                            class="form-check-input"
+                                                            type="checkbox"
+                                                            name="staff_capabilities[<?= htmlspecialchars($capabilityKey) ?>]"
+                                                            id="cap-<?= htmlspecialchars(str_replace('.', '-', $capabilityKey)) ?>"
+                                                            <?= !empty($currentCapabilityMap[$capabilityKey]) ? 'checked' : '' ?>
+                                                        >
+                                                    </div>
+                                                    <div class="flex-grow-1">
+                                                        <label class="form-check-label fw-semibold d-block mb-2" for="cap-<?= htmlspecialchars(str_replace('.', '-', $capabilityKey)) ?>">
+                                                            <?= htmlspecialchars((string)($capability['label'] ?? $capabilityKey)) ?>
+                                                        </label>
+                                                        <div class="small text-danger fw-semibold">Danger zone: this allows the staff account to edit the protected super admin from User Management.</div>
+                                                        <div class="small text-muted mt-1">Only grant this if you explicitly trust the admin to change the platform owner's account, role, status, package, password, or 2FA state.</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        <?php else: ?>
+                                            <div class="form-check mb-2">
+                                                <input
+                                                    class="form-check-input"
+                                                    type="checkbox"
+                                                    name="staff_capabilities[<?= htmlspecialchars($capabilityKey) ?>]"
+                                                    id="cap-<?= htmlspecialchars(str_replace('.', '-', $capabilityKey)) ?>"
+                                                    <?= !empty($currentCapabilityMap[$capabilityKey]) ? 'checked' : '' ?>
+                                                >
+                                                <label class="form-check-label" for="cap-<?= htmlspecialchars(str_replace('.', '-', $capabilityKey)) ?>">
+                                                    <?= htmlspecialchars((string)($capability['label'] ?? $capabilityKey)) ?>
+                                                </label>
+                                            </div>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
 
-                        $stmtPaid = $db->prepare("SELECT SUM(amount) FROM withdrawals WHERE user_id = ? AND status = 'paid'");
-                        $stmtPaid->execute([$uId]);
-                        $paid = (float)($stmtPaid->fetchColumn() ?: 0);
-                        ?>
-                        <div class="p-3 bg-white border rounded shadow-sm">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="text-muted">Available Balance:</span>
-                                <span class="fw-bold text-success">$<?= number_format($balance - $paid, 2) ?></span>
-                            </div>
-                            <div class="d-flex justify-content-between">
-                                <span class="text-muted">Lifetime Paid:</span>
-                                <span class="fw-bold text-primary">$<?= number_format($paid, 2) ?></span>
+                <hr class="my-4">
+            <?php endif; ?>
+
+            <!-- Wallet & Earnings Section -->
+            <?php if (\App\Service\FeatureService::rewardsEnabled() && (!empty($canManageUserFinancials) || !empty($canIssueManualCredit))): ?>
+                <div class="row g-4 bg-light p-4 rounded-3 border mx-0">
+                    <?php if (!empty($canManageUserFinancials)): ?>
+                        <div class="col-md-6">
+                            <h5 class="fw-bold mb-3"><i class="bi bi-wallet2 me-2"></i>Wallet & Earnings</h5>
+                            <?php
+                            $uId = (int)$user['id'];
+                            $stmtBalance = $db->prepare("SELECT SUM(amount) FROM earnings WHERE user_id = ? AND status = 'cleared'");
+                            $stmtBalance->execute([$uId]);
+                            $clearedBalance = (float)($stmtBalance->fetchColumn() ?: 0);
+
+                            $stmtReserved = $db->prepare("SELECT SUM(amount) FROM withdrawals WHERE user_id = ? AND status IN ('pending', 'approved', 'paid')");
+                            $stmtReserved->execute([$uId]);
+                            $reserved = (float)($stmtReserved->fetchColumn() ?: 0);
+
+                            $stmtPaid = $db->prepare("SELECT SUM(amount) FROM withdrawals WHERE user_id = ? AND status = 'paid'");
+                            $stmtPaid->execute([$uId]);
+                            $paid = (float)($stmtPaid->fetchColumn() ?: 0);
+
+                            $availableBalance = max(0, $clearedBalance - $reserved);
+                            $openWithdrawalAmount = max(0, $reserved - $paid);
+                            ?>
+                            <div class="p-3 bg-white border rounded shadow-sm">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="text-muted">Available Balance:</span>
+                                    <span class="fw-bold text-success">$<?= number_format($availableBalance, 2) ?></span>
+                                </div>
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="text-muted">Open Withdrawal Holds:</span>
+                                    <span class="fw-bold text-warning">$<?= number_format($openWithdrawalAmount, 2) ?></span>
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-muted">Lifetime Paid:</span>
+                                    <span class="fw-bold text-primary">$<?= number_format($paid, 2) ?></span>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="col-md-6 border-start-md">
-                        <h5 class="fw-bold mb-3"><i class="bi bi-plus-circle me-2"></i>Give Manual Credit</h5>
-                        <div class="row g-2 mb-2">
-                            <div class="col-md-4">
-                                <input type="number" name="credit_amount" step="0.01" class="form-control" placeholder="0.00">
+                    <?php endif; ?>
+                    <?php if (!empty($canIssueManualCredit)): ?>
+                        <div class="col-md-6<?= !empty($canManageUserFinancials) ? ' border-start-md' : '' ?>">
+                            <h5 class="fw-bold mb-3"><i class="bi bi-plus-circle me-2"></i>Give Manual Credit</h5>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-4">
+                                    <input type="number" name="credit_amount" step="0.01" class="form-control" placeholder="0.00">
+                                </div>
+                                <div class="col-md-8">
+                                    <input type="text" name="credit_reason" class="form-control" placeholder="Reason note (required when crediting)">
+                                </div>
                             </div>
-                            <div class="col-md-8">
-                                <input type="text" name="credit_reason" class="form-control" placeholder="Reason (e.g. Bonus)">
-                            </div>
+                            <small class="text-muted">Amount will be added to Available Balance immediately. Include a clear reason note so the audit trail explains why it was granted.</small>
                         </div>
-                        <small class="text-muted">Amount will be added to Available Balance immediately.</small>
-                    </div>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 
@@ -121,7 +232,41 @@ renderAdminCardStart(null, ['headerHtml' => $userEditHeader]);
             </div>
         </form>
 
-        <?php if (\App\Service\FeatureService::twoFactorEnabled()): ?>
+        <?php if (!empty($canManageStaffPermissions) && ((string)$user['role'] === 'admin' || (int)($demoAdminUserId ?? 0) === (int)$user['id'])): ?>
+            <div class="mt-5 p-4 border rounded-3 bg-white shadow-sm">
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                    <div>
+                        <h5 class="fw-bold mb-1">Demo Admin Designation</h5>
+                        <?php if ((int)($demoAdminUserId ?? 0) === (int)$user['id']): ?>
+                            <p class="small text-muted mb-0">
+                                <?= !empty($demoMode)
+                                    ? 'This account is the current demo admin. Sensitive data stays redacted here while demo mode is enabled.'
+                                    : 'This account is already designated as the demo admin. Turn demo mode on later and this account will become the read-only demo admin without needing to sign into it first.' ?>
+                            </p>
+                        <?php else: ?>
+                            <p class="small text-muted mb-0">You can predesignate this active admin account now so demo mode uses it later. That lets a super admin prepare the demo account without signing into the target user first.</p>
+                        <?php endif; ?>
+                    </div>
+                    <?php if ((int)($demoAdminUserId ?? 0) === (int)$user['id']): ?>
+                        <form method="POST" action="/admin/users/action" data-confirm-message="Clear this demo admin designation?">
+                            <?= \App\Core\Csrf::field() ?>
+                            <input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>">
+                            <button type="submit" name="action" value="clear_demo_admin" class="btn btn-outline-secondary">clear demo admin</button>
+                        </form>
+                    <?php elseif ((string)$user['role'] === 'admin' && (string)$user['status'] === 'active'): ?>
+                        <form method="POST" action="/admin/users/action" data-confirm-message="Designate this admin as the demo admin?">
+                            <?= \App\Core\Csrf::field() ?>
+                            <input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>">
+                            <button type="submit" name="action" value="set_demo_admin" class="btn btn-outline-primary"><?= !empty($demoMode) ? 'set demo admin' : 'designate demo admin' ?></button>
+                        </form>
+                    <?php else: ?>
+                        <div class="small text-muted">Only active admin accounts can be designated as the demo admin.</div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <?php if (\App\Service\FeatureService::twoFactorEnabled() && !empty($canDisableUser2FA)): ?>
             <?php
             $stmt2fa = $db->prepare("SELECT is_enabled FROM user_two_factor WHERE user_id = ?");
             $stmt2fa->execute([$user['id']]);

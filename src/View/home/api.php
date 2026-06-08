@@ -9,6 +9,7 @@ $extraHead = ($extraHead ?? '') . SiteContentService::previewHeadHtml('api', $pa
 $siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $title = "API Reference - {$siteName}";
 $metaDescription = "Public API reference for {$siteName}, covering personal API tokens, multipart uploads, managed uploads, file metadata, idempotency, and controlled download links.";
+$rewardsEnabled = \App\Service\FeatureService::rewardsEnabled();
 $apiHero = $siteContent['hero'] ?? [];
 $apiOverview = $siteContent['overview'] ?? [];
 $apiAuth = $siteContent['auth'] ?? [];
@@ -108,10 +109,12 @@ X-API-Token: fyu_your_token_here</code></pre>
                                 <td><code>files.write</code></td>
                                 <td>Create folders, rename, move, copy, and delete files or folders.</td>
                             </tr>
-                            <tr>
-                                <td><code>stats.read</code></td>
-                                <td>Read earnings, payout, and uploader performance stats.</td>
-                            </tr>
+                            <?php if ($rewardsEnabled): ?>
+                                <tr>
+                                    <td><code>stats.read</code></td>
+                                    <td>Read earnings summaries, day-by-day earnings totals, payout balance, and recent payout requests.</td>
+                                </tr>
+                            <?php endif; ?>
                             <tr>
                                 <td><code>remote.upload</code></td>
                                 <td>Create, inspect, and cancel remote URL upload jobs.</td>
@@ -145,6 +148,7 @@ X-API-Token: fyu_your_token_here</code></pre>
                             </tr>
                         </thead>
                         <tbody>
+                            <tr><td>GET</td><td><code>/api/v1/openapi.json</code></td><td>Fetch the OpenAPI description for client generation and tooling.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/uploads/sessions</code></td><td>Create a multipart upload session.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/uploads/managed</code></td><td>Create a session and return signed part URLs in one call.</td></tr>
                             <tr><td>GET</td><td><code>/api/v1/uploads/sessions/{id}</code></td><td>Inspect an upload session for resume/retry.</td></tr>
@@ -164,8 +168,10 @@ X-API-Token: fyu_your_token_here</code></pre>
                             <tr><td>POST</td><td><code>/api/v1/items/copy</code></td><td>Copy files, clone folder structure, or create alternate file names pointing at the same stored object.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/items/delete</code></td><td>Move selected files or folders to trash.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/bulk-links</code></td><td>Generate plain, HTML, or BBCode links for selected items.</td></tr>
-                            <tr><td>GET</td><td><code>/api/v1/earnings/stats</code></td><td>Read earnings grouped by status and day.</td></tr>
-                            <tr><td>GET</td><td><code>/api/v1/payouts</code></td><td>Read available payout balance and recent payout requests.</td></tr>
+                            <?php if ($rewardsEnabled): ?>
+                                <tr><td>GET</td><td><code>/api/v1/earnings/stats</code></td><td>Read earnings grouped by status and day.</td></tr>
+                                <tr><td>GET</td><td><code>/api/v1/payouts</code></td><td>Read available payout balance and recent payout requests.</td></tr>
+                            <?php endif; ?>
                             <tr><td>POST</td><td><code>/api/v1/remote-uploads</code></td><td>Create a remote URL upload job.</td></tr>
                             <tr><td>GET</td><td><code>/api/v1/remote-uploads/{id}</code></td><td>Inspect a remote URL upload job.</td></tr>
                             <tr><td>POST</td><td><code>/api/v1/remote-uploads/{id}/cancel</code></td><td>Cancel a pending or processing remote upload job.</td></tr>
@@ -227,12 +233,14 @@ curl -X POST "https://your-site.example/api/v1/items/copy" \
     ]
   }'</code></pre>
 
-                <h3>curl: earnings and payout stats</h3>
-                <pre><code>curl "https://your-site.example/api/v1/earnings/stats" \
+                <?php if ($rewardsEnabled): ?>
+                    <h3>curl: earnings and payout stats</h3>
+                    <pre><code>curl "https://your-site.example/api/v1/earnings/stats" \
   -H "Authorization: Bearer fyu_your_token_here"
 
 curl "https://your-site.example/api/v1/payouts" \
   -H "Authorization: Bearer fyu_your_token_here"</code></pre>
+                <?php endif; ?>
 
                 <h3>PHP: create a managed upload</h3>
                 <pre><code>&lt;?php
@@ -352,7 +360,7 @@ curl -X POST "https://your-site.example/api/v1/uploads/sessions/ups_ab12cd34ef56
                 <h2>Managed Upload Shortcut</h2>
                 <p><code>POST /api/v1/uploads/managed</code> is the easiest way for desktop tools to start. It creates the session and immediately returns signed part URLs for the requested part numbers.</p>
                 <p class="api-note">If the site uses B2, Wasabi, R2, or another S3-compatible bucket, the storage side still needs correct CORS. The API session and signed part URLs are only one half of the flow; the bucket must still allow the site origin and expose <code>ETag</code> for multipart uploads to complete reliably.</p>
-                <p class="api-note">If the upload can be satisfied by deduplication instead of transferring file bytes again, managed-upload responses can return an already-created file record with <code>upload_skipped</code> and <code>deduplicated</code> signals.</p>
+                <p class="api-note">Deduplication is determined at completion time after server-side verification. The creation response starts the upload session; the final <code>/complete</code> response is where a client can learn whether the finished upload converged onto an existing stored object.</p>
                 <h3>Example request</h3>
                 <pre><code>{
   "filename": "archive.iso",

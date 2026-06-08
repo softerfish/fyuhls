@@ -31,13 +31,16 @@ class S3StorageProvider implements StorageProvider {
             return false;
         }
         try {
+            $destinationPath = $this->normalizeObjectKey($destinationPath);
             set_time_limit(60 * 60 * 6);
             ini_set('memory_limit', '512M');
 
             $source   = fopen($sourcePath, 'rb');
             $uploader = new ObjectUploader($this->client, $this->bucket, $destinationPath, $source);
             $result   = $uploader->upload();
-            fclose($source);
+            if (is_resource($source)) {
+                fclose($source);
+            }
 
             $statusCode = (int)($result['@metadata']['statusCode'] ?? 0);
             return in_array($statusCode, [200, 201, 204]);
@@ -49,7 +52,7 @@ class S3StorageProvider implements StorageProvider {
 
     public function delete(string $path): bool {
         try {
-            $key = ltrim($path, '/');
+            $key = $this->normalizeObjectKey($path);
 
             if ($this->purgeVersionsOnDelete) {
                 return $this->deleteAllVersions($key);
@@ -67,21 +70,30 @@ class S3StorageProvider implements StorageProvider {
     }
 
     public function deleteVariants(string $path, array $variants = []): bool {
+        $success = true;
         foreach ($variants as $variantPath) {
-            $this->delete($variantPath);
+            if (!$this->delete($variantPath)) {
+                $success = false;
+            }
         }
-        return true;
+        return $success;
     }
 
     public function exists(string $path): bool {
         try {
-            return $this->client->doesObjectExist($this->bucket, $path);
-        } catch (S3Exception $e) {
+            return $this->client->doesObjectExist($this->bucket, $this->normalizeObjectKey($path));
+        } catch (\Throwable $e) {
             return false;
         }
     }
 
     public function getUrl(string $path): string {
+        try {
+            $path = $this->normalizeObjectKey($path);
+        } catch (\RuntimeException $e) {
+            return '';
+        }
+
         if ($this->publicUrl) {
             return $this->publicUrl . '/' . ltrim($path, '/');
         }
@@ -90,11 +102,12 @@ class S3StorageProvider implements StorageProvider {
     }
 
     public function getAbsolutePath(string $path): string {
-        return $path;
+        return $this->normalizeObjectKey($path);
     }
 
     public function getPresignedUrl(string $path, int $expiry = 3600, array $options = []): ?string {
         try {
+            $path = $this->normalizeObjectKey($path);
             $params = [
                 'Bucket' => $this->bucket,
                 'Key' => $path,
@@ -119,9 +132,10 @@ class S3StorageProvider implements StorageProvider {
     // seekable streaming for download proxying
     public function stream(string $path, int $seekStart = 0, ?callable $onProgress = null, ?int $maxBytes = null): void {
         try {
+            $path = $this->normalizeObjectKey($path);
             $params = [
                 'Bucket' => $this->bucket,
-                'Key' => ltrim($path, '/'),
+                'Key' => $path,
                 '@http' => ['stream' => true],
             ];
 
@@ -158,7 +172,7 @@ class S3StorageProvider implements StorageProvider {
                 if ($remaining !== null) {
                     $remaining -= $sentLength;
                 }
-                
+
                 if ($onProgress) {
                     $onProgress($totalSent);
                 }
@@ -174,7 +188,7 @@ class S3StorageProvider implements StorageProvider {
     }
 
     private function deleteAllVersions(string $key): bool {
-        $key = ltrim($key, '/');
+        $key = $this->normalizeObjectKey($key);
         $keyMarker = null;
         $versionMarker = null;
         $foundAny = false;
@@ -251,19 +265,22 @@ class S3StorageProvider implements StorageProvider {
             'presigned_part_upload' => true,
             'presigned_download' => true,
             'head' => true,
+            'completion_validates_part_identity' => true,
+            'multipart_etag_case_insensitive' => false,
         ];
     }
 
     public function createMultipartUpload(string $destinationPath, array $options = []): ?array {
         try {
+            $destinationPath = $this->normalizeObjectKey($destinationPath);
             $params = array_merge([
                 'Bucket' => $this->bucket,
-                'Key' => ltrim($destinationPath, '/'),
+                'Key' => $destinationPath,
             ], $options);
             $result = $this->client->createMultipartUpload($params);
             return [
                 'upload_id' => (string)($result['UploadId'] ?? ''),
-                'key' => (string)($result['Key'] ?? ltrim($destinationPath, '/')),
+                'key' => (string)($result['Key'] ?? $destinationPath),
             ];
         } catch (\Exception $e) {
             error_log('[S3StorageProvider] createMultipartUpload failed: ' . $e->getMessage());
@@ -273,9 +290,10 @@ class S3StorageProvider implements StorageProvider {
 
     public function createMultipartPartUrl(string $destinationPath, string $uploadId, int $partNumber, int $expiry = 3600, array $options = []): ?string {
         try {
+            $destinationPath = $this->normalizeObjectKey($destinationPath);
             $cmd = $this->client->getCommand('UploadPart', array_merge([
                 'Bucket' => $this->bucket,
-                'Key' => ltrim($destinationPath, '/'),
+                'Key' => $destinationPath,
                 'UploadId' => $uploadId,
                 'PartNumber' => $partNumber,
             ], $options));
@@ -289,20 +307,43 @@ class S3StorageProvider implements StorageProvider {
 
     public function listMultipartParts(string $destinationPath, string $uploadId): array {
         try {
-            $result = $this->client->listParts([
-                'Bucket' => $this->bucket,
-                'Key' => ltrim($destinationPath, '/'),
-                'UploadId' => $uploadId,
-            ]);
-
+            $destinationPath = $this->normalizeObjectKey($destinationPath);
             $parts = [];
-            foreach (($result['Parts'] ?? []) as $part) {
-                $parts[] = [
-                    'part_number' => (int)($part['PartNumber'] ?? 0),
-                    'etag' => trim((string)($part['ETag'] ?? ''), '"'),
-                    'size' => (int)($part['Size'] ?? 0),
+            $partNumberMarker = null;
+            $seenMarkers = [];
+
+            do {
+                $params = [
+                    'Bucket' => $this->bucket,
+                    'Key' => $destinationPath,
+                    'UploadId' => $uploadId,
                 ];
-            }
+                if ($partNumberMarker !== null) {
+                    $params['PartNumberMarker'] = $partNumberMarker;
+                }
+
+                $result = $this->client->listParts($params);
+                foreach (($result['Parts'] ?? []) as $part) {
+                    $parts[] = [
+                        'part_number' => (int)($part['PartNumber'] ?? 0),
+                        'etag' => trim((string)($part['ETag'] ?? ''), '"'),
+                        'size' => (int)($part['Size'] ?? 0),
+                    ];
+                }
+
+                $isTruncated = (bool)($result['IsTruncated'] ?? false);
+                $nextMarker = $isTruncated ? (string)($result['NextPartNumberMarker'] ?? '') : '';
+                if ($isTruncated && ($nextMarker === '' || $nextMarker === (string)$partNumberMarker || isset($seenMarkers[$nextMarker]))) {
+                    throw new \RuntimeException('S3 multipart listing cursor did not advance.');
+                }
+
+                if ($isTruncated) {
+                    $seenMarkers[$nextMarker] = true;
+                    $partNumberMarker = $nextMarker;
+                }
+            } while ($isTruncated);
+
+            usort($parts, static fn(array $a, array $b): int => (int)$a['part_number'] <=> (int)$b['part_number']);
 
             return $parts;
         } catch (\Exception $e) {
@@ -313,6 +354,7 @@ class S3StorageProvider implements StorageProvider {
 
     public function completeMultipartUpload(string $destinationPath, string $uploadId, array $parts): bool {
         try {
+            $destinationPath = $this->normalizeObjectKey($destinationPath);
             $awsParts = [];
             foreach ($parts as $part) {
                 $awsParts[] = [
@@ -323,7 +365,7 @@ class S3StorageProvider implements StorageProvider {
 
             $result = $this->client->completeMultipartUpload([
                 'Bucket' => $this->bucket,
-                'Key' => ltrim($destinationPath, '/'),
+                'Key' => $destinationPath,
                 'UploadId' => $uploadId,
                 'MultipartUpload' => ['Parts' => $awsParts],
             ]);
@@ -338,9 +380,10 @@ class S3StorageProvider implements StorageProvider {
 
     public function abortMultipartUpload(string $destinationPath, string $uploadId): bool {
         try {
+            $destinationPath = $this->normalizeObjectKey($destinationPath);
             $this->client->abortMultipartUpload([
                 'Bucket' => $this->bucket,
-                'Key' => ltrim($destinationPath, '/'),
+                'Key' => $destinationPath,
                 'UploadId' => $uploadId,
             ]);
             return true;
@@ -356,13 +399,14 @@ class S3StorageProvider implements StorageProvider {
 
     public function head(string $path): ?array {
         try {
+            $path = $this->normalizeObjectKey($path);
             $result = $this->client->headObject([
                 'Bucket' => $this->bucket,
-                'Key' => ltrim($path, '/'),
+                'Key' => $path,
             ]);
 
             return [
-                'path' => ltrim($path, '/'),
+                'path' => $path,
                 'content_length' => (int)($result['ContentLength'] ?? 0),
                 'content_type' => (string)($result['ContentType'] ?? ''),
                 'etag' => trim((string)($result['ETag'] ?? ''), '"'),
@@ -372,5 +416,10 @@ class S3StorageProvider implements StorageProvider {
             error_log('[S3StorageProvider] head failed: ' . $e->getMessage());
             return null;
         }
+    }
+
+    private function normalizeObjectKey(string $path): string
+    {
+        return StoragePathGuard::normalizeObjectPath($path, 'S3 object key');
     }
 }

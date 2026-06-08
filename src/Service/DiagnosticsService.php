@@ -4,12 +4,13 @@ namespace App\Service;
 
 use App\Core\Config;
 use App\Core\Database;
+use App\Core\Logger;
 use App\Core\PluginManager;
 use App\Model\Setting;
 
 class DiagnosticsService {
     public const SUPPORT_EMAIL = 'fyuhls.script@gmail.com';
-    
+
     /**
      * Generate the complete diagnostics bundle as an array.
      */
@@ -28,6 +29,7 @@ class DiagnosticsService {
 
     public function generateSupportBundle(array $context = []): array {
         $issueDescription = trim((string)($context['issue_description'] ?? ''));
+        $redactedSupportEmail = $this->sanitizeString(self::SUPPORT_EMAIL);
 
         return [
             'metadata' => [
@@ -36,7 +38,7 @@ class DiagnosticsService {
                 'version' => $this->getAppVersion(),
                 'support_token' => 'support_' . bin2hex(random_bytes(6)),
                 'submitted_issue' => $issueDescription !== '' ? $this->sanitizeString($issueDescription) : null,
-                'support_email' => self::SUPPORT_EMAIL,
+                'support_email' => $redactedSupportEmail,
             ],
             'summary' => $this->getSupportSummary(),
             'system' => $this->getSystemInfo(),
@@ -49,6 +51,7 @@ class DiagnosticsService {
 
     public function generateSupportPreview(array $context = []): array {
         $issueDescription = trim((string)($context['issue_description'] ?? ''));
+        $redactedSupportEmail = $this->sanitizeString(self::SUPPORT_EMAIL);
 
         return [
             'metadata' => [
@@ -56,7 +59,7 @@ class DiagnosticsService {
                 'software' => 'fyuhls',
                 'version' => $this->getAppVersion(),
                 'submitted_issue' => $issueDescription !== '' ? $this->sanitizeString($issueDescription) : null,
-                'support_email' => self::SUPPORT_EMAIL,
+                'support_email' => $redactedSupportEmail,
                 'preview_only' => true,
             ],
             'checks' => $this->getSystemChecks(),
@@ -95,6 +98,125 @@ class DiagnosticsService {
         ];
 
         return implode("\n", $lines);
+    }
+
+    public function getInstallerPathChecks(?string $hiddenConfigPath = null, bool $pathWasSubmitted = true): array
+    {
+        $root = defined('ROOT_PATH') ? ROOT_PATH : (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2));
+        $sessionPath = session_save_path() ?: sys_get_temp_dir();
+        $systemSessionWritable = is_string($sessionPath) && $sessionPath !== '' && @is_writable($sessionPath);
+        $explicitPath = $pathWasSubmitted && $hiddenConfigPath !== null && trim($hiddenConfigPath) !== '';
+        $defaultConfigPath = InstallSecurityService::defaultHiddenConfigPathForProject($root);
+        $configPath = $explicitPath
+            ? (string)$hiddenConfigPath
+            : InstallSecurityService::nextAvailableHiddenConfigPath($root);
+
+        $hiddenConfigLocationCheck = [
+            'key' => 'hidden_config_location',
+            'label' => 'Hidden config path outside webroot',
+            'path' => $configPath,
+            'type' => 'file',
+            'required' => true,
+            'needs_write' => false,
+            'status' => 'ok',
+            'state' => 'ready',
+            'message' => 'The secure config file must stay outside the Fyuhls project tree, even if the path includes dot segments.',
+        ];
+
+        try {
+            $configPath = InstallSecurityService::validateHiddenConfigPath($configPath, $root);
+            $hiddenConfigLocationCheck['path'] = $configPath;
+        } catch (\InvalidArgumentException $e) {
+            $hiddenConfigLocationCheck['status'] = 'error';
+            $hiddenConfigLocationCheck['state'] = 'blocked';
+            $hiddenConfigLocationCheck['message'] = $e->getMessage();
+        }
+
+        $hiddenConfigUnusedCheck = [
+            'key' => 'hidden_config_unused',
+            'label' => 'Hidden config path is unused',
+            'path' => $explicitPath ? $configPath : $defaultConfigPath,
+            'type' => 'file',
+            'required' => true,
+            'needs_write' => false,
+            'status' => 'ok',
+            'state' => 'ready',
+            'message' => 'The installer should create a brand-new hidden config file here, not overwrite an existing one.',
+        ];
+
+        if ($explicitPath && is_string($configPath) && $configPath !== '' && is_file($configPath)) {
+            $hiddenConfigUnusedCheck['status'] = 'error';
+            $hiddenConfigUnusedCheck['state'] = 'blocked';
+            $hiddenConfigUnusedCheck['message'] = 'This hidden config file already exists. Restore the existing install or choose a new empty path before running the installer again.';
+        } elseif (!$explicitPath && is_file($defaultConfigPath)) {
+            $hiddenConfigUnusedCheck['status'] = 'warning';
+            $hiddenConfigUnusedCheck['state'] = 'occupied_default';
+            $hiddenConfigUnusedCheck['message'] = 'The default safe hidden config filename is already taken. Leave the field blank and Fyuhls will choose the next safe unused filename automatically, or enter your own custom absolute path.';
+        }
+
+        $checks = [
+            $this->buildPathCheck('project_root', 'Project root writable', $root, 'dir', true, false, 'Helpful for automatic cleanup and later file-based upgrades.'),
+            $this->buildPathCheck('config_dir', 'config/ writable', $root . '/config', 'dir', true, true, 'Needed to write the config/database.php pointer inside the webroot.'),
+            $this->buildPathCheck('storage_root', 'storage/ writable', $root . '/storage', 'dir', true, true, 'Needed so uploads, cache, logs, and session fallback directories can work.'),
+            $this->buildPathCheck('uploads_dir', 'storage/uploads writable', $root . '/storage/uploads', 'dir', true, true, 'Local uploads and file processing fail early if this cannot be written.'),
+            $this->buildPathCheck('logs_dir', 'storage/logs writable', $root . '/storage/logs', 'dir', true, false, 'Lets the app record errors and support logs.'),
+            $this->buildPathCheck('cache_dir', 'storage/cache writable', $root . '/storage/cache', 'dir', true, false, 'Lets the app cache stats, chunks, and transient state.'),
+            $this->buildPathCheck(
+                'sessions_dir',
+                'storage/sessions writable',
+                $root . '/storage/sessions',
+                'dir',
+                true,
+                !$systemSessionWritable,
+                $systemSessionWritable
+                    ? 'Used only as a fallback when the system PHP session path stops being writable.'
+                    : 'The system PHP session path is not writable, so installer and post-install flows need this fallback path to work.'
+            ),
+            $hiddenConfigLocationCheck,
+            $hiddenConfigUnusedCheck,
+            $this->buildPathCheck('hidden_config', 'Hidden config path writable', $configPath, 'file', true, true, 'Needed to create or update the secure config file outside the webroot.'),
+            $this->buildPathCheck('schema_file', 'database/DATABASE_SCHEMA.sql readable', $root . '/database/DATABASE_SCHEMA.sql', 'file', false, true, 'Needed so the installer can create the database schema.'),
+        ];
+
+        return [
+            'checks' => $checks,
+            'blocking_issues' => count(array_filter($checks, static fn(array $check): bool => !empty($check['required']) && ($check['status'] ?? 'ok') === 'error')),
+            'warnings' => count(array_filter($checks, static fn(array $check): bool => (($check['status'] ?? 'ok') === 'warning') || (empty($check['required']) && ($check['status'] ?? 'ok') === 'error'))),
+        ];
+    }
+
+    public function getRuntimePathChecks(): array
+    {
+        $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+        $configPointer = $root . '/config/database.php';
+        $hiddenConfigPath = $this->resolveLinkedConfigTarget($configPointer);
+        $sessionPath = session_save_path() ?: sys_get_temp_dir();
+        $systemSessionWritable = is_string($sessionPath) && $sessionPath !== '' && @is_writable($sessionPath);
+
+        $checks = [
+            $this->buildPathCheck('config_pointer', 'config/database.php pointer', $configPointer, 'file', false, true, 'The app needs this lightweight pointer file to find the real hidden config.'),
+            $this->buildPathCheck('hidden_config', 'Hidden config file', $hiddenConfigPath, 'file', false, true, 'This is the real secure config target used for database credentials and keys.'),
+            $this->buildPathCheck('hidden_config_writable', 'Hidden config file writable', $hiddenConfigPath, 'file', true, false, 'Needed for explicit maintenance changes to database credentials or keys and for future secure config updates.'),
+            $this->buildPathCheck('uploads_dir', 'storage/uploads writable', $root . '/storage/uploads', 'dir', true, true, 'Local uploads and file operations still depend on this path being writable.'),
+            $this->buildPathCheck('logs_dir', 'storage/logs writable', $root . '/storage/logs', 'dir', true, true, 'Without this, operational logs and support diagnostics get much thinner.'),
+            $this->buildPathCheck('cache_dir', 'storage/cache writable', $root . '/storage/cache', 'dir', true, true, 'Needed for dashboard cache, chunk cleanup state, and transient runtime data.'),
+            $this->buildPathCheck('sessions_dir', 'storage/sessions fallback', $root . '/storage/sessions', 'dir', true, false, $systemSessionWritable ? 'System PHP sessions are writable right now, so this is fallback-only.' : 'The system PHP session path is not writable, so this fallback path needs to work.'),
+        ];
+
+        $setupWarnings = [
+            'install.php' => is_file($root . '/public/install.php'),
+            'post_install_check.php' => is_file($root . '/public/post_install_check.php'),
+            'database/' => is_dir($root . '/database'),
+        ];
+
+        return [
+            'checks' => $checks,
+            'critical_issues' => count(array_filter($checks, static fn(array $check): bool => !empty($check['required']) && ($check['status'] ?? 'ok') === 'error')),
+            'warnings' => count(array_filter($checks, static fn(array $check): bool => (($check['status'] ?? 'ok') === 'warning') || (empty($check['required']) && ($check['status'] ?? 'ok') === 'error'))) + count(array_filter($setupWarnings)),
+            'system_session_path' => $sessionPath,
+            'system_session_writable' => $systemSessionWritable,
+            'setup_files_present' => array_keys(array_filter($setupWarnings)),
+        ];
     }
 
     private function getAppVersion(): string {
@@ -151,8 +273,8 @@ class DiagnosticsService {
     private function getConfigSummary(): array {
         $summary = [];
         $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
-        $files = ['app.php', 'database.php']; 
-        
+        $files = ['app.php', 'database.php'];
+
         foreach ($files as $file) {
             $path = $root . '/config/' . $file;
             if (file_exists($path)) {
@@ -206,7 +328,7 @@ class DiagnosticsService {
     private function sanitizeConfig(array $config): array {
         $redactKeys = ['secret', 'key', 'password', 'token', 'access_key', 'username', 'email', 'host', 'path'];
         $sanitized = [];
-        
+
         foreach ($config as $k => $v) {
             if (is_array($v)) {
                 $sanitized[$k] = $this->sanitizeConfig($v);
@@ -227,8 +349,7 @@ class DiagnosticsService {
     }
 
     private function getSanitizedLogs(int $limit = 500): array {
-        $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
-        $logFile = $root . '/storage/logs/app.log';
+        $logFile = Logger::logFilePath();
 
         if (!file_exists($logFile)) {
             return ['status' => 'No logs found'];
@@ -250,13 +371,13 @@ class DiagnosticsService {
             $pos -= $readSize;
             fseek($fp, $pos);
             $chunk = fread($fp, $readSize);
-            
+
             $currentLine = $chunk . $currentLine;
             $items = explode(PHP_EOL, $currentLine);
-            
+
             if ($pos > 0) {
                 // array_shift takes the FIRST element, which might be incomplete
-                $currentLine = array_shift($items); 
+                $currentLine = array_shift($items);
             } else {
                 $currentLine = ''; // At start of file, nothing before this
             }
@@ -297,5 +418,80 @@ class DiagnosticsService {
         $str = preg_replace('~(?:[A-Za-z]:[\\\\/]|/)(?:[^\\s"\']+[\\\\/])*[^\\s"\']*~', '[PATH_REDACTED]', $str);
         $str = preg_replace('/ENC:[A-Za-z0-9+\/=:_-]+/', '[ENCRYPTED_VALUE]', $str);
         return $str;
+    }
+
+    private function resolveLinkedConfigTarget(string $configPointerPath): ?string
+    {
+        return ConfigPointerService::resolveLinkedConfigTarget($configPointerPath);
+    }
+
+    private function buildPathCheck(string $key, string $label, ?string $path, string $expectedType, bool $needsWrite, bool $required, string $detail): array
+    {
+        $normalizedPath = $path !== null ? str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path) : '';
+        $status = 'ok';
+        $state = 'ready';
+        $message = $detail;
+
+        if ($normalizedPath === '') {
+            $status = 'error';
+            $state = 'missing';
+            $message = 'No path is configured for this check yet.';
+        } elseif (file_exists($normalizedPath)) {
+            $isExpected = $expectedType === 'dir' ? is_dir($normalizedPath) : is_file($normalizedPath);
+            if (!$isExpected) {
+                $status = 'error';
+                $state = 'type_mismatch';
+                $message = 'This path exists, but it is not the expected ' . $expectedType . '.';
+            } elseif ($needsWrite && !@is_writable($normalizedPath)) {
+                $status = 'error';
+                $state = 'not_writable';
+                $message = 'This path exists, but PHP cannot write to it.';
+            } elseif (!$needsWrite && !@is_readable($normalizedPath)) {
+                $status = 'error';
+                $state = 'not_readable';
+                $message = 'This path exists, but PHP cannot read it.';
+            }
+        } else {
+            $parent = $this->nearestExistingParent($normalizedPath);
+            if ($parent === null) {
+                $status = 'error';
+                $state = 'missing_parent';
+                $message = 'The nearest existing parent path could not be found.';
+            } elseif (!@is_writable($parent)) {
+                $status = 'error';
+                $state = 'parent_not_writable';
+                $message = 'PHP cannot create this path because the nearest existing parent is not writable.';
+            } else {
+                $status = $required ? 'warning' : 'ok';
+                $state = 'creatable';
+                $message = 'This path does not exist yet, but PHP should be able to create it.';
+            }
+        }
+
+        return [
+            'key' => $key,
+            'label' => $label,
+            'path' => $normalizedPath,
+            'expected_type' => $expectedType,
+            'status' => $status,
+            'state' => $state,
+            'required' => $required,
+            'needs_write' => $needsWrite,
+            'message' => $message,
+        ];
+    }
+
+    private function nearestExistingParent(string $path): ?string
+    {
+        $candidate = $path;
+        while ($candidate !== '' && !file_exists($candidate)) {
+            $parent = dirname($candidate);
+            if ($parent === $candidate) {
+                break;
+            }
+            $candidate = $parent;
+        }
+
+        return file_exists($candidate) ? $candidate : null;
     }
 }

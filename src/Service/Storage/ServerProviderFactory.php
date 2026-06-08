@@ -14,7 +14,7 @@ use Aws\S3\Exception\S3Exception;
 class ServerProviderFactory {
 
     public static function make(array $server): StorageProvider {
-        $type   = $server['server_type'];
+        $type   = strtolower((string)($server['server_type'] ?? 'local'));
         $config = self::normalizeConfig($server['config'] ?? [], $server['id'] ?? null);
 
         switch ($type) {
@@ -51,39 +51,33 @@ class ServerProviderFactory {
         try {
             $decrypted = \App\Service\EncryptionService::decrypt($rawConfig);
         } catch (\Exception $e) {
-            error_log('[ServerProviderFactory] Decryption failed for server ' . ($serverId ?? 'unknown'));
-            return [];
+            throw new \RuntimeException('Storage configuration could not be decrypted for server ' . ($serverId ?? 'unknown') . '.', 0, $e);
         }
 
         if (!is_string($decrypted) || $decrypted === '') {
-            return [];
+            throw new \RuntimeException('Storage configuration is empty for server ' . ($serverId ?? 'unknown') . '.');
         }
 
         $decoded = json_decode($decrypted, true);
-        return is_array($decoded) ? $decoded : [];
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('Storage configuration is invalid for server ' . ($serverId ?? 'unknown') . '.');
+        }
+
+        return $decoded;
     }
 
     private static function makeLocal(array $server): StorageProvider {
         $path = !empty($server['storage_path']) ? $server['storage_path'] : 'storage/uploads';
 
-        // Decrypt if it looks like an encrypted blob
         if (!empty($path) && str_starts_with($path, 'ENC:')) {
             try {
                 $path = \App\Service\EncryptionService::decrypt($path);
             } catch (\Exception $e) {
-                error_log('[ServerProviderFactory] Local storage path decryption failed');
+                throw new \RuntimeException('Local storage path could not be decrypted.', 0, $e);
             }
         }
 
-        // Safety: strip any leading public/
-        $path = preg_replace('/^(\/?public\/)/i', '', $path);
-        
-        // ensure absolute path relative to project root if not already absolute
-        if (!self::isAbsolutePath($path)) {
-            $path = ltrim($path, '/\\');
-            $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 3);
-            $path = $root . '/' . $path;
-        }
+        $path = StoragePathGuard::normalizeLocalRootPath((string)$path);
 
         return new ConfigurableLocalStorage($path, $server['public_url'] ?? '');
     }
@@ -95,42 +89,43 @@ class ServerProviderFactory {
         $region   = $config['s3_region']   ?? 'us-east-1';
         $bucket   = $config['bucket_name'] ?? ($server['storage_path'] ?? '');
 
-        // Decrypt bucket if it's from storage_path and encrypted
         if (!empty($bucket) && str_starts_with($bucket, 'ENC:')) {
             try {
                 $bucket = \App\Service\EncryptionService::decrypt($bucket);
             } catch (\Exception $e) {
-                error_log('[ServerProviderFactory] S3 bucket decryption failed');
+                throw new \RuntimeException('Storage bucket name could not be decrypted.', 0, $e);
             }
         }
 
-        if (!$endpoint && (($config['provider_preset'] ?? '') === 'b2' || ($server['provider_preset'] ?? '') === 'b2')) {
+        $providerPreset = strtolower((string)($config['provider_preset'] ?? $server['provider_preset'] ?? $server['server_type'] ?? ''));
+
+        if (!$endpoint && $providerPreset === 'b2') {
             $endpoint = 'https://s3.' . $region . '.backblazeb2.com';
         }
 
-        if (!$endpoint && (($config['provider_preset'] ?? '') === 'wasabi' || ($server['provider_preset'] ?? '') === 'wasabi')) {
+        if (!$endpoint && $providerPreset === 'wasabi') {
             $endpoint = 'https://s3.' . $region . '.wasabisys.com';
         }
 
-        // If endpoint is a 32-character hex string (Cloudflare Account ID), append domain
-        if (preg_match('/^[a-f0-9]{32}$/i', $endpoint)) {
-            $endpoint .= '.r2.cloudflarestorage.com';
+        if ($providerPreset === 'r2') {
+            if (preg_match('/^[a-f0-9]{32}$/i', (string)$endpoint) === 1) {
+                $endpoint = strtolower((string)$endpoint) . '.r2.cloudflarestorage.com';
+            } elseif (preg_match('/^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/i', (string)$endpoint) === 1) {
+                $endpoint = strtolower((string)$endpoint);
+            } else {
+                throw new \RuntimeException('Cloudflare R2 endpoint must use a valid account identifier.');
+            }
         }
 
-        // endpoint must have a scheme
-        if ($endpoint && !str_starts_with($endpoint, 'http')) {
-            $endpoint = 'https://' . $endpoint;
-        }
+        $endpoint = StoragePathGuard::normalizeS3Endpoint((string)$endpoint);
+        $bucket = StoragePathGuard::normalizeBucketName((string)$bucket);
 
-        // detect if this is a Cloudflare R2 endpoint
         $isR2 = str_contains($endpoint, 'r2.cloudflarestorage.com');
 
         $clientConfig = [
             'credentials' => ['key' => $key, 'secret' => $secret],
-            // R2 requires region 'auto' - all other providers use the configured region
             'region'      => $isR2 ? 'auto' : $region,
             'version'     => 'latest',
-            // R2 uses path-style (bucket in URL path, not subdomain), same as B2/Wasabi
             'use_path_style_endpoint' => true,
             'http' => ['connect_timeout' => 10, 'timeout' => 0],
         ];
@@ -147,11 +142,4 @@ class ServerProviderFactory {
         return new S3StorageProvider($client, $bucket, $server['public_url'] ?? '', $isB2);
     }
 
-    private static function isAbsolutePath(string $path): bool {
-        return $path !== '' && (
-            preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1 ||
-            str_starts_with($path, '\\\\') ||
-            str_starts_with($path, '/')
-        );
-    }
 }

@@ -11,11 +11,32 @@ class Logger {
         if (self::$logDir === '') {
             $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
             self::$logDir = $root . '/storage/logs';
-            if (!is_dir(self::$logDir)) {
-                mkdir(self::$logDir, 0755, true);
-            }
-            self::$logFile = self::$logDir . '/app.log';
         }
+
+        if (self::$logFile === '') {
+            self::$logFile = rtrim(self::$logDir, '/\\') . '/app.log';
+        }
+    }
+
+    private static function ensureDirectory(): void {
+        self::init();
+        if (!is_dir(self::$logDir)) {
+            mkdir(self::$logDir, 0755, true);
+        }
+    }
+
+    public static function logDirectory(): string {
+        self::init();
+        return self::$logDir;
+    }
+
+    public static function logFilePath(): string {
+        self::init();
+        return self::$logFile;
+    }
+
+    public static function maxBytes(): int {
+        return self::MAX_LOG_BYTES;
     }
 
     public static function info(string $message, array $context = []): void {
@@ -38,7 +59,7 @@ class Logger {
     }
 
     private static function write(string $level, string $message, array $context): void {
-        self::init();
+        self::ensureDirectory();
         $context = self::sanitize($context);
         $entry = [
             'ts' => date('c'),
@@ -56,7 +77,18 @@ class Logger {
     }
 
     private static function sanitize(array $context): array {
-        $redactKeys = ['secret', 'secret_key', 'access_key', 'password', 'token'];
+        $redactKeys = [
+            'secret',
+            'secret_key',
+            'access_key',
+            'password',
+            'token',
+            'signature',
+            'authorization',
+            'cookie',
+            'session',
+            'api_key',
+        ];
         $sanitized = [];
         foreach ($context as $k => $v) {
             $lk = strtolower((string)$k);
@@ -67,7 +99,17 @@ class Logger {
                     break;
                 }
             }
-            $sanitized[$k] = $shouldRedact ? '[redacted]' : $v;
+            if ($shouldRedact) {
+                $sanitized[$k] = '[redacted]';
+                continue;
+            }
+
+            if (is_array($v)) {
+                $sanitized[$k] = self::sanitize($v);
+                continue;
+            }
+
+            $sanitized[$k] = $v;
         }
         return $sanitized;
     }

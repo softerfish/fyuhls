@@ -167,7 +167,8 @@ class WasabiService
             $endpoint = 'https://' . $endpoint;
         }
 
-        return rtrim($endpoint, '/');
+        $validated = SafeNetworkTargetService::normalizePublicHttpUrl($endpoint, 'Wasabi endpoint', false);
+        return rtrim($validated, '/');
     }
 
     private function normalizeOrigins(array|string $origins): array

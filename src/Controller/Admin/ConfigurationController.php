@@ -11,12 +11,17 @@ use App\Model\Setting;
 use App\Core\Database;
 use App\Service\DemoModeService;
 use App\Service\EncryptionService;
+use App\Service\MailHostSafetyService;
 use App\Service\Migration\EncryptionMigrationService;
+use App\Service\Database\ManualJsonColumnMigrationService;
+use App\Service\PayoutProcessorService;
+use App\Service\RememberMeService;
 use App\Service\SecurityService;
+use App\Service\StaffActivityService;
 
 /**
  * ConfigurationController - Enterprise Unified Settings Hub
- * 
+ *
  * Consolidates Site, Security, Email, Ads, Cron, and File Server management.
  * Designed for high-stability and zero-downtime during configuration updates.
  */
@@ -25,6 +30,9 @@ class ConfigurationController
     private array $allowedTabs = ['general', 'security', 'email', 'storage', 'monetization', 'seo', 'cron', 'downloads', 'uploads', 'link_checker', 'tickets'];
     private const MAX_CUSTOM_HEAD_CODE_LENGTH = 20000;
     private const MAX_AD_CODE_LENGTH = 20000;
+    private const MIN_CRON_INTERVAL_MINS = 1;
+    private const MAX_CRON_INTERVAL_MINS = 10080;
+    private const ALLOWED_IDLE_LOGOUT_MINUTES = [240, 480, 720, 1440, 10080, 20160, 43200];
     private const ALLOWED_AD_SLOT_KEYS = [
         'download_top',
         'download_bottom',
@@ -37,6 +45,21 @@ class ConfigurationController
     {
         http_response_code($status);
         exit($message);
+    }
+
+    private function requireConfigurationAccess(): void
+    {
+        Auth::requireCapability('configuration.manage');
+    }
+
+    private function requireBonusOfferFinancialReviewAccess(): void
+    {
+        Auth::requireCapability('bonus_awards.review');
+    }
+
+    private function requireDiagnosticsAccess(): void
+    {
+        Auth::requireAnyCapability(['configuration.manage', 'support.manage']);
     }
 
     private function ensureDemoAdminReadOnly(bool $json = false): void
@@ -116,42 +139,12 @@ class ConfigurationController
 
     private function normalizeSmtpHost(string $host): string
     {
-        $host = trim($host);
-        if ($host === '') {
-            throw new \RuntimeException('SMTP host is required.');
-        }
-
-        if (preg_match('#^[a-z]+://#i', $host) === 1) {
-            throw new \RuntimeException('SMTP host should be a hostname or IP only, without http:// or https://.');
-        }
-        if (preg_match('/[\/?#]/', $host) === 1) {
-            throw new \RuntimeException('SMTP host should not include a path, query string, or fragment.');
-        }
-
-        $hostOnly = $host;
-        if (preg_match('/^\[(.+)\]$/', $hostOnly, $matches) === 1) {
-            $hostOnly = $matches[1];
-        }
-
-        $hostPortParts = explode(':', $hostOnly);
-        if (count($hostPortParts) > 2 && filter_var($hostOnly, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
-            throw new \RuntimeException('SMTP host should not include a port. Use the SMTP port field instead.');
-        }
-        if (count($hostPortParts) === 2 && filter_var($hostOnly, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
-            throw new \RuntimeException('SMTP host should not include a port. Use the SMTP port field instead.');
-        }
-
-        $this->validateResolvableHostSafety($hostOnly);
-        return $hostOnly;
+        return MailHostSafetyService::normalizeSmtpHost($host);
     }
 
     private function normalizeSmtpPort($port): int
     {
-        $port = (int)$port;
-        if ($port < 1 || $port > 65535) {
-            throw new \RuntimeException('SMTP port must be between 1 and 65535.');
-        }
-        return $port;
+        return MailHostSafetyService::normalizeSmtpPort($port);
     }
 
     private function normalizeEmailSecureMethod(?string $method): string
@@ -192,21 +185,19 @@ class ConfigurationController
             return '';
         }
 
-        $isUnixAbsolute = str_starts_with($path, '/');
-        $isWindowsAbsolute = preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1;
-        if (!$isUnixAbsolute && !$isWindowsAbsolute) {
+        if (!str_starts_with($path, '/')) {
             throw new \RuntimeException('Nginx completion log path must be an absolute path.');
         }
 
-        if (preg_match('/[\x00-\x1F]/', $path) === 1) {
-            throw new \RuntimeException('Nginx completion log path contains invalid control characters.');
+        if (preg_match('/[\x00-\x1F\\\\]/', $path) === 1) {
+            throw new \RuntimeException('Nginx completion log path must be a Linux absolute path without backslashes or control characters.');
         }
 
-        if (preg_match('/(^|[\\\\\\/])\.\.([\\\\\\/]|$)/', $path) === 1) {
+        if (preg_match('#(^|/)\.\.(/|$)#', $path) === 1) {
             throw new \RuntimeException('Nginx completion log path cannot contain parent-directory traversal.');
         }
 
-        $normalized = str_replace('\\', '/', $path);
+        $normalized = preg_replace('#/+#', '/', $path) ?? $path;
         $basename = strtolower((string)pathinfo($normalized, PATHINFO_BASENAME));
         $extension = strtolower((string)pathinfo($normalized, PATHINFO_EXTENSION));
         $looksLikeLogFile = in_array($extension, ['log', 'txt'], true)
@@ -222,7 +213,10 @@ class ConfigurationController
 
     public function index()
     {
-        Auth::requireAdmin();
+        $bonusReviewOnly = false;
+
+        $this->requireConfigurationAccess();
+
         $demoAdmin = DemoModeService::currentViewerIsDemoAdmin();
         $errors = $_SESSION['config_errors'] ?? [];
         if (!empty($_SESSION['error'])) {
@@ -249,6 +243,7 @@ class ConfigurationController
             'errors' => $errors,
             'demoAdmin' => $demoAdmin,
             'demoMode' => Setting::get('demo_mode', '0'),
+            'bonusReviewOnly' => $bonusReviewOnly,
         ];
         $data = array_merge($data, $this->getConfigurationNoticeData());
         unset($_SESSION['config_success'], $_SESSION['config_success_message'], $_SESSION['config_errors'], $_SESSION['success'], $_SESSION['error']);
@@ -268,7 +263,7 @@ class ConfigurationController
                 $data = array_merge($data, $this->getStorageData());
                 break;
             case 'monetization':
-                $data = array_merge($data, $this->getMonetizationData());
+                $data = array_merge($data, $this->getMonetizationData($bonusReviewOnly));
                 break;
             case 'seo':
                 $data = array_merge($data, $this->getSeoData());
@@ -324,6 +319,8 @@ class ConfigurationController
     private function getGeneralData(): array
     {
         $demoAdmin = DemoModeService::currentViewerIsDemoAdmin();
+        $ffmpegEnabled = Setting::getOrConfig('video.ffmpeg_enabled', '1');
+        $ffmpegPath = $demoAdmin ? '' : Setting::getOrConfig('video.ffmpeg_path', \App\Core\Config::get('video.ffmpeg_path', ''));
         return [
             'appName' => Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')),
             'allowRegistrations' => Setting::get('allow_registrations', '1'),
@@ -333,8 +330,10 @@ class ConfigurationController
             'reservedUsernames' => Setting::get('reserved_usernames', 'administrator,admin,support'),
             'adminEmail' => $demoAdmin ? '' : Setting::get('admin_notification_email', ''),
             'showPoweredBy' => Setting::get('show_powered_by_footer', '1'),
-            'ffmpegEnabled' => Setting::getOrConfig('video.ffmpeg_enabled', '1'),
-            'ffmpegPath' => $demoAdmin ? '' : Setting::getOrConfig('video.ffmpeg_path', \App\Core\Config::get('video.ffmpeg_path', '')),
+            'gdOk' => function_exists('imagecreatetruecolor') && function_exists('imagejpeg'),
+            'ffmpegEnabled' => $ffmpegEnabled,
+            'ffmpegPath' => $ffmpegPath,
+            'ffmpegOk' => $ffmpegEnabled === '1' && !empty($ffmpegPath) && file_exists($ffmpegPath),
         ];
     }
 
@@ -343,11 +342,29 @@ class ConfigurationController
         $demoAdmin = DemoModeService::currentViewerIsDemoAdmin();
         $migrationService = new EncryptionMigrationService();
         $pendingEncryption = $migrationService->getPendingCount();
+        $dbDriftError = (string)Setting::get('db_drift_error', '');
+        $legacyJsonRepairAvailable =
+            str_contains($dbDriftError, 'reward_receipts: drifted column risk_reasons_json')
+            || str_contains($dbDriftError, 'earnings: drifted column risk_reasons_json')
+            || str_contains($dbDriftError, 'earnings: drifted column metadata')
+            || str_contains($dbDriftError, 'download_sessions: drifted column risk_reasons_json')
+            || str_contains($dbDriftError, 'download_session_events: drifted column event_payload');
+        $legacyJsonRepairPlan = [];
         $pendingEncryptionItems = [];
         if (!$demoAdmin && $pendingEncryption > 0) {
             $pendingEncryptionItems = $migrationService->getPendingItems(5);
         }
-        
+        if ($legacyJsonRepairAvailable) {
+            try {
+                $pdo = Database::getInstance()->getConnection();
+                if ($pdo) {
+                    $legacyJsonRepairPlan = (new ManualJsonColumnMigrationService($pdo))->inspect();
+                }
+            } catch (\Throwable $e) {
+                $legacyJsonRepairPlan = [];
+            }
+        }
+
         $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login','captcha_link_checker'];
         $captchaPlacements = [];
         foreach ($captchaKeys as $ck) {
@@ -369,14 +386,39 @@ class ConfigurationController
             'vpnWhitelist' => Setting::get('vpn_whitelist', ''),
             'rateLimitLogin' => (int)Setting::get('rate_limit_login', '5'),
             'rateLimitReg' => (int)Setting::get('rate_limit_registration', '5'),
-            'trustCloudflare' => Setting::get('trust_cloudflare', '1') === '1',
+            'trustCloudflare' => Setting::get('trust_cloudflare', '0') === '1',
+            'trustLoopbackProxyHeaders' => Setting::get('trust_loopback_proxy_headers', '0') === '1',
             'captchaSiteKey' => Setting::get('captcha_site_key', ''),
             'captchaSecretKey' => $demoAdmin ? '' : Setting::getEncrypted('captcha_secret_key', ''),
             'captchaPlacements' => $captchaPlacements,
             'twoFactorEnabled' => \App\Service\FeatureService::twoFactorEnabled(),
             'twoFactorEnforceDate' => Setting::get('2fa_enforce_date', '', 'security'),
+            'twoFactorSetupRateLimit' => (int)Setting::get('rate_limit_2fa_setup', '5', 'security'),
+            'twoFactorVerifyRateLimit' => (int)Setting::get('rate_limit_2fa_verify', '5', 'security'),
+            'twoFactorRecoveryRateLimit' => (int)Setting::get('rate_limit_2fa_recovery', '5', 'security'),
+            'idleLogoutOptions' => $this->idleLogoutOptions(),
+            'adminIdleLogoutMinutes' => \App\Core\Auth::idleLogoutMinutesForRole('admin'),
+            'moderatorIdleLogoutMinutes' => \App\Core\Auth::idleLogoutMinutesForRole('moderator'),
+            'userIdleLogoutMinutes' => \App\Core\Auth::idleLogoutMinutesForRole('user'),
+            'rememberMeEnabled' => RememberMeService::enabled(),
             'securityDbDriftDetected' => Setting::get('db_drift_detected', '0') === '1',
-        ]; 
+            'dbDriftError' => $dbDriftError,
+            'legacyJsonRepairAvailable' => $legacyJsonRepairAvailable,
+            'legacyJsonRepairPlan' => $legacyJsonRepairPlan,
+        ];
+    }
+
+    private function idleLogoutOptions(): array
+    {
+        return [
+            240 => '4 hours',
+            480 => '8 hours',
+            720 => '12 hours',
+            1440 => '1 day',
+            10080 => '7 days',
+            20160 => '14 days',
+            43200 => '30 days',
+        ];
     }
 
     private function getEmailData(): array
@@ -393,8 +435,8 @@ class ConfigurationController
         ];
     }
 
-    private function getStorageData(): array 
-    { 
+    private function getStorageData(): array
+    {
         $db = Database::getInstance()->getConnection();
         $stmt = $db->query("SELECT * FROM file_servers ORDER BY id ASC");
         $servers = $stmt->fetchAll();
@@ -422,8 +464,15 @@ class ConfigurationController
         ];
     }
 
-    private function getMonetizationData(): array
+    private function getMonetizationData(bool $bonusReviewOnly = false): array
     {
+        if ($bonusReviewOnly) {
+            return [
+                'bonusMonetizationPane' => 'bonus-offers',
+                'bonusOfferEditId' => 0,
+            ] + \App\Service\BonusOfferService::getAdminData(0);
+        }
+
         $demoAdmin = DemoModeService::currentViewerIsDemoAdmin();
         $db = Database::getInstance()->getConnection();
         $tiers = [];
@@ -444,7 +493,7 @@ class ConfigurationController
                 'countries' => 'IN, PH, ID, VN, TH, PK, BD, EG, NG, MA',
             ],
         ];
-        
+
         try {
             $stmt = $db->query("SELECT t.*, (SELECT GROUP_CONCAT(country_code) FROM ppd_tier_countries WHERE tier_id = t.id) as countries FROM ppd_tiers t ORDER BY t.rate_per_1000 DESC");
             $tiers = $stmt->fetchAll();
@@ -471,7 +520,9 @@ class ConfigurationController
             'mixedPpdPercent' => Setting::get('mixed_ppd_percent', '30', 'rewards'),
             'mixedPpsPercent' => Setting::get('mixed_pps_percent', '30', 'rewards'),
             'retentionDays' => Setting::get('rewards_retention_days', '7', 'rewards'),
-            'supportedWithdrawalMethods' => array_filter(array_map('trim', explode(',', Setting::get('supported_withdrawal_methods', 'paypal,bitcoin', 'rewards')))),
+            'minimumWithdrawalAmount' => Setting::get('minimum_withdrawal_amount', '1.00', 'rewards'),
+            'supportedWithdrawalMethods' => PayoutProcessorService::activeKeys(),
+            'withdrawalProcessors' => PayoutProcessorService::definitions(false),
             'minVideoWatchPercent' => Setting::get('rewards_min_video_watch_percent', '80', 'rewards'),
             'minVideoWatchSeconds' => Setting::get('rewards_min_video_watch_seconds', '30', 'rewards'),
             'stripeEnabled' => Setting::get('payment_stripe_enabled', '0', 'payments'),
@@ -483,17 +534,17 @@ class ConfigurationController
             'paypalClientSecret' => $demoAdmin ? '' : Setting::getEncrypted('payment_paypal_client_secret', ''),
             'paypalWebhookId' => $demoAdmin ? '' : Setting::get('payment_paypal_webhook_id', '', 'payments'),
             'paypalSandbox' => Setting::get('payment_paypal_sandbox', '1', 'payments'),
-        ];
+            'bonusMonetizationPane' => trim((string)($_GET['monetization_pane'] ?? '')),
+            'bonusOfferEditId' => (int)($_GET['edit_bonus_offer'] ?? 0),
+        ] + \App\Service\BonusOfferService::getAdminData((int)($_GET['edit_bonus_offer'] ?? 0));
     }
 
     private function getCronData(): array
     {
         $db = Database::getInstance()->getConnection();
         $lastRun = Setting::get('last_cron_run_timestamp', 0);
+        \App\Service\Database\SchemaService::ensureTables(['cron_tasks'], false);
 
-        $manager = new \App\Service\CronManager();
-        $manager->sync();
-        
         $stmt = $db->query("SELECT * FROM cron_tasks ORDER BY task_name ASC");
         return [
             'lastRun' => $lastRun > 0 ? date('Y-m-d H:i:s', (int)$lastRun) : 'Never',
@@ -537,6 +588,7 @@ class ConfigurationController
             'uploadChunkSizeMb' => Setting::get('upload_chunk_size_mb', '100'),
             'uploadLoginRequired' => Setting::get('upload_login_required', '0'),
             'uploadDetectDuplicates' => Setting::get('upload_detect_duplicates', '1'),
+            'uploadReplaceEnabled' => Setting::get('upload_replace_enabled', '0'),
             'uploadAllowedExtensions' => Setting::get('upload_allowed_extensions', 'jpg,jpeg,png,gif,pdf,doc,docx,xls,xlsx,txt,zip,mp4,mp3,ipa,apk'),
             'downloadPageSaveFree' => Setting::get('download_page_save_free', '1'),
             'downloadPageSavePremium' => Setting::get('download_page_save_premium', '1'),
@@ -589,7 +641,15 @@ class ConfigurationController
      */
     public function save()
     {
-        Auth::requireAdmin();
+        $tab = $_POST['section'] ?? 'general';
+        $monetizationAction = trim((string)($_POST['monetization_action'] ?? ''));
+        $bonusReviewAction = $tab === 'monetization' && in_array($monetizationAction, ['approve_bonus_award', 'reject_bonus_award'], true);
+
+        if ($bonusReviewAction) {
+            $this->requireBonusOfferFinancialReviewAccess();
+        } else {
+            $this->requireConfigurationAccess();
+        }
         $this->ensureDemoAdminReadOnly();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->abortText(405, "Method not allowed");
@@ -597,8 +657,6 @@ class ConfigurationController
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
             $this->abortText(403, "CSRF mismatch");
         }
-
-        $tab = $_POST['section'] ?? 'general';
 
         try {
             switch ($tab) {
@@ -623,6 +681,13 @@ class ConfigurationController
                     break;
                 case 'monetization':
                     $this->saveMonetizationSettings();
+                    $monetizationPane = $this->resolveMonetizationReturnPane(
+                        (string)($_POST['monetization_return'] ?? ''),
+                        $monetizationAction
+                    );
+                    if ($monetizationPane !== '') {
+                        $tab = 'monetization&monetization_pane=' . urlencode($monetizationPane);
+                    }
                     break;
                 case 'seo':
                     $this->saveSeoSettings();
@@ -649,68 +714,87 @@ class ConfigurationController
                 'tab' => $tab,
                 'error' => $e->getMessage(),
             ]);
-            $_SESSION['config_errors'] = ['The settings could not be saved. Review the form values and try again.'];
+            $_SESSION['config_errors'] = [$bonusReviewAction ? $e->getMessage() : 'The settings could not be saved. Review the form values and try again.'];
+            if ($bonusReviewAction) {
+                $tab = 'monetization&monetization_pane=' . urlencode(
+                    $this->resolveMonetizationReturnPane(
+                        (string)($_POST['monetization_return'] ?? ''),
+                        $monetizationAction
+                    ) ?: 'bonus-offers'
+                );
+            }
+            $tab = $this->configurationReturnTab($tab);
             header("Location: /admin/configuration?tab=" . $tab);
             exit;
         }
 
         $_SESSION['config_success'] = true;
+        $tab = $this->configurationReturnTab($tab);
         header("Location: /admin/configuration?tab=" . $tab);
         exit;
+    }
+
+    private function configurationReturnTab(string $tab): string
+    {
+        return match ($tab) {
+            'captcha' => 'security&sec_tab=captcha',
+            'security_features' => 'security',
+            'email_template' => 'email',
+            default => $tab,
+        };
+    }
+
+    private function resolveMonetizationReturnPane(string $requestedPane, string $action): string
+    {
+        $requestedPane = trim($requestedPane);
+        if (in_array($requestedPane, ['rewards', 'bonus-offers', 'ads', 'tiers'], true)) {
+            return $requestedPane;
+        }
+
+        return match (trim($action)) {
+            'rewards_settings' => 'rewards',
+            'ads' => 'ads',
+            'add_tier', 'delete_tier', 'load_example_tiers', 'update_tiers' => 'tiers',
+            'save_bonus_offer', 'delete_bonus_offer', 'approve_bonus_award', 'reject_bonus_award' => 'bonus-offers',
+            default => '',
+        };
     }
 
     /**
      * triggerCron - Manual Heartbeat Execution
      */
-    public function triggerCron()
+    private function registerCoreCronTasks(\App\Service\CronManager $manager): void
     {
-        Auth::requireAdmin();
-        $this->ensureDemoAdminReadOnly();
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            $this->abortText(405, "Method not allowed");
-        }
-        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
-            $this->abortText(403, "CSRF mismatch");
-        }
-
-        // Cooldown check (60 seconds)
-        $lastRun = (int)Setting::get('last_cron_run_timestamp', 0);
-        if ((time() - $lastRun) < 60) {
-            $_SESSION['config_errors'] = ["Please wait at least 1 minute between manual task executions."];
-            header("Location: /admin/configuration?tab=cron"); exit;
-        }
-
-        $db = Database::getInstance()->getConnection();
-        
-        // Force reset last_run_at so manager picks them up
-        $db->exec("UPDATE cron_tasks SET last_run_at = NULL");
-
-        $manager = new \App\Service\CronManager();
-        $manager->sync();
-        
-        // 1. Core Cleanup
         $manager->register('cleanup', function() {
             return (new \App\Service\CleanupService())->runExpiredCleanup();
         });
 
-        // 2. Cloudflare Sync
         $manager->register('cf_sync', function() {
             return (new \App\Service\CloudflareSyncService())->sync();
         });
 
-        // 3. Premium Expiry
+        $manager->register('rl_purge', function() {
+            return \App\Service\RateLimiterService::cleanup(86400);
+        });
+
         $manager->register('account_downgrade', function() {
             return (new \App\Service\AutomatedTaskService())->downgradeExpiredAccounts();
         });
 
-        // 4. Monitoring
+        $manager->register('account_expiry', function() {
+            return (new \App\Service\AutomatedTaskService())->sendExpiryReminders();
+        });
+
         $manager->register('server_monitoring', function() {
             return (new \App\Service\AutomatedTaskService())->monitorServerHealth();
         });
 
-        // 5. Background Workers
         $manager->register('mail_queue', function() {
             return \App\Service\MailQueueService::processBatch();
+        });
+
+        $manager->register('payment_gateway_sync', function() {
+            return \App\Service\PaymentService::processGatewaySyncQueue(25);
         });
 
         $manager->register('payment_cleanup', function() {
@@ -739,13 +823,32 @@ class ConfigurationController
             });
         }
 
-        // 7. Background Purge & Audit
+        $manager->register('db_health', function() {
+            return (new \App\Service\Database\SchemaService())->sync(false);
+        });
+
+        $manager->register('log_purge', function() {
+            return (new \App\Service\AutomatedTaskService())->purgeOldLogs();
+        });
+
         $manager->register('file_purge', function() {
             return (new \App\Service\AutomatedTaskService())->processFilePurgeQueue(50);
         });
 
         $manager->register('storage_audit', function() {
             return (new \App\Service\AutomatedTaskService())->auditUserStorage(5);
+        });
+
+        $manager->register('security_purge', function() {
+            return ['purged' => (new \App\Service\SecurityService())->purgeCache(30)];
+        });
+
+        $manager->register('refresh_stats', function() {
+            $service = new \App\Service\DashboardService();
+            $service->refreshSystemStats();
+            $retention = (int)\App\Model\Setting::get('stats_history_retention_days', 30);
+            $purged = $service->purgeOldHistory($retention);
+            return ['status' => 'updated', 'purged' => $purged];
         });
 
         $manager->register('remote_uploads', function() {
@@ -771,9 +874,37 @@ class ConfigurationController
         $manager->register('checksum_jobs', function() {
             return (new \App\Service\MultipartUploadService())->reconcileCompletedChecksums(200);
         });
+    }
+
+    public function triggerCron()
+    {
+        $this->requireConfigurationAccess();
+        $this->ensureDemoAdminReadOnly();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->abortText(405, "Method not allowed");
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, "CSRF mismatch");
+        }
+
+        // Cooldown check (60 seconds)
+        $lastRun = (int)Setting::get('last_cron_run_timestamp', 0);
+        if ((time() - $lastRun) < 60) {
+            $_SESSION['config_errors'] = ["Please wait at least 1 minute between manual task executions."];
+            header("Location: /admin/configuration?tab=cron"); exit;
+        }
+
+        $manager = new \App\Service\CronManager();
+        $manager->sync();
+        $this->registerCoreCronTasks($manager);
 
         // Execute all
-        $manager->run();
+        $results = $manager->run(true);
+        if (($results['status'] ?? null) === 'skipped') {
+            $_SESSION['config_errors'] = ['Cron is already running on this node. Wait for the current run to finish, then try again.'];
+            header("Location: /admin/configuration?tab=cron");
+            exit;
+        }
 
         $_SESSION['config_success'] = true;
         header("Location: /admin/configuration?tab=cron");
@@ -785,7 +916,7 @@ class ConfigurationController
      */
     public function testSmtpConnection()
     {
-        Auth::requireAdmin();
+        $this->requireConfigurationAccess();
         $this->ensureDemoAdminReadOnly(true);
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
             echo json_encode(['status' => 'error', 'message' => 'CSRF Token Mismatch']); exit;
@@ -804,7 +935,10 @@ class ConfigurationController
             Logger::error('SMTP connection test failed', [
                 'error' => $e->getMessage(),
             ]);
-            echo json_encode(['status' => 'error', 'message' => 'Connection failed. Check the SMTP settings and logs.']);
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Connection failed: ' . $e->getMessage(),
+            ]);
         }
         exit;
     }
@@ -814,7 +948,7 @@ class ConfigurationController
      */
     public function sendTestEmail()
     {
-        Auth::requireAdmin();
+        $this->requireConfigurationAccess();
         $this->ensureDemoAdminReadOnly(true);
         if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
             echo json_encode(['status' => 'error', 'message' => 'CSRF Token Mismatch']); exit;
@@ -831,13 +965,21 @@ class ConfigurationController
 
             if ($service->send($target, "fyuhls Test Email", "If you are reading this, your SMTP settings are working perfectly!")) {
                 echo json_encode(['status' => 'success', 'message' => 'Test email sent successfully to ' . $target]);
+            } else {
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => 'The SMTP server accepted the connection, but the test email was not sent.',
+                ]);
             }
         } catch (\Exception $e) {
             Logger::error('SMTP test email send failed', [
                 'target' => $target,
                 'error' => $e->getMessage(),
             ]);
-            echo json_encode(['status' => 'error', 'message' => 'Test email failed. Check the SMTP settings and logs.']);
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Test email failed: ' . $e->getMessage(),
+            ]);
         }
         exit;
     }
@@ -846,21 +988,74 @@ class ConfigurationController
     {
         $db = Database::getInstance()->getConnection();
         $intervals = $_POST['intervals'] ?? [];
+        $before = [];
+        $after = [];
         foreach ($intervals as $key => $mins) {
+            $key = (string)$key;
+            if (!preg_match('/^[a-z0-9_]+$/', $key)) {
+                $_SESSION['config_errors'] = ['One of the cron task keys was invalid. Reload the page and try again.'];
+                header("Location: /admin/configuration?tab=cron");
+                exit;
+            }
+
+            if (filter_var($mins, FILTER_VALIDATE_INT) === false) {
+                $_SESSION['config_errors'] = ['Cron frequencies must be whole-minute values.'];
+                header("Location: /admin/configuration?tab=cron");
+                exit;
+            }
+
+            $mins = (int)$mins;
+            if ($mins < self::MIN_CRON_INTERVAL_MINS || $mins > self::MAX_CRON_INTERVAL_MINS) {
+                $_SESSION['config_errors'] = ['Cron frequencies must stay between ' . self::MIN_CRON_INTERVAL_MINS . ' minute and ' . self::MAX_CRON_INTERVAL_MINS . ' minutes (7 days).'];
+                header("Location: /admin/configuration?tab=cron");
+                exit;
+            }
+
             $stmt = $db->prepare("SELECT interval_mins FROM cron_tasks WHERE task_key = ?");
             $stmt->execute([$key]);
             $oldMins = $stmt->fetchColumn();
+            if ($oldMins === false) {
+                $_SESSION['config_errors'] = ['One of the cron tasks no longer exists. Reload the page and try again.'];
+                header("Location: /admin/configuration?tab=cron");
+                exit;
+            }
+            $before[(string)$key] = (string)$oldMins;
+            $after[(string)$key] = (string)$mins;
+        }
 
-            if ($oldMins != $mins) {
+        $this->runConfigurationWriteTransaction(function () use ($db, $before, $after): void {
+            foreach ($after as $key => $mins) {
+                $oldMins = $before[$key] ?? null;
+                if ($oldMins == $mins) {
+                    continue;
+                }
+
                 $upd = $db->prepare("UPDATE cron_tasks SET interval_mins = ? WHERE task_key = ?");
                 $upd->execute([(int)$mins, $key]);
-                $this->logActivity('update_cron_interval', $key, "Interval: {$oldMins}m -> {$mins}m");
+                $this->logActivity('update_cron_interval', $key, null, "Interval: {$oldMins}m -> {$mins}m");
             }
-        }
+
+            $this->logConfigChange('cron intervals', $before, $after);
+        });
     }
 
     private function saveGeneralSettings(): bool
     {
+        $settingKeys = [
+            'app.name',
+            'allow_registrations',
+            'demo_mode',
+            'demo_admin_user_id',
+            'maintenance_mode',
+            'require_email_verification',
+            'reserved_usernames',
+            'admin_notification_email',
+            'show_powered_by_footer',
+            'video.ffmpeg_enabled',
+            'video.ffmpeg_path',
+        ];
+        $before = $this->captureSettingSnapshot($settingKeys);
+
         $rules = [
             'app_name' => 'required',
             'admin_notification_email' => 'email'
@@ -871,35 +1066,54 @@ class ConfigurationController
             return false;
         }
 
-        $this->updateSetting('app.name', $_POST['app_name'] ?? 'Fyuhls', 'general');
-        $this->updateSetting('allow_registrations', isset($_POST['allow_registrations']) ? '1' : '0', 'general');
+        $this->runConfigurationWriteTransaction(function () use ($before, $settingKeys): void {
+            $this->updateSetting('app.name', $_POST['app_name'] ?? 'Fyuhls', 'general');
+            $this->updateSetting('allow_registrations', isset($_POST['allow_registrations']) ? '1' : '0', 'general');
 
-        $turningDemoOn = isset($_POST['demo_mode']);
-        $this->updateSetting('demo_mode', $turningDemoOn ? '1' : '0', 'general');
+            $turningDemoOn = isset($_POST['demo_mode']);
+            $this->updateSetting('demo_mode', $turningDemoOn ? '1' : '0', 'general');
 
-        // if demo mode is being enabled and no demo admin is designated yet, auto-assign the current admin
-        if ($turningDemoOn) {
-            $currentDemoAdminId = (int)Setting::get('demo_admin_user_id', '0');
-            if ($currentDemoAdminId === 0) {
-                $currentAdminId = (int)(\App\Core\Auth::id() ?? 0);
-                if ($currentAdminId > 0) {
-                    $this->updateSetting('demo_admin_user_id', (string)$currentAdminId, 'general');
+            // If demo mode is being enabled and no demo admin is designated yet, auto-assign the current admin.
+            if ($turningDemoOn) {
+                $currentDemoAdminId = (int)Setting::get('demo_admin_user_id', '0');
+                if ($currentDemoAdminId === 0) {
+                    $currentAdminId = (int)(\App\Core\Auth::id() ?? 0);
+                    if ($currentAdminId > 0) {
+                        $this->updateSetting('demo_admin_user_id', (string)$currentAdminId, 'general');
+                    }
                 }
             }
-        }
 
-        $this->updateSetting('maintenance_mode', isset($_POST['maintenance_mode']) ? '1' : '0', 'general');
-        $this->updateSetting('require_email_verification', isset($_POST['require_email_verification']) ? '1' : '0', 'general');
-        $this->updateSetting('reserved_usernames', $_POST['reserved_usernames'] ?? 'administrator,admin,support', 'general');
-        $this->updateSetting('admin_notification_email', $_POST['admin_notification_email'] ?? '', 'general');
-        $this->updateSetting('show_powered_by_footer', isset($_POST['show_powered_by_footer']) ? '1' : '0', 'general');
-        $this->updateSetting('video.ffmpeg_enabled', isset($_POST['ffmpeg_enabled']) ? '1' : '0', 'general');
-        $this->updateSetting('video.ffmpeg_path', trim((string)($_POST['ffmpeg_path'] ?? '')), 'general');
+            $this->updateSetting('maintenance_mode', isset($_POST['maintenance_mode']) ? '1' : '0', 'general');
+            $this->updateSetting('require_email_verification', isset($_POST['require_email_verification']) ? '1' : '0', 'general');
+            $this->updateSetting('reserved_usernames', $_POST['reserved_usernames'] ?? 'administrator,admin,support', 'general');
+            $this->updateSetting('admin_notification_email', $_POST['admin_notification_email'] ?? '', 'general');
+            $this->updateSetting('show_powered_by_footer', isset($_POST['show_powered_by_footer']) ? '1' : '0', 'general');
+            if (array_key_exists('ffmpeg_enabled', $_POST)) {
+                $this->updateSetting('video.ffmpeg_enabled', isset($_POST['ffmpeg_enabled']) ? '1' : '0', 'general');
+            }
+            if (array_key_exists('ffmpeg_path', $_POST)) {
+                $this->updateSetting('video.ffmpeg_path', trim((string)($_POST['ffmpeg_path'] ?? '')), 'general');
+            }
+            $this->logConfigChange('general', $before, $this->captureSettingSnapshot($settingKeys));
+        });
         return true;
     }
 
     private function saveEmailSettings(): bool
     {
+        $settingKeys = [
+            'email_smtp_host',
+            'email_smtp_port',
+            'email_from_address',
+            'email_secure_method',
+            'email_smtp_requires_auth',
+            'email_smtp_auth_username',
+            'email_smtp_auth_password' => 'encrypted',
+            'email_limit_per_minute',
+        ];
+        $before = $this->captureSettingSnapshot($settingKeys);
+
         $rules = [
             'email_smtp_host' => 'required',
             'email_smtp_port' => 'required|numeric',
@@ -923,19 +1137,21 @@ class ConfigurationController
             return false;
         }
 
-        $this->updateSetting('email_smtp_host', $smtpHost, 'email');
-        $this->updateSetting('email_smtp_port', (string)$smtpPort, 'email');
-        $this->updateSetting('email_from_address', trim((string)($_POST['email_from_address'] ?? '')), 'email');
-        $this->updateSetting('email_secure_method', $this->normalizeEmailSecureMethod($_POST['email_secure_method'] ?? 'none'), 'email');
-        $this->updateSetting('email_smtp_requires_auth', isset($_POST['email_smtp_requires_auth']) ? '1' : '0', 'email');
-        $this->updateSetting('email_smtp_auth_username', trim((string)($_POST['email_smtp_auth_username'] ?? '')), 'email');
-        
-        if (!empty($_POST['email_smtp_auth_password'])) {
-            Setting::setEncrypted('email_smtp_auth_password', $_POST['email_smtp_auth_password'], 'email');
-            $this->logActivity('update_setting', 'email_smtp_auth_password', '********');
-        }
-        
-        $this->updateSetting('email_limit_per_minute', (string)max(1, (int)($_POST['email_limit_per_minute'] ?? 20)), 'email');
+        $this->runConfigurationWriteTransaction(function () use ($smtpHost, $smtpPort, $before, $settingKeys): void {
+            $this->updateSetting('email_smtp_host', $smtpHost, 'email');
+            $this->updateSetting('email_smtp_port', (string)$smtpPort, 'email');
+            $this->updateSetting('email_from_address', trim((string)($_POST['email_from_address'] ?? '')), 'email');
+            $this->updateSetting('email_secure_method', $this->normalizeEmailSecureMethod($_POST['email_secure_method'] ?? 'none'), 'email');
+            $this->updateSetting('email_smtp_requires_auth', isset($_POST['email_smtp_requires_auth']) ? '1' : '0', 'email');
+            $this->updateSetting('email_smtp_auth_username', trim((string)($_POST['email_smtp_auth_username'] ?? '')), 'email');
+
+            if (!empty($_POST['email_smtp_auth_password'])) {
+                $this->setEncryptedSetting('email_smtp_auth_password', (string)$_POST['email_smtp_auth_password'], 'email');
+            }
+
+            $this->updateSetting('email_limit_per_minute', (string)max(1, (int)($_POST['email_limit_per_minute'] ?? 20)), 'email');
+            $this->logConfigChange('email', $before, $this->captureSettingSnapshot($settingKeys));
+        });
         return true;
     }
 
@@ -948,16 +1164,18 @@ class ConfigurationController
         $body = $_POST['body'] ?? '';
 
         if ($templateKey !== '') {
-            $stmt = $db->prepare("
-                INSERT INTO email_templates (template_key, subject, body)
-                VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    subject = VALUES(subject),
-                    body = VALUES(body)
-            ");
-            if ($stmt->execute([$templateKey, $subject, $body])) {
-                $this->logActivity('update_email_template', $templateKey, "Subject: $subject");
-            }
+            $this->runConfigurationWriteTransaction(function () use ($db, $templateKey, $subject, $body): void {
+                $stmt = $db->prepare("
+                    INSERT INTO email_templates (template_key, subject, body)
+                    VALUES (?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        subject = VALUES(subject),
+                        body = VALUES(body)
+                ");
+                if ($stmt->execute([$templateKey, $subject, $body])) {
+                    $this->logActivity('update_email_template', $templateKey, null, "Subject: $subject");
+                }
+            });
         }
     }
 
@@ -981,98 +1199,192 @@ class ConfigurationController
 
     private function saveCaptchaSettings(): void
     {
-        $this->updateSetting('captcha_site_key', $_POST['captcha_site_key'] ?? '', 'captcha');
-        if (!empty($_POST['captcha_secret_key'])) {
-            Setting::setEncrypted('captcha_secret_key', $_POST['captcha_secret_key'], 'captcha');
-            $this->logActivity('update_setting', 'captcha_secret_key', '********');
-        }
+        $settingKeys = [
+            'captcha_site_key',
+            'captcha_secret_key' => 'encrypted',
+            'captcha_download_guest',
+            'captcha_download_free',
+            'captcha_report_file',
+            'captcha_contact',
+            'captcha_dmca',
+            'captcha_register',
+            'captcha_user_login',
+            'captcha_link_checker',
+            'captcha_admin_login',
+        ];
+        $before = $this->captureSettingSnapshot($settingKeys);
 
-        $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login','captcha_link_checker'];
-        foreach ($captchaKeys as $ck) {
-            $this->updateSetting($ck, isset($_POST[$ck]) ? '1' : '0', 'captcha');
-        }
-        $this->updateSetting('captcha_admin_login', isset($_POST['captcha_user_login']) ? '1' : '0', 'captcha');
+        $this->runConfigurationWriteTransaction(function () use ($before, $settingKeys): void {
+            $this->updateSetting('captcha_site_key', $_POST['captcha_site_key'] ?? '', 'captcha');
+            if (!empty($_POST['captcha_secret_key'])) {
+                $this->setEncryptedSetting('captcha_secret_key', (string)$_POST['captcha_secret_key'], 'captcha');
+            }
+
+            $captchaKeys = ['captcha_download_guest','captcha_download_free','captcha_report_file','captcha_contact','captcha_dmca','captcha_register','captcha_user_login','captcha_link_checker'];
+            foreach ($captchaKeys as $ck) {
+                $this->updateSetting($ck, isset($_POST[$ck]) ? '1' : '0', 'captcha');
+            }
+            $this->updateSetting('captcha_admin_login', isset($_POST['captcha_user_login']) ? '1' : '0', 'captcha');
+            $this->logConfigChange('captcha', $before, $this->captureSettingSnapshot($settingKeys));
+        });
     }
 
     private function saveLinkCheckerSettings(): void
     {
-        $this->updateSetting('link_checker_enabled', isset($_POST['link_checker_enabled']) ? '1' : '0', 'link_checker');
-        $maxLinks = max(1, min(1000, (int)($_POST['link_checker_max_links'] ?? 100)));
-        $this->updateSetting('link_checker_max_links', (string)$maxLinks, 'link_checker');
-        $linksPerSecond = max(1, min(250, (int)($_POST['link_checker_links_per_second'] ?? 25)));
-        $this->updateSetting('link_checker_links_per_second', (string)$linksPerSecond, 'link_checker');
-        $this->updateSetting('link_checker_allow_copy_to_account', isset($_POST['link_checker_allow_copy_to_account']) ? '1' : '0', 'link_checker');
+        $settingKeys = [
+            'link_checker_enabled',
+            'link_checker_max_links',
+            'link_checker_links_per_second',
+            'link_checker_allow_copy_to_account',
+        ];
+        $before = $this->captureSettingSnapshot($settingKeys);
+        $this->runConfigurationWriteTransaction(function () use ($before, $settingKeys): void {
+            $this->updateSetting('link_checker_enabled', isset($_POST['link_checker_enabled']) ? '1' : '0', 'link_checker');
+            $maxLinks = max(1, min(1000, (int)($_POST['link_checker_max_links'] ?? 100)));
+            $this->updateSetting('link_checker_max_links', (string)$maxLinks, 'link_checker');
+            $linksPerSecond = max(1, min(250, (int)($_POST['link_checker_links_per_second'] ?? 25)));
+            $this->updateSetting('link_checker_links_per_second', (string)$linksPerSecond, 'link_checker');
+            $this->updateSetting('link_checker_allow_copy_to_account', isset($_POST['link_checker_allow_copy_to_account']) ? '1' : '0', 'link_checker');
+            $this->logConfigChange('link checker', $before, $this->captureSettingSnapshot($settingKeys));
+        });
     }
 
     private function saveTicketSettings(): void
     {
+        $settingKeys = [
+            'ticket_support_inbox_email',
+            'ticket_emails_enabled',
+            'ticket_notify_admin_on_open',
+            'ticket_notify_user_on_open',
+            'ticket_notify_admin_on_user_reply',
+            'ticket_notify_user_on_staff_reply',
+            'ticket_notify_user_on_close',
+            'ticket_notify_admin_on_contact',
+            'ticket_notify_admin_on_abuse',
+            'ticket_notify_admin_on_dmca',
+            'ticket_waiting_user_reminders_enabled',
+            'ticket_waiting_user_reminder_days',
+            'ticket_rate_limit_support_create_user',
+            'ticket_rate_limit_support_create_window',
+            'ticket_rate_limit_support_create_ip',
+            'ticket_rate_limit_support_reply_user',
+            'ticket_rate_limit_support_reply_window',
+            'ticket_rate_limit_support_reply_ip',
+            'ticket_rate_limit_contact_ip',
+            'ticket_rate_limit_contact_window',
+            'ticket_rate_limit_abuse_ip',
+            'ticket_rate_limit_abuse_window',
+            'ticket_rate_limit_dmca_ip',
+            'ticket_rate_limit_dmca_window',
+        ];
+        $before = $this->captureSettingSnapshot($settingKeys);
+
         $supportInboxEmail = trim((string)($_POST['ticket_support_inbox_email'] ?? ''));
         if ($supportInboxEmail !== '' && filter_var($supportInboxEmail, FILTER_VALIDATE_EMAIL) === false) {
             throw new \RuntimeException('Support inbox email must be a valid email address.');
         }
 
-        $this->updateSetting('ticket_support_inbox_email', $supportInboxEmail, 'tickets');
-        $this->updateSetting('ticket_emails_enabled', isset($_POST['ticket_emails_enabled']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_notify_admin_on_open', isset($_POST['ticket_notify_admin_on_open']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_notify_user_on_open', isset($_POST['ticket_notify_user_on_open']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_notify_admin_on_user_reply', isset($_POST['ticket_notify_admin_on_user_reply']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_notify_user_on_staff_reply', isset($_POST['ticket_notify_user_on_staff_reply']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_notify_user_on_close', isset($_POST['ticket_notify_user_on_close']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_notify_admin_on_contact', isset($_POST['ticket_notify_admin_on_contact']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_notify_admin_on_abuse', isset($_POST['ticket_notify_admin_on_abuse']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_notify_admin_on_dmca', isset($_POST['ticket_notify_admin_on_dmca']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_waiting_user_reminders_enabled', isset($_POST['ticket_waiting_user_reminders_enabled']) ? '1' : '0', 'tickets');
-        $this->updateSetting('ticket_waiting_user_reminder_days', (string)max(1, min(30, (int)($_POST['ticket_waiting_user_reminder_days'] ?? 3))), 'tickets');
+        $this->runConfigurationWriteTransaction(function () use ($supportInboxEmail, $before, $settingKeys): void {
+            $this->updateSetting('ticket_support_inbox_email', $supportInboxEmail, 'tickets');
+            $this->updateSetting('ticket_emails_enabled', isset($_POST['ticket_emails_enabled']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_notify_admin_on_open', isset($_POST['ticket_notify_admin_on_open']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_notify_user_on_open', isset($_POST['ticket_notify_user_on_open']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_notify_admin_on_user_reply', isset($_POST['ticket_notify_admin_on_user_reply']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_notify_user_on_staff_reply', isset($_POST['ticket_notify_user_on_staff_reply']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_notify_user_on_close', isset($_POST['ticket_notify_user_on_close']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_notify_admin_on_contact', isset($_POST['ticket_notify_admin_on_contact']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_notify_admin_on_abuse', isset($_POST['ticket_notify_admin_on_abuse']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_notify_admin_on_dmca', isset($_POST['ticket_notify_admin_on_dmca']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_waiting_user_reminders_enabled', isset($_POST['ticket_waiting_user_reminders_enabled']) ? '1' : '0', 'tickets');
+            $this->updateSetting('ticket_waiting_user_reminder_days', (string)max(1, min(30, (int)($_POST['ticket_waiting_user_reminder_days'] ?? 3))), 'tickets');
 
-        $limitFields = [
-            'ticket_rate_limit_support_create_user' => [1, 100],
-            'ticket_rate_limit_support_create_window' => [1, 1440],
-            'ticket_rate_limit_support_create_ip' => [1, 250],
-            'ticket_rate_limit_support_reply_user' => [1, 500],
-            'ticket_rate_limit_support_reply_window' => [1, 1440],
-            'ticket_rate_limit_support_reply_ip' => [1, 1000],
-            'ticket_rate_limit_contact_ip' => [1, 250],
-            'ticket_rate_limit_contact_window' => [1, 1440],
-            'ticket_rate_limit_abuse_ip' => [1, 500],
-            'ticket_rate_limit_abuse_window' => [1, 1440],
-            'ticket_rate_limit_dmca_ip' => [1, 2000],
-            'ticket_rate_limit_dmca_window' => [1, 1440],
-        ];
+            $limitFields = [
+                'ticket_rate_limit_support_create_user' => [1, 100],
+                'ticket_rate_limit_support_create_window' => [1, 1440],
+                'ticket_rate_limit_support_create_ip' => [1, 250],
+                'ticket_rate_limit_support_reply_user' => [1, 500],
+                'ticket_rate_limit_support_reply_window' => [1, 1440],
+                'ticket_rate_limit_support_reply_ip' => [1, 1000],
+                'ticket_rate_limit_contact_ip' => [1, 250],
+                'ticket_rate_limit_contact_window' => [1, 1440],
+                'ticket_rate_limit_abuse_ip' => [1, 500],
+                'ticket_rate_limit_abuse_window' => [1, 1440],
+                'ticket_rate_limit_dmca_ip' => [1, 2000],
+                'ticket_rate_limit_dmca_window' => [1, 1440],
+            ];
 
-        foreach ($limitFields as $key => [$min, $max]) {
-            $value = max($min, min($max, (int)($_POST[$key] ?? $min)));
-            $this->updateSetting($key, (string)$value, 'tickets');
-        }
+            foreach ($limitFields as $key => [$min, $max]) {
+                $value = max($min, min($max, (int)($_POST[$key] ?? $min)));
+                $this->updateSetting($key, (string)$value, 'tickets');
+            }
+            $this->logConfigChange('tickets', $before, $this->captureSettingSnapshot($settingKeys));
+        });
     }
 
     private function saveDownloadSettings(): void
     {
-        $this->updateSetting('require_account_to_download', isset($_POST['require_account_to_download']) ? '1' : '0', 'downloads');
-        $this->updateSetting('blocked_download_countries', $_POST['blocked_download_countries'] ?? '', 'downloads');
-        $this->updateSetting('track_current_downloads', isset($_POST['track_current_downloads']) ? '1' : '0', 'downloads');
-        $this->updateSetting('remote_url_background', isset($_POST['remote_url_background']) ? '1' : '0', 'downloads');
-        $this->updateSetting('cdn_download_redirects_enabled', isset($_POST['cdn_download_redirects_enabled']) ? '1' : '0', 'downloads');
-        $this->updateSetting('cdn_download_base_url', $this->normalizeCdnDownloadBaseUrl($_POST['cdn_download_base_url'] ?? ''), 'downloads');
-        $this->updateSetting('streaming_support_enabled', isset($_POST['streaming_support_enabled']) ? '1' : '0', 'downloads');
-        $this->updateSetting('nginx_completion_log_path', $this->normalizeNginxCompletionLogPath($_POST['nginx_completion_log_path'] ?? ''), 'downloads');
-        $this->updateSetting('nginx_completion_retention_days', (string)max(1, (int)($_POST['nginx_completion_retention_days'] ?? 7)), 'downloads');
-        $this->updateSetting('nginx_completion_max_lines_per_run', (string)max(100, (int)($_POST['nginx_completion_max_lines_per_run'] ?? 5000)), 'downloads');
+        $settingKeys = [
+            'require_account_to_download',
+            'blocked_download_countries',
+            'track_current_downloads',
+            'remote_url_background',
+            'cdn_download_redirects_enabled',
+            'cdn_download_base_url',
+            'streaming_support_enabled',
+            'nginx_completion_log_path',
+            'nginx_completion_retention_days',
+            'nginx_completion_max_lines_per_run',
+        ];
+        $before = $this->captureSettingSnapshot($settingKeys);
+        $this->runConfigurationWriteTransaction(function () use ($before, $settingKeys): void {
+            $this->updateSetting('require_account_to_download', isset($_POST['require_account_to_download']) ? '1' : '0', 'downloads');
+            $this->updateSetting('blocked_download_countries', $_POST['blocked_download_countries'] ?? '', 'downloads');
+            $this->updateSetting('track_current_downloads', isset($_POST['track_current_downloads']) ? '1' : '0', 'downloads');
+            $this->updateSetting('remote_url_background', isset($_POST['remote_url_background']) ? '1' : '0', 'downloads');
+            $this->updateSetting('cdn_download_redirects_enabled', isset($_POST['cdn_download_redirects_enabled']) ? '1' : '0', 'downloads');
+            $this->updateSetting('cdn_download_base_url', $this->normalizeCdnDownloadBaseUrl($_POST['cdn_download_base_url'] ?? ''), 'downloads');
+            $this->updateSetting('streaming_support_enabled', isset($_POST['streaming_support_enabled']) ? '1' : '0', 'downloads');
+            $this->updateSetting('nginx_completion_log_path', $this->normalizeNginxCompletionLogPath($_POST['nginx_completion_log_path'] ?? ''), 'downloads');
+            $this->updateSetting('nginx_completion_retention_days', (string)max(1, (int)($_POST['nginx_completion_retention_days'] ?? 7)), 'downloads');
+            $this->updateSetting('nginx_completion_max_lines_per_run', (string)max(100, (int)($_POST['nginx_completion_max_lines_per_run'] ?? 5000)), 'downloads');
+            $this->logConfigChange('downloads', $before, $this->captureSettingSnapshot($settingKeys));
+        });
     }
 
     private function saveUploadSettings(): void
     {
-        $this->updateSetting('upload_concurrent', isset($_POST['upload_concurrent']) ? '1' : '0', 'uploads');
-        $this->updateSetting('upload_concurrent_limit', $_POST['upload_concurrent_limit'] ?? '2', 'uploads');
-        $this->updateSetting('upload_hide_popup', isset($_POST['upload_hide_popup']) ? '1' : '0', 'uploads');
-        $this->updateSetting('upload_append_filename', isset($_POST['upload_append_filename']) ? '1' : '0', 'uploads');
-        $this->updateSetting('upload_chunking_enabled', isset($_POST['upload_chunking_enabled']) ? '1' : '0', 'uploads');
-        $this->updateSetting('upload_chunk_size_mb', $_POST['upload_chunk_size_mb'] ?? '100', 'uploads');
-        $this->updateSetting('upload_login_required', isset($_POST['upload_login_required']) ? '1' : '0', 'uploads');
-        $this->updateSetting('upload_detect_duplicates', isset($_POST['upload_detect_duplicates']) ? '1' : '0', 'uploads');
-        $this->updateSetting('upload_allowed_extensions', $_POST['upload_allowed_extensions'] ?? '', 'uploads');
-        $this->updateSetting('download_page_save_free', isset($_POST['download_page_save_free']) ? '1' : '0', 'uploads');
-        $this->updateSetting('download_page_save_premium', isset($_POST['download_page_save_premium']) ? '1' : '0', 'uploads');
-        $this->updateSetting('download_page_save_admin', isset($_POST['download_page_save_admin']) ? '1' : '0', 'uploads');
+        $settingKeys = [
+            'upload_concurrent',
+            'upload_concurrent_limit',
+            'upload_hide_popup',
+            'upload_append_filename',
+            'upload_chunking_enabled',
+            'upload_chunk_size_mb',
+            'upload_login_required',
+            'upload_detect_duplicates',
+            'upload_replace_enabled',
+            'upload_allowed_extensions',
+            'download_page_save_free',
+            'download_page_save_premium',
+            'download_page_save_admin',
+        ];
+        $before = $this->captureSettingSnapshot($settingKeys);
+        $this->runConfigurationWriteTransaction(function () use ($before, $settingKeys): void {
+            $this->updateSetting('upload_concurrent', isset($_POST['upload_concurrent']) ? '1' : '0', 'uploads');
+            $this->updateSetting('upload_concurrent_limit', $_POST['upload_concurrent_limit'] ?? '2', 'uploads');
+            $this->updateSetting('upload_hide_popup', isset($_POST['upload_hide_popup']) ? '1' : '0', 'uploads');
+            $this->updateSetting('upload_append_filename', isset($_POST['upload_append_filename']) ? '1' : '0', 'uploads');
+            $this->updateSetting('upload_chunking_enabled', isset($_POST['upload_chunking_enabled']) ? '1' : '0', 'uploads');
+            $this->updateSetting('upload_chunk_size_mb', $_POST['upload_chunk_size_mb'] ?? '100', 'uploads');
+            $this->updateSetting('upload_login_required', isset($_POST['upload_login_required']) ? '1' : '0', 'uploads');
+            $this->updateSetting('upload_detect_duplicates', isset($_POST['upload_detect_duplicates']) ? '1' : '0', 'uploads');
+            $this->updateSetting('upload_replace_enabled', isset($_POST['upload_replace_enabled']) ? '1' : '0', 'uploads');
+            $this->updateSetting('upload_allowed_extensions', $_POST['upload_allowed_extensions'] ?? '', 'uploads');
+            $this->updateSetting('download_page_save_free', isset($_POST['download_page_save_free']) ? '1' : '0', 'uploads');
+            $this->updateSetting('download_page_save_premium', isset($_POST['download_page_save_premium']) ? '1' : '0', 'uploads');
+            $this->updateSetting('download_page_save_admin', isset($_POST['download_page_save_admin']) ? '1' : '0', 'uploads');
+            $this->logConfigChange('uploads', $before, $this->captureSettingSnapshot($settingKeys));
+        });
     }
 
     private function saveMonetizationSettings(): void
@@ -1081,89 +1393,154 @@ class ConfigurationController
         $action = $_POST['monetization_action'] ?? 'ads';
 
         if ($action === 'rewards_settings') {
+            $settingKeys = [
+                'rewards_enabled',
+                'affiliate_enabled',
+                'enabled_models',
+                'global_model_status',
+                'pps_commission_percent',
+                'referral_commission_percent',
+                'affiliate_hold_days',
+                'mixed_ppd_percent',
+                'mixed_pps_percent',
+                'ppd_ip_reward_limit',
+                'ppd_min_download_percent',
+                'ppd_max_earn_ip',
+                'ppd_max_earn_file',
+                'ppd_max_earn_user',
+                'ppd_only_guests_count',
+                'ppd_min_file_size',
+                'ppd_max_file_size',
+                'ppd_reward_vpn',
+                'rewards_retention_days',
+                'minimum_withdrawal_amount',
+                'rewards_min_video_watch_percent',
+                'rewards_min_video_watch_seconds',
+                'supported_withdrawal_methods',
+                'withdrawal_method_definitions',
+                'payment_stripe_enabled',
+                'payment_stripe_secret_key' => 'encrypted',
+                'payment_stripe_webhook_secret' => 'encrypted',
+                'payment_paypal_enabled',
+                'payment_paypal_client_id',
+                'payment_paypal_client_secret' => 'encrypted',
+                'payment_paypal_webhook_id',
+                'payment_paypal_sandbox',
+            ];
+            $before = $this->captureSettingSnapshot($settingKeys);
             $rewardsEnabled = isset($_POST['rewards_enabled']) ? '1' : '0';
             $affiliateEnabled = $rewardsEnabled === '1' && isset($_POST['affiliate_enabled']) ? '1' : '0';
             $enabledModels = array_values(array_intersect(['ppd', 'pps', 'mixed'], $_POST['enabled_models'] ?? []));
-
-            $this->updateSetting('rewards_enabled', $rewardsEnabled, 'rewards');
-            $this->updateSetting('affiliate_enabled', $affiliateEnabled, 'rewards');
-            $this->updateSetting('enabled_models', implode(',', $enabledModels), 'rewards');
-            $this->updateSetting('global_model_status', empty($enabledModels) ? 'disabled' : 'enabled', 'rewards');
-            $this->updateSetting('pps_commission_percent', (string) max(0, min(100, (int) ($_POST['pps_commission_percent'] ?? 50))), 'rewards');
-            $referralPercent = (string) max(0, min(100, (int) ($_POST['referral_commission_percent'] ?? 50)));
-            $this->updateSetting('referral_commission_percent', $referralPercent, 'rewards');
-            $this->updateSetting('affiliate_hold_days', (string) max(0, min(90, (int) ($_POST['affiliate_hold_days'] ?? 5))), 'rewards');
-            $this->updateSetting('mixed_ppd_percent', (string) (int) ($_POST['mixed_ppd_percent'] ?? 30), 'rewards');
-            $this->updateSetting('mixed_pps_percent', (string) max(0, min(100, (int) ($_POST['mixed_pps_percent'] ?? 30))), 'rewards');
-            $this->updateSetting('ppd_ip_reward_limit', (string) max(1, (int) ($_POST['ppd_ip_reward_limit'] ?? 1)), 'rewards');
-            $this->updateSetting('ppd_min_download_percent', (string) min(100, max(0, (int) ($_POST['ppd_min_download_percent'] ?? 0))), 'rewards');
-            $this->updateSetting('ppd_max_earn_ip', (string) (float) ($_POST['ppd_max_earn_ip'] ?? 0), 'rewards');
-            $this->updateSetting('ppd_max_earn_file', (string) (float) ($_POST['ppd_max_earn_file'] ?? 0), 'rewards');
-            $this->updateSetting('ppd_max_earn_user', (string) (float) ($_POST['ppd_max_earn_user'] ?? 0), 'rewards');
-            $this->updateSetting('ppd_only_guests_count', isset($_POST['ppd_only_guests_count']) && $_POST['ppd_only_guests_count'] === '1' ? '1' : '0', 'rewards');
-            $this->updateSetting('ppd_min_file_size', (string) ((float) ($_POST['ppd_min_file_size'] ?? 0) * 1024 * 1024), 'rewards');
-            $this->updateSetting('ppd_max_file_size', (string) ((float) ($_POST['ppd_max_file_size'] ?? 0) * 1024 * 1024), 'rewards');
+            $minimumWithdrawalAmount = max(0, round((float)($_POST['minimum_withdrawal_amount'] ?? 1), 2));
             $rewardVpn = Setting::get('block_vpn_traffic', '0', 'security') === '1' ? '0' : ((($_POST['ppd_reward_vpn'] ?? '0') === '1') ? '1' : '0');
-            $this->updateSetting('ppd_reward_vpn', $rewardVpn, 'rewards');
-            $this->updateSetting('rewards_retention_days', (string) max(1, (int) ($_POST['rewards_retention_days'] ?? 7)), 'rewards');
-            $this->updateSetting('rewards_min_video_watch_percent', (string) min(100, max(0, (int) ($_POST['rewards_min_video_watch_percent'] ?? 80))), 'rewards');
-            $this->updateSetting('rewards_min_video_watch_seconds', (string) max(0, (int) ($_POST['rewards_min_video_watch_seconds'] ?? 30)), 'rewards');
-            $methods = array_values(array_intersect(['paypal', 'stripe', 'bitcoin', 'wire'], $_POST['supported_withdrawal_methods'] ?? []));
-            $this->updateSetting('supported_withdrawal_methods', implode(',', $methods), 'rewards');
-            $this->updateSetting('payment_stripe_enabled', isset($_POST['payment_stripe_enabled']) ? '1' : '0', 'payments');
-            if (!empty($_POST['payment_stripe_secret_key'])) {
-                Setting::setEncrypted('payment_stripe_secret_key', $_POST['payment_stripe_secret_key'], 'payments');
-                $this->logActivity('update_setting', 'payment_stripe_secret_key', '********');
+
+            $processors = PayoutProcessorService::parseSubmittedDefinitions($_POST);
+            $activeProcessorKeys = array_values(array_map(
+                static fn(array $definition): string => (string)$definition['key'],
+                array_filter($processors, static fn(array $definition): bool => !empty($definition['enabled']))
+            ));
+
+            $db->beginTransaction();
+            try {
+                $this->updateSettingWithConnection($db, 'rewards_enabled', $rewardsEnabled, 'rewards');
+                $this->updateSettingWithConnection($db, 'affiliate_enabled', $affiliateEnabled, 'rewards');
+                $this->updateSettingWithConnection($db, 'enabled_models', implode(',', $enabledModels), 'rewards');
+                $this->updateSettingWithConnection($db, 'global_model_status', empty($enabledModels) ? 'disabled' : 'enabled', 'rewards');
+                $this->updateSettingWithConnection($db, 'pps_commission_percent', (string) max(0, min(100, (int) ($_POST['pps_commission_percent'] ?? 50))), 'rewards');
+                $referralPercent = (string) max(0, min(100, (int) ($_POST['referral_commission_percent'] ?? 50)));
+                $this->updateSettingWithConnection($db, 'referral_commission_percent', $referralPercent, 'rewards');
+                $this->updateSettingWithConnection($db, 'affiliate_hold_days', (string) max(0, min(90, (int) ($_POST['affiliate_hold_days'] ?? 5))), 'rewards');
+                $this->updateSettingWithConnection($db, 'mixed_ppd_percent', (string) (int) ($_POST['mixed_ppd_percent'] ?? 30), 'rewards');
+                $this->updateSettingWithConnection($db, 'mixed_pps_percent', (string) max(0, min(100, (int) ($_POST['mixed_pps_percent'] ?? 30))), 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_ip_reward_limit', (string) max(1, (int) ($_POST['ppd_ip_reward_limit'] ?? 1)), 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_min_download_percent', (string) min(100, max(0, (int) ($_POST['ppd_min_download_percent'] ?? 0))), 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_max_earn_ip', (string) (float) ($_POST['ppd_max_earn_ip'] ?? 0), 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_max_earn_file', (string) (float) ($_POST['ppd_max_earn_file'] ?? 0), 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_max_earn_user', (string) (float) ($_POST['ppd_max_earn_user'] ?? 0), 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_only_guests_count', isset($_POST['ppd_only_guests_count']) && $_POST['ppd_only_guests_count'] === '1' ? '1' : '0', 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_min_file_size', (string) ((float) ($_POST['ppd_min_file_size'] ?? 0) * 1024 * 1024), 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_max_file_size', (string) ((float) ($_POST['ppd_max_file_size'] ?? 0) * 1024 * 1024), 'rewards');
+                $this->updateSettingWithConnection($db, 'ppd_reward_vpn', $rewardVpn, 'rewards');
+                $this->updateSettingWithConnection($db, 'rewards_retention_days', (string) max(1, (int) ($_POST['rewards_retention_days'] ?? 7)), 'rewards');
+                $this->updateSettingWithConnection($db, 'minimum_withdrawal_amount', number_format($minimumWithdrawalAmount, 2, '.', ''), 'rewards');
+                $this->updateSettingWithConnection($db, 'rewards_min_video_watch_percent', (string) min(100, max(0, (int) ($_POST['rewards_min_video_watch_percent'] ?? 80))), 'rewards');
+                $this->updateSettingWithConnection($db, 'rewards_min_video_watch_seconds', (string) max(0, (int) ($_POST['rewards_min_video_watch_seconds'] ?? 30)), 'rewards');
+                $this->updateSettingWithConnection($db, 'withdrawal_method_definitions', PayoutProcessorService::encodeDefinitions($processors), 'rewards');
+                $this->updateSettingWithConnection($db, 'supported_withdrawal_methods', implode(',', $activeProcessorKeys), 'rewards');
+                $this->updateSettingWithConnection($db, 'payment_stripe_enabled', isset($_POST['payment_stripe_enabled']) ? '1' : '0', 'payments');
+                if (!empty($_POST['payment_stripe_secret_key'])) {
+                    $this->setEncryptedSettingWithConnection($db, 'payment_stripe_secret_key', (string)$_POST['payment_stripe_secret_key'], 'payments');
+                }
+                if (!empty($_POST['payment_stripe_webhook_secret'])) {
+                    $this->setEncryptedSettingWithConnection($db, 'payment_stripe_webhook_secret', (string)$_POST['payment_stripe_webhook_secret'], 'payments');
+                }
+                $this->updateSettingWithConnection($db, 'payment_paypal_enabled', isset($_POST['payment_paypal_enabled']) ? '1' : '0', 'payments');
+                $this->updateSettingWithConnection($db, 'payment_paypal_client_id', trim((string)($_POST['payment_paypal_client_id'] ?? '')), 'payments');
+                if (!empty($_POST['payment_paypal_client_secret'])) {
+                    $this->setEncryptedSettingWithConnection($db, 'payment_paypal_client_secret', (string)$_POST['payment_paypal_client_secret'], 'payments');
+                }
+                $this->updateSettingWithConnection($db, 'payment_paypal_webhook_id', trim((string)($_POST['payment_paypal_webhook_id'] ?? '')), 'payments');
+                $this->updateSettingWithConnection($db, 'payment_paypal_sandbox', isset($_POST['payment_paypal_sandbox']) ? '1' : '0', 'payments');
+                $this->logConfigChangeWithConnection($db, 'monetization rewards', $before, $this->captureSettingSnapshot($settingKeys));
+                $db->commit();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                throw $e;
             }
-            if (!empty($_POST['payment_stripe_webhook_secret'])) {
-                Setting::setEncrypted('payment_stripe_webhook_secret', $_POST['payment_stripe_webhook_secret'], 'payments');
-                $this->logActivity('update_setting', 'payment_stripe_webhook_secret', '********');
-            }
-            $this->updateSetting('payment_paypal_enabled', isset($_POST['payment_paypal_enabled']) ? '1' : '0', 'payments');
-            $this->updateSetting('payment_paypal_client_id', trim((string)($_POST['payment_paypal_client_id'] ?? '')), 'payments');
-            if (!empty($_POST['payment_paypal_client_secret'])) {
-                Setting::setEncrypted('payment_paypal_client_secret', $_POST['payment_paypal_client_secret'], 'payments');
-                $this->logActivity('update_setting', 'payment_paypal_client_secret', '********');
-            }
-            $this->updateSetting('payment_paypal_webhook_id', trim((string)($_POST['payment_paypal_webhook_id'] ?? '')), 'payments');
-            $this->updateSetting('payment_paypal_sandbox', isset($_POST['payment_paypal_sandbox']) ? '1' : '0', 'payments');
         } elseif ($action === 'ads') {
+            $settingKeys = array_map(static fn(string $key): string => 'ad_' . $key, self::ALLOWED_AD_SLOT_KEYS);
+            $before = $this->captureSettingSnapshot($settingKeys);
             $ads = $_POST['ads'] ?? [];
             foreach ($ads as $key => $code) {
                 if (!in_array((string)$key, self::ALLOWED_AD_SLOT_KEYS, true)) {
                     continue;
                 }
-                $code = (string)$code;
-                if (strlen($code) > self::MAX_AD_CODE_LENGTH) {
+                if (strlen((string)$code) > self::MAX_AD_CODE_LENGTH) {
                     $_SESSION['config_errors'] = ["Ad placement code is too large. Keep each ad block under " . self::MAX_AD_CODE_LENGTH . " characters."];
-                    header("Location: /admin/configuration?tab=monetization");
+                    header("Location: /admin/configuration?tab=monetization&monetization_pane=ads");
                     exit;
                 }
-                $this->updateSetting("ad_{$key}", $code, 'ads');
             }
+            $this->runConfigurationWriteTransaction(function () use ($ads, $before, $settingKeys): void {
+                foreach ($ads as $key => $code) {
+                    if (!in_array((string)$key, self::ALLOWED_AD_SLOT_KEYS, true)) {
+                        continue;
+                    }
+                    $this->updateSetting("ad_{$key}", (string)$code, 'ads');
+                }
+                $this->logConfigChange('monetization ads', $before, $this->captureSettingSnapshot($settingKeys));
+            });
         } elseif ($action === 'add_tier') {
             $name = trim($_POST['new_name'] ?? '');
             $rate = (float)($_POST['new_rate'] ?? 0);
             $countries = array_map('trim', explode(',', $_POST['new_countries'] ?? ''));
-            
+
             if ($name) {
-                $stmt = $db->prepare("INSERT INTO ppd_tiers (name, rate_per_1000) VALUES (?, ?)");
-                $stmt->execute([$name, $rate]);
-                $tierId = $db->lastInsertId();
-                
-                if (!empty($countries) && $countries[0] !== '') {
-                    $cStmt = $db->prepare("INSERT IGNORE INTO ppd_tier_countries (tier_id, country_code) VALUES (?, ?)");
-                    foreach ($countries as $code) {
-                        $code = strtoupper(substr($code, 0, 2));
-                        if ($code) $cStmt->execute([$tierId, $code]);
+                $this->runConfigurationWriteTransaction(function () use ($db, $name, $rate, $countries): void {
+                    $stmt = $db->prepare("INSERT INTO ppd_tiers (name, rate_per_1000) VALUES (?, ?)");
+                    $stmt->execute([$name, $rate]);
+                    $tierId = $db->lastInsertId();
+
+                    if (!empty($countries) && $countries[0] !== '') {
+                        $cStmt = $db->prepare("INSERT IGNORE INTO ppd_tier_countries (tier_id, country_code) VALUES (?, ?)");
+                        foreach ($countries as $code) {
+                            $code = strtoupper(substr($code, 0, 2));
+                            if ($code) {
+                                $cStmt->execute([$tierId, $code]);
+                            }
+                        }
                     }
-                }
-                $this->logActivity('add_ppd_tier', $name, "Rate: $rate");
+                    $this->logActivity('add_ppd_tier', $name, null, "Rate: $rate");
+                });
             }
         } elseif ($action === 'delete_tier') {
             $id = (int)$_POST['tier_id'];
-            $db->prepare("DELETE FROM ppd_tiers WHERE id = ?")->execute([$id]);
-            $this->logActivity('delete_ppd_tier', (string)$id);
+            $this->runConfigurationWriteTransaction(function () use ($db, $id): void {
+                $db->prepare("DELETE FROM ppd_tiers WHERE id = ?")->execute([$id]);
+                $this->logActivity('delete_ppd_tier', (string)$id);
+            });
         } elseif ($action === 'load_example_tiers') {
             $hasAnyTiers = (bool)$db->query("SELECT 1 FROM ppd_tiers LIMIT 1")->fetchColumn();
             if (!$hasAnyTiers) {
@@ -1173,45 +1550,159 @@ class ConfigurationController
                     ['Tier 3', 0.50, ['IN', 'PH', 'ID', 'VN', 'TH', 'PK', 'BD', 'EG', 'NG', 'MA']],
                 ];
 
-                $tierStmt = $db->prepare("INSERT INTO ppd_tiers (name, rate_per_1000) VALUES (?, ?)");
-                $countryStmt = $db->prepare("INSERT IGNORE INTO ppd_tier_countries (tier_id, country_code) VALUES (?, ?)");
+                $this->runConfigurationWriteTransaction(function () use ($db, $starterTiers): void {
+                    $tierStmt = $db->prepare("INSERT INTO ppd_tiers (name, rate_per_1000) VALUES (?, ?)");
+                    $countryStmt = $db->prepare("INSERT IGNORE INTO ppd_tier_countries (tier_id, country_code) VALUES (?, ?)");
 
-                foreach ($starterTiers as [$name, $rate, $countries]) {
-                    $tierStmt->execute([$name, $rate]);
-                    $tierId = (int)$db->lastInsertId();
-                    foreach ($countries as $code) {
-                        $countryStmt->execute([$tierId, $code]);
+                    foreach ($starterTiers as [$name, $rate, $countries]) {
+                        $tierStmt->execute([$name, $rate]);
+                        $tierId = (int)$db->lastInsertId();
+                        foreach ($countries as $code) {
+                            $countryStmt->execute([$tierId, $code]);
+                        }
                     }
-                }
 
-                $this->logActivity('load_example_ppd_tiers', 'starter');
+                    $this->logActivity('load_example_ppd_tiers', 'starter');
+                });
             }
         } elseif ($action === 'update_tiers') {
             if (!empty($_POST['tiers']) && is_array($_POST['tiers'])) {
-                foreach ($_POST['tiers'] as $id => $data) {
-                    $name = trim($data['name'] ?? '');
-                    $rate = (float)($data['rate'] ?? 0);
-                    $db->prepare("UPDATE ppd_tiers SET name = ?, rate_per_1000 = ? WHERE id = ?")->execute([$name, $rate, $id]);
-                    $db->prepare("DELETE FROM ppd_tier_countries WHERE tier_id = ?")->execute([$id]);
-                    $countries = array_map('trim', explode(',', $data['countries'] ?? ''));
-                    if (!empty($countries) && $countries[0] !== '') {
-                        $cStmt = $db->prepare("INSERT IGNORE INTO ppd_tier_countries (tier_id, country_code) VALUES (?, ?)");
-                        foreach ($countries as $code) {
-                            $code = strtoupper(substr($code, 0, 2));
-                            if ($code) $cStmt->execute([$id, $code]);
+                $this->runConfigurationWriteTransaction(function () use ($db): void {
+                    foreach ($_POST['tiers'] as $id => $data) {
+                        $name = trim($data['name'] ?? '');
+                        $rate = (float)($data['rate'] ?? 0);
+                        $db->prepare("UPDATE ppd_tiers SET name = ?, rate_per_1000 = ? WHERE id = ?")->execute([$name, $rate, $id]);
+                        $db->prepare("DELETE FROM ppd_tier_countries WHERE tier_id = ?")->execute([$id]);
+                        $countries = array_map('trim', explode(',', $data['countries'] ?? ''));
+                        if (!empty($countries) && $countries[0] !== '') {
+                            $cStmt = $db->prepare("INSERT IGNORE INTO ppd_tier_countries (tier_id, country_code) VALUES (?, ?)");
+                            foreach ($countries as $code) {
+                                $code = strtoupper(substr($code, 0, 2));
+                                if ($code) {
+                                    $cStmt->execute([$id, $code]);
+                                }
+                            }
                         }
                     }
+                    $this->logActivity('update_ppd_tiers', 'all');
+                });
+            }
+        } elseif ($action === 'save_bonus_offer') {
+            $offerName = trim((string)($_POST['name'] ?? ''));
+            $offerId = \App\Service\BonusOfferService::saveOfferFromInput(
+                $_POST,
+                (int)(Auth::id() ?? 0),
+                static function (\PDO $db, int $savedOfferId) use ($offerName): void {
+                    StaffActivityService::logWithConnection(
+                        $db,
+                        'save_bonus_offer',
+                        'bonus_offer',
+                        $savedOfferId,
+                        $offerName
+                    );
                 }
-                $this->logActivity('update_ppd_tiers', 'all');
+            );
+        } elseif ($action === 'delete_bonus_offer') {
+            $offerId = (int)($_POST['offer_id'] ?? 0);
+            if ($offerId > 0) {
+                \App\Service\BonusOfferService::deleteOffer(
+                    $offerId,
+                    static function (\PDO $db, int $deletedOfferId): void {
+                        StaffActivityService::logWithConnection(
+                            $db,
+                            'delete_bonus_offer',
+                            'bonus_offer',
+                            $deletedOfferId
+                        );
+                    }
+                );
+            }
+        } elseif ($action === 'approve_bonus_award') {
+            $awardId = (int)($_POST['award_id'] ?? 0);
+            if ($awardId > 0) {
+                $reviewNote = trim((string)($_POST['review_note'] ?? ''));
+                \App\Service\BonusOfferService::reviewAward(
+                    $awardId,
+                    'approve',
+                    (int)(Auth::id() ?? 0),
+                    $reviewNote,
+                    static function (\PDO $db, array $award, string $result): void {
+                        StaffActivityService::logWithConnection(
+                            $db,
+                            $result === 'credited' ? 'approve_bonus_award' : 'reject_bonus_award',
+                            'bonus_award',
+                            (int)($award['id'] ?? 0),
+                            $result === 'credited' ? '' : 'User was no longer eligible when approval was attempted.'
+                        );
+                    }
+                );
+            }
+        } elseif ($action === 'reject_bonus_award') {
+            $awardId = (int)($_POST['award_id'] ?? 0);
+            if ($awardId > 0) {
+                \App\Service\BonusOfferService::reviewAward(
+                    $awardId,
+                    'reject',
+                    (int)(Auth::id() ?? 0),
+                    trim((string)($_POST['review_note'] ?? '')),
+                    static function (\PDO $db, array $award): void {
+                        StaffActivityService::logWithConnection(
+                            $db,
+                            'reject_bonus_award',
+                            'bonus_award',
+                            (int)($award['id'] ?? 0)
+                        );
+                    }
+                );
             }
         }
     }
 
     private function saveSecurityFeatureSettings(): void
     {
-        $this->updateSetting('two_factor_enabled', isset($_POST['two_factor_enabled']) ? '1' : '0', 'security');
-        $this->updateSetting('2fa_enabled', isset($_POST['two_factor_enabled']) ? '1' : '0', 'security');
-        $this->updateSetting('2fa_enforce_date', trim((string) ($_POST['2fa_enforce_date'] ?? '')), 'security');
+        $settingKeys = [
+            'two_factor_enabled',
+            '2fa_enabled',
+            '2fa_enforce_date',
+            'rate_limit_2fa_setup',
+            'rate_limit_2fa_verify',
+            'rate_limit_2fa_recovery',
+            'admin_idle_logout_minutes',
+            'moderator_idle_logout_minutes',
+            'user_idle_logout_minutes',
+            'remember_me_enabled',
+        ];
+        $before = $this->captureSettingSnapshot($settingKeys);
+        $this->runConfigurationWriteTransaction(function () use ($before, $settingKeys): void {
+            $this->updateSetting('two_factor_enabled', isset($_POST['two_factor_enabled']) ? '1' : '0', 'security');
+            $this->updateSetting('2fa_enabled', isset($_POST['two_factor_enabled']) ? '1' : '0', 'security');
+            $this->updateSetting('2fa_enforce_date', trim((string) ($_POST['2fa_enforce_date'] ?? '')), 'security');
+            $setupLimit = isset($_POST['rate_limit_2fa_setup']) ? (int)$_POST['rate_limit_2fa_setup'] : 5;
+            $verifyLimit = isset($_POST['rate_limit_2fa_verify']) ? (int)$_POST['rate_limit_2fa_verify'] : 5;
+            $recoveryLimit = isset($_POST['rate_limit_2fa_recovery']) ? (int)$_POST['rate_limit_2fa_recovery'] : 5;
+            $this->updateSetting('rate_limit_2fa_setup', (string)($setupLimit > 0 ? $setupLimit : 5), 'security');
+            $this->updateSetting('rate_limit_2fa_verify', (string)($verifyLimit > 0 ? $verifyLimit : 5), 'security');
+            $this->updateSetting('rate_limit_2fa_recovery', (string)($recoveryLimit > 0 ? $recoveryLimit : 5), 'security');
+            $this->updateSetting('admin_idle_logout_minutes', (string)$this->normalizeIdleLogoutMinutes($_POST['admin_idle_logout_minutes'] ?? null, 'admin'), 'security');
+            $this->updateSetting('moderator_idle_logout_minutes', (string)$this->normalizeIdleLogoutMinutes($_POST['moderator_idle_logout_minutes'] ?? null, 'moderator'), 'security');
+            $this->updateSetting('user_idle_logout_minutes', (string)$this->normalizeIdleLogoutMinutes($_POST['user_idle_logout_minutes'] ?? null, 'user'), 'security');
+            $rememberMeEnabled = isset($_POST['remember_me_enabled']);
+            $this->updateSetting('remember_me_enabled', $rememberMeEnabled ? '1' : '0', 'security');
+            if (!$rememberMeEnabled) {
+                RememberMeService::revokeAllTokensWithConnection(Database::getInstance()->getConnection());
+            }
+            $this->logConfigChange('security features', $before, $this->captureSettingSnapshot($settingKeys));
+        });
+    }
+
+    private function normalizeIdleLogoutMinutes($value, string $role): int
+    {
+        $minutes = (int)$value;
+        if (!in_array($minutes, self::ALLOWED_IDLE_LOGOUT_MINUTES, true)) {
+            return \App\Core\Auth::defaultIdleLogoutMinutesForRole($role);
+        }
+
+        return $minutes;
     }
 
     private function saveSeoSettings(): void
@@ -1248,19 +1739,64 @@ class ConfigurationController
         ];
 
         $scopeConfig = $scopes[$scope] ?? ['boolean' => [], 'string' => []];
+        $settingKeys = array_merge($scopeConfig['boolean'], $scopeConfig['string']);
+        $before = $this->captureSettingSnapshot($settingKeys);
 
-        foreach ($scopeConfig['boolean'] as $key) {
-            $this->updateSetting($key, isset($_POST[$key]) ? '1' : '0', 'seo');
+        if (
+            in_array('seo_custom_head_code', $scopeConfig['string'], true)
+            && strlen(trim((string)($_POST['seo_custom_head_code'] ?? ''))) > self::MAX_CUSTOM_HEAD_CODE_LENGTH
+        ) {
+            $_SESSION['config_errors'] = ["Custom Head Code is too large. Keep it under " . self::MAX_CUSTOM_HEAD_CODE_LENGTH . " characters."];
+            header("Location: /admin/configuration?tab=seo&seo_tab=" . urlencode($scope));
+            exit;
         }
 
-        foreach ($scopeConfig['string'] as $key) {
-            $value = trim((string)($_POST[$key] ?? ''));
-            if ($key === 'seo_custom_head_code' && strlen($value) > self::MAX_CUSTOM_HEAD_CODE_LENGTH) {
-                $_SESSION['config_errors'] = ["Custom Head Code is too large. Keep it under " . self::MAX_CUSTOM_HEAD_CODE_LENGTH . " characters."];
-                header("Location: /admin/configuration?tab=seo&seo_tab=" . urlencode($scope));
-                exit;
+        $this->runConfigurationWriteTransaction(function () use ($scopeConfig, $before, $settingKeys, $scope): void {
+            foreach ($scopeConfig['boolean'] as $key) {
+                $this->updateSetting($key, isset($_POST[$key]) ? '1' : '0', 'seo');
             }
-            $this->updateSetting($key, $value, 'seo');
+
+            foreach ($scopeConfig['string'] as $key) {
+                $value = trim((string)($_POST[$key] ?? ''));
+                $this->updateSetting($key, $value, 'seo');
+            }
+
+            $this->logConfigChange('seo ' . $scope, $before, $this->captureSettingSnapshot($settingKeys), [
+                'scope' => $scope,
+            ]);
+        });
+    }
+
+    private function activeConfigurationTransaction(): ?\PDO
+    {
+        try {
+            $db = Database::getInstance()->getConnection();
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        return $db->inTransaction() ? $db : null;
+    }
+
+    private function runConfigurationWriteTransaction(callable $callback): void
+    {
+        $db = Database::getInstance()->getConnection();
+        $startedTransaction = !$db->inTransaction();
+
+        if ($startedTransaction) {
+            $db->beginTransaction();
+        }
+
+        try {
+            $callback($db);
+            if ($startedTransaction) {
+                $db->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($startedTransaction && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
         }
     }
 
@@ -1279,6 +1815,33 @@ class ConfigurationController
             return '[redacted code block, ' . strlen($value) . ' bytes]';
         }
 
+        $normalizedValue = strtolower(trim($value));
+        if ($normalizedValue === '1') {
+            return '[enabled]';
+        }
+        if ($normalizedValue === '0') {
+            return '[disabled]';
+        }
+
+        if (
+            str_contains($key, 'password')
+            || str_contains($key, 'secret')
+            || str_contains($key, 'token')
+            || str_contains($key, 'private_key')
+        ) {
+            return $value === '' ? '[not configured]' : '[configured secret]';
+        }
+
+        if (
+            str_contains($key, 'client_id')
+            || str_contains($key, 'webhook_id')
+            || str_contains($key, 'api_key')
+            || str_contains($key, 'public_key')
+        ) {
+            $suffix = strlen($value) > 6 ? substr($value, -6) : $value;
+            return '[updated identifier ending ' . $suffix . ']';
+        }
+
         if (strlen($value) > 500) {
             return '[long value, ' . strlen($value) . ' bytes]';
         }
@@ -1286,13 +1849,150 @@ class ConfigurationController
         return $value;
     }
 
+    private function captureSettingSnapshot(array $settings): array
+    {
+        $snapshot = [];
+        foreach ($settings as $key => $mode) {
+            if (is_int($key)) {
+                $key = (string)$mode;
+                $mode = 'plain';
+            }
+
+            $rawValue = $mode === 'encrypted'
+                ? (string)Setting::getEncrypted((string)$key, '')
+                : (string)Setting::get((string)$key, '');
+            $snapshot[(string)$key] = $this->summarizeSettingValueForLog((string)$key, $rawValue);
+        }
+
+        return $snapshot;
+    }
+
+    private function logConfigChange(string $section, array $before, array $after, array $extra = []): void
+    {
+        $changedKeys = [];
+        foreach ($after as $key => $value) {
+            if (($before[$key] ?? null) !== $value) {
+                $changedKeys[] = (string)$key;
+            }
+        }
+
+        if ($changedKeys === []) {
+            return;
+        }
+
+        $changedBefore = [];
+        $changedAfter = [];
+        foreach ($changedKeys as $key) {
+            $changedBefore[$key] = $before[$key] ?? null;
+            $changedAfter[$key] = $after[$key] ?? null;
+        }
+
+        $db = $this->activeConfigurationTransaction();
+        if ($db !== null) {
+            $this->logConfigChangeWithConnection($db, $section, $before, $after, $extra);
+            return;
+        }
+
+        StaffActivityService::log(
+            'config_updated',
+            'config',
+            null,
+            'Updated ' . $section . ' settings.',
+            array_merge([
+                'section' => $section,
+                'changed_keys' => $changedKeys,
+                'before' => $changedBefore,
+                'after' => $changedAfter,
+            ], $extra)
+        );
+    }
+
+    private function logConfigChangeWithConnection(\PDO $db, string $section, array $before, array $after, array $extra = []): void
+    {
+        $changedKeys = [];
+        foreach ($after as $key => $value) {
+            if (($before[$key] ?? null) !== $value) {
+                $changedKeys[] = (string)$key;
+            }
+        }
+
+        if ($changedKeys === []) {
+            return;
+        }
+
+        $changedBefore = [];
+        $changedAfter = [];
+        foreach ($changedKeys as $key) {
+            $changedBefore[$key] = $before[$key] ?? null;
+            $changedAfter[$key] = $after[$key] ?? null;
+        }
+
+        StaffActivityService::logWithConnection(
+            $db,
+            'config_updated',
+            'config',
+            null,
+            'Updated ' . $section . ' settings.',
+            array_merge([
+                'section' => $section,
+                'changed_keys' => $changedKeys,
+                'before' => $changedBefore,
+                'after' => $changedAfter,
+            ], $extra)
+        );
+    }
+
     private function updateSetting(string $key, string $value, string $group): void
     {
         $oldValue = Setting::get($key);
         if ($oldValue !== $value) {
+            $db = $this->activeConfigurationTransaction();
+            if ($db !== null) {
+                $this->updateSettingWithConnection($db, $key, $value, $group);
+                return;
+            }
             Setting::set($key, $value, $group);
-            $this->logActivity('update_setting', $key, $this->summarizeSettingValueForLog($key, $value));
+            $this->logActivity('update_setting', $key, null, $this->summarizeSettingValueForLog($key, $value));
         }
+    }
+
+    private function updateSettingWithConnection(\PDO $db, string $key, string $value, string $group): void
+    {
+        $oldValue = Setting::get($key);
+        if ($oldValue !== $value) {
+            Setting::set($key, $value, $group);
+            StaffActivityService::logWithConnection(
+                $db,
+                'update_setting',
+                $key,
+                null,
+                $this->summarizeSettingValueForLog($key, $value)
+            );
+        }
+    }
+
+    private function setEncryptedSettingWithConnection(\PDO $db, string $key, string $value, string $group): void
+    {
+        Setting::setEncrypted($key, $value, $group);
+        StaffActivityService::logWithConnection(
+            $db,
+            'update_setting',
+            $key,
+            null,
+            '********'
+        );
+    }
+
+    private function setEncryptedSetting(string $key, string $value, string $group): void
+    {
+        $db = $this->activeConfigurationTransaction();
+        if ($db !== null) {
+            $this->setEncryptedSettingWithConnection($db, $key, $value, $group);
+            return;
+        }
+
+        Setting::setEncrypted($key, $value, $group);
+        $this->logActivity('update_setting', $key, null, '********');
     }
 
     private function validate(array $data, array $rules): bool
@@ -1325,9 +2025,12 @@ class ConfigurationController
 
     public function exportDiagnostics(): void
     {
-        if (!Auth::isAdmin()) {
-            http_response_code(403);
-            die("Access denied");
+        $this->requireDiagnosticsAccess();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->abortText(405, 'Diagnostics export must be requested from the authenticated export form.');
+        }
+        if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
+            $this->abortText(403, 'CSRF mismatch');
         }
 
         if (DemoModeService::currentViewerIsDemoAdmin()) {
@@ -1340,43 +2043,21 @@ class ConfigurationController
 
         header('Content-Type: application/json; charset=utf-8');
         header('Content-Disposition: attachment; filename="diagnostics_' . date('Ymd_His') . '.json"');
-        
+
         echo json_encode($bundle, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         exit;
     }
 
-    private function logActivity(string $action, string $itemType, ?string $details = null): void
+    private function logActivity(string $action, string $itemType, ?int $itemId = null, ?string $details = null, array $metadata = []): void
     {
-        try {
-            $db = Database::getInstance()->getConnection();
-            
-            // Self-Healing: Ensure the audit log table exists before writing
-            static $tableVerified = false;
-            if (!$tableVerified) {
-                $db->exec("CREATE TABLE IF NOT EXISTS `admin_activity_log` (
-                    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `admin_id` BIGINT UNSIGNED NOT NULL,
-                    `action` VARCHAR(100) NOT NULL,
-                    `item_type` VARCHAR(50) NULL,
-                    `item_id` BIGINT UNSIGNED NULL,
-                    `details` TEXT NULL,
-                    `ip_address` VARCHAR(255) NULL,
-                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    INDEX `admin_id` (`admin_id`),
-                    INDEX `created_at` (`created_at`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-                $tableVerified = true;
-            }
+        $db = $this->activeConfigurationTransaction();
+        if ($db !== null) {
+            StaffActivityService::logWithConnection($db, $action, $itemType, $itemId, $details, $metadata);
+            return;
+        }
 
-            $stmt = $db->prepare("INSERT INTO admin_activity_log (admin_id, action, item_type, details, ip_address) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([
-                Auth::id() ?? 0,
-                $action,
-                $itemType,
-                EncryptionService::encrypt(substr($details ?? '', 0, 1000)),
-                EncryptionService::encrypt(SecurityService::getClientIp())
-            ]);
+        try {
+            StaffActivityService::log($action, $itemType, $itemId, $details, $metadata);
         } catch (\Exception $e) {
             error_log("Failed to log admin activity: " . $e->getMessage());
         }

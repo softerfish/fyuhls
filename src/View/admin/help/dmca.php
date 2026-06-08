@@ -7,6 +7,13 @@
         <li><strong>Use Tickets instead when:</strong> You want the broader operational queue or need to jump between support, contact, abuse, and DMCA in one session.</li>
     </ul>
 
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Recommended Handling</h6>
+    <ol class="guide-steps mb-4">
+        <li><strong>Validate the target links:</strong> Make sure the notice actually points at local file URLs you control before you attempt removal.</li>
+        <li><strong>Process removals from the ticket flow:</strong> Keep the legal review, file action, and activity trail attached to the same record.</li>
+        <li><strong>Note any exceptions:</strong> If a link did not match, was already gone, or needed manual review, leave that explanation on the ticket.</li>
+    </ol>
+
     <div class="alert alert-warning border-0 shadow-sm small mb-3">
         <strong>Legal guard:</strong> Process valid notices through the ticket-backed workflow so the action trail, notes, and any matched file removals stay attached to the claim.
     </div>

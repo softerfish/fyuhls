@@ -5,12 +5,14 @@ namespace App\Controller\Api;
 use App\Core\Auth;
 use App\Core\Csrf;
 use App\Core\Logger;
+use App\Core\StorageManager;
 use App\Model\File;
 use App\Model\Setting;
 use App\Service\ApiAuthService;
 use App\Service\ApiIdempotencyService;
 use App\Service\DownloadManager;
 use App\Service\MultipartUploadService;
+use RuntimeException;
 
 class UploadApiController
 {
@@ -33,7 +35,7 @@ class UploadApiController
         ]);
         $this->jsonResponse([
             'error' => $this->userFacingUploadError($e),
-        ], $status);
+        ], $this->uploadFailureStatus($e, $status));
     }
 
     private function userFacingUploadError(\Throwable $e): string
@@ -56,13 +58,25 @@ class UploadApiController
             'File exceeds your package upload limit.',
             'Guests cannot upload into private folders.',
             'Folder not found.',
+            'File replacement is currently disabled.',
+            'File replacement requires a signed-in account.',
+            'Replacement target not found.',
+            'You can only replace your own active files.',
+            'This file already has a replacement upload in progress.',
             'The selected storage backend does not support direct multipart uploads yet.',
             'This upload would exceed your storage quota.',
             'The selected storage node does not have enough free capacity.',
             'Could not open multipart upload.',
             'Invalid part number.',
+            'This upload session can no longer accept part signing requests.',
+            'This upload session can no longer accept uploaded parts.',
+            'This upload session can no longer be completed.',
+            'This upload session can no longer be aborted.',
             'No uploaded parts were reported for this session.',
             'Multipart completion failed.',
+            'Uploaded part exceeds the allowed size for this upload session.',
+            'Uploaded part metadata did not match storage provider state.',
+            StorageManager::MISSING_FILE_SERVER_MESSAGE,
         ];
 
         if (in_array($message, $safeMessages, true)) {
@@ -70,6 +84,15 @@ class UploadApiController
         }
 
         return 'The upload request could not be completed.';
+    }
+
+    private function uploadFailureStatus(\Throwable $e, int $defaultStatus): int
+    {
+        if (trim($e->getMessage()) === StorageManager::MISSING_FILE_SERVER_MESSAGE) {
+            return 503;
+        }
+
+        return $defaultStatus;
     }
 
     private function ensureChunkedUploadsEnabled(): void
@@ -87,14 +110,21 @@ class UploadApiController
         $guestSessionId = $context['guest_session_id'];
         $payload = $this->jsonBody();
         $this->apiAuth->enforceRateLimit($context, 'api_upload_create_session', 60, 60);
-        $idempotency = $this->idempotency->begin(
-            $this->idempotencyKey(),
-            'upload.create_session',
-            $this->actorKey($context),
-            $userId,
-            $context['api_token']['id'] ?? null,
-            $payload
-        );
+        try {
+            $idempotency = $this->idempotency->begin(
+                $this->idempotencyKey(),
+                'upload.create_session',
+                $this->actorKey($context),
+                $userId,
+                $context['api_token']['id'] ?? null,
+                $payload
+            );
+        } catch (RuntimeException $e) {
+            if ($e->getMessage() === ApiIdempotencyService::STORAGE_UNAVAILABLE_MESSAGE) {
+                $this->jsonResponse(['error' => $e->getMessage()], 503);
+            }
+            throw $e;
+        }
         if (!empty($idempotency['replay'])) {
             $this->jsonResponse($idempotency['payload'], (int)$idempotency['status_code']);
         }
@@ -110,7 +140,8 @@ class UploadApiController
                 isset($payload['folder_id']) ? (int)$payload['folder_id'] : null,
                 isset($payload['mime_type']) ? (string)$payload['mime_type'] : null,
                 $guestSessionId,
-                isset($payload['checksum_sha256']) ? (string)$payload['checksum_sha256'] : null
+                isset($payload['checksum_sha256']) ? (string)$payload['checksum_sha256'] : null,
+                isset($payload['replace_file_id']) ? (int)$payload['replace_file_id'] : null
             );
 
             $response = [
@@ -119,13 +150,11 @@ class UploadApiController
                 'part_size_bytes' => $session['part_size_bytes'],
                 'expires_at' => $session['expires_at'],
                 'capabilities' => $session['capabilities'],
-                'upload_skipped' => !empty($session['upload_skipped']),
-                'file_id' => $session['file_id'] ?? null,
-                'deduplicated' => !empty($session['deduplicated']),
             ];
             $this->idempotency->complete($idempotency, 201, $response);
             $this->jsonResponse($response, 201);
         } catch (\Throwable $e) {
+            $this->idempotency->release($idempotency);
             $this->reportUploadFailure('create_session', $e);
         }
     }
@@ -136,14 +165,21 @@ class UploadApiController
         $context = $this->resolveApiContext(true, 'files.upload', true);
         $payload = $this->jsonBody();
         $this->apiAuth->enforceRateLimit($context, 'api_upload_managed_create', 30, 60);
-        $idempotency = $this->idempotency->begin(
-            $this->idempotencyKey(),
-            'upload.create_managed',
-            $this->actorKey($context),
-            $context['user_id'],
-            $context['api_token']['id'] ?? null,
-            $payload
-        );
+        try {
+            $idempotency = $this->idempotency->begin(
+                $this->idempotencyKey(),
+                'upload.create_managed',
+                $this->actorKey($context),
+                $context['user_id'],
+                $context['api_token']['id'] ?? null,
+                $payload
+            );
+        } catch (RuntimeException $e) {
+            if ($e->getMessage() === ApiIdempotencyService::STORAGE_UNAVAILABLE_MESSAGE) {
+                $this->jsonResponse(['error' => $e->getMessage()], 503);
+            }
+            throw $e;
+        }
         if (!empty($idempotency['replay'])) {
             $replayed = $idempotency['payload'];
             if (!empty($replayed['session']['public_id'])) {
@@ -172,23 +208,9 @@ class UploadApiController
                 isset($payload['folder_id']) ? (int)$payload['folder_id'] : null,
                 isset($payload['mime_type']) ? (string)$payload['mime_type'] : null,
                 $context['guest_session_id'],
-                isset($payload['checksum_sha256']) ? (string)$payload['checksum_sha256'] : null
+                isset($payload['checksum_sha256']) ? (string)$payload['checksum_sha256'] : null,
+                isset($payload['replace_file_id']) ? (int)$payload['replace_file_id'] : null
             );
-            if (!empty($session['upload_skipped'])) {
-                $response = [
-                    'status' => 'ok',
-                    'session' => $session['session'],
-                    'part_size_bytes' => 0,
-                    'parts' => [],
-                    'complete_url' => null,
-                    'report_part_url' => null,
-                    'upload_skipped' => true,
-                    'file_id' => $session['file_id'] ?? null,
-                    'deduplicated' => !empty($session['deduplicated']),
-                ];
-                $this->idempotency->complete($idempotency, 201, $response);
-                $this->jsonResponse($response, 201);
-            }
             $signed = $this->service->signParts($session['session'], $partNumbers, (int)($payload['expires_in'] ?? 3600));
             $response = [
                 'status' => 'ok',
@@ -197,13 +219,11 @@ class UploadApiController
                 'parts' => $signed,
                 'complete_url' => '/api/v1/uploads/sessions/' . rawurlencode($session['session']['public_id']) . '/complete',
                 'report_part_url' => '/api/v1/uploads/sessions/' . rawurlencode($session['session']['public_id']) . '/parts/report',
-                'upload_skipped' => false,
-                'file_id' => $session['file_id'] ?? null,
-                'deduplicated' => !empty($session['deduplicated']),
             ];
             $this->idempotency->complete($idempotency, 201, $response);
             $this->jsonResponse($response, 201);
         } catch (\Throwable $e) {
+            $this->idempotency->release($idempotency);
             $this->reportUploadFailure('create_managed', $e);
         }
     }
@@ -235,8 +255,12 @@ class UploadApiController
             $this->jsonResponse(['error' => 'At least one part number is required.'], 422);
         }
 
-        $urls = $this->service->signParts($session, $partNumbers, (int)($payload['expires_in'] ?? 3600));
-        $this->jsonResponse(['status' => 'ok', 'parts' => $urls]);
+        try {
+            $urls = $this->service->signParts($session, $partNumbers, (int)($payload['expires_in'] ?? 3600));
+            $this->jsonResponse(['status' => 'ok', 'parts' => $urls]);
+        } catch (\Throwable $e) {
+            $this->reportUploadFailure('sign_parts', $e);
+        }
     }
 
     public function reportPart(string $sessionId)
@@ -277,19 +301,13 @@ class UploadApiController
             $this->jsonResponse(['error' => 'Invalid part number.'], 422);
         }
 
-        $db = \App\Core\Database::getInstance()->getConnection();
-        $provider = \App\Core\StorageManager::getProviderById($session['storage_server_id'] ? (int)$session['storage_server_id'] : null, $db);
-        if (!method_exists($provider, 'writeMultipartPart')) {
-            $this->jsonResponse(['error' => 'The selected storage backend does not support app-routed multipart uploads.'], 422);
-        }
-
         $input = fopen('php://input', 'rb');
         if (!$input) {
             $this->jsonResponse(['error' => 'Could not read upload body.'], 500);
         }
 
         try {
-            $result = $provider->writeMultipartPart((string)$session['object_key'], (string)$session['multipart_upload_id'], $partNumber, $input);
+            $result = $this->service->writeUploadedPart($session, $partNumber, $input);
         } catch (\Throwable $e) {
             fclose($input);
             $this->reportUploadFailure('upload_part_binary', $e);
@@ -319,14 +337,21 @@ class UploadApiController
         [$userId, $guestSessionId] = [$context['user_id'], $context['guest_session_id']];
         $payload = $this->jsonBody();
         $this->apiAuth->enforceRateLimit($context, 'api_upload_complete', 60, 60);
-        $idempotency = $this->idempotency->begin(
-            $this->idempotencyKey(),
-            'upload.complete.' . $sessionId,
-            $this->actorKey($context),
-            $userId,
-            $context['api_token']['id'] ?? null,
-            $payload
-        );
+        try {
+            $idempotency = $this->idempotency->begin(
+                $this->idempotencyKey(),
+                'upload.complete.' . $sessionId,
+                $this->actorKey($context),
+                $userId,
+                $context['api_token']['id'] ?? null,
+                $payload
+            );
+        } catch (RuntimeException $e) {
+            if ($e->getMessage() === ApiIdempotencyService::STORAGE_UNAVAILABLE_MESSAGE) {
+                $this->jsonResponse(['error' => $e->getMessage()], 503);
+            }
+            throw $e;
+        }
         if (!empty($idempotency['replay'])) {
             $this->jsonResponse($idempotency['payload'], (int)$idempotency['status_code']);
         }
@@ -344,6 +369,7 @@ class UploadApiController
             $this->idempotency->complete($idempotency, 201, $response);
             $this->jsonResponse($response, 201);
         } catch (\Throwable $e) {
+            $this->idempotency->release($idempotency);
             $this->reportUploadFailure('complete', $e);
         }
     }
@@ -358,8 +384,12 @@ class UploadApiController
             $this->jsonResponse(['error' => 'Upload session not found.'], 404);
         }
 
-        $this->service->abort($session);
-        $this->jsonResponse(['status' => 'ok']);
+        try {
+            $this->service->abort($session);
+            $this->jsonResponse(['status' => 'ok']);
+        } catch (\Throwable $e) {
+            $this->reportUploadFailure('abort', $e);
+        }
     }
 
     public function downloadLink(string $fileId)
@@ -368,18 +398,24 @@ class UploadApiController
         $this->apiAuth->enforceRateLimit($context, 'api_download_link', 60, 60);
         $userId = $context['user_id'] ?? $this->requireUser();
 
-        $file = File::find($fileId);
+        $file = $this->ownedFileForActor($fileId, (int)$userId, false, false);
         if (!$file) {
             $this->jsonResponse(['error' => 'File not found.'], 404);
         }
 
-        if ((int)$file['user_id'] !== (int)$userId && !Auth::isAdmin()) {
-            $this->jsonResponse(['error' => 'File not found.'], 404);
-        }
-
         $downloadManager = new DownloadManager();
-        $delivery = $downloadManager->previewDelivery($file);
-        $downloadUrl = $downloadManager->generateSignedUrl((string)($file['short_id'] ?? $file['id']), $file['filename']);
+        try {
+            $delivery = $downloadManager->previewDelivery($file);
+            $downloadUrl = $downloadManager->issueNormalDownloadLink((string)($file['short_id'] ?? $file['id']), $file['filename']);
+        } catch (\RuntimeException $e) {
+            if (
+                $e->getMessage() === DownloadManager::DOWNLOAD_LINK_TRACKING_UNAVAILABLE_MESSAGE
+                || $e->getMessage() === StorageManager::MISSING_FILE_SERVER_MESSAGE
+            ) {
+                $this->jsonResponse(['error' => $e->getMessage()], 503);
+            }
+            throw $e;
+        }
 
         $this->jsonResponse([
             'status' => 'ok',
@@ -393,12 +429,8 @@ class UploadApiController
     public function fileInfo(string $fileId)
     {
         $context = $this->resolveApiContext(false, 'files.read', false);
-        $file = File::findAnyStatus($fileId);
+        $file = $this->ownedFileForActor($fileId, (int)($context['user_id'] ?? 0), true, false);
         if (!$file) {
-            $this->jsonResponse(['error' => 'File not found.'], 404);
-        }
-
-        if ((int)$file['user_id'] !== (int)$context['user_id'] && !Auth::isAdmin()) {
             $this->jsonResponse(['error' => 'File not found.'], 404);
         }
 
@@ -426,6 +458,20 @@ class UploadApiController
         }
 
         return (int)Auth::id();
+    }
+
+    private function ownedFileForActor(string $fileId, int $userId, bool $includeDeleted = false, bool $halt = true): ?array
+    {
+        $file = $includeDeleted ? File::findAnyStatus($fileId) : File::find($fileId);
+        if ($file && (int)($file['user_id'] ?? 0) === $userId) {
+            return $file;
+        }
+
+        if ($halt) {
+            $this->jsonResponse(['error' => 'File not found.'], 404);
+        }
+
+        return null;
     }
 
     private function resolveUploadActor(): array

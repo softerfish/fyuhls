@@ -98,7 +98,7 @@ foreach ($templates as $templateRow) {
         <details class="config-help-panel">
             <summary>How this works</summary>
             <div class="config-help-panel__body">
-                <p>Fyuhls queues most outbound email and lets cron process it in batches. That means SMTP settings, cron health, and your provider's rate limits all shape how quickly messages leave the system.</p>           
+                <p>Fyuhls queues most outbound email and lets cron process it in batches. That means SMTP settings, cron health, and your provider's rate limits all shape how quickly messages leave the system.</p>
             </div>
         </details>
 
@@ -135,7 +135,7 @@ foreach ($templates as $templateRow) {
                 <form method="POST" action="/admin/configuration/save" id="smtpForm">
                     <?= \App\Core\Csrf::field() ?>
                     <input type="hidden" name="section" value="email">
-                    
+
                     <div class="row">
                         <div class="col-md-8 mb-3">
                             <label class="form-label fw-bold">SMTP Host</label>
@@ -169,7 +169,7 @@ foreach ($templates as $templateRow) {
                         <label class="form-check-label fw-bold" for="smtpAuth">Server Requires Authentication</label>
                     </div>
 
-                    <div id="authFields" class="<?= !$requiresAuth ? 'email-auth-hidden' : '' ?>">
+                    <div id="authFields" class="<?= !$requiresAuth ? 'email-auth-optional' : '' ?>">
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Username</label>
@@ -180,6 +180,7 @@ foreach ($templates as $templateRow) {
                                 <input type="password" class="form-control" name="email_smtp_auth_password" placeholder="******** (Leave blank to keep current)">
                             </div>
                         </div>
+                        <small id="smtpAuthHelp" class="config-form-note">Most real SMTP providers on ports 465 or 587 expect authentication. Turn on <strong>Server Requires Authentication</strong> to use these credentials.</small>
                     </div>
 
                     <div class="mb-3 mt-4">
@@ -192,13 +193,16 @@ foreach ($templates as $templateRow) {
                     </div>
 <div class="config-sticky-save">
     <p class="config-sticky-save__text">SMTP changes affect every queued email in the app, so it's worth testing the connection before walking away.</p>
-    <div class="d-flex gap-2 flex-wrap">
-        <button type="submit" class="btn btn-primary px-4">
-            <i class="bi bi-save me-2"></i> Save SMTP Config
-        </button>
-        <button type="button" class="btn btn-outline-dark" id="testSmtpConnectionBtn">
-            <i class="bi bi-plug me-2"></i> Test Connection
-        </button>
+    <div class="email-sticky-actions">
+        <div class="d-flex gap-2 flex-wrap justify-content-end">
+            <button type="submit" class="btn btn-primary px-4">
+                <i class="bi bi-save me-2"></i> Save SMTP Config
+            </button>
+            <button type="button" class="btn btn-outline-dark" id="testSmtpConnectionBtn">
+                <i class="bi bi-plug me-2"></i> Test Connection
+            </button>
+        </div>
+        <div id="smtpConnectionResult" class="email-test-result small mt-2" role="status" aria-live="polite" hidden></div>
     </div>
 </div>
 </form>
@@ -215,7 +219,7 @@ foreach ($templates as $templateRow) {
                 <input type="email" id="testEmailAddr" class="form-control form-control-sm" placeholder="your@email.com">
                 <button class="btn btn-sm btn-dark" type="button" id="sendTestEmailBtn">Send</button>
             </div>
-            <div id="testResult" class="email-test-result small mt-2"></div>
+            <div id="testResult" class="email-test-result small mt-2" role="status" aria-live="polite" hidden></div>
         </div>
     </div>
 
@@ -305,11 +309,48 @@ foreach ($templates as $templateRow) {
 </div>
 
 <style>
-.email-auth-hidden{display:none}
+.email-auth-optional{opacity:.78}
+.config-sticky-save .config-sticky-save__text{
+    flex:1 1 260px;
+    min-width:220px;
+}
+.email-sticky-actions{
+    display:flex;
+    flex:0 1 420px;
+    flex-direction:column;
+    align-items:stretch;
+    width:min(100%, 420px);
+    min-width:280px;
+}
 .email-rate-limit{max-width:300px}
 .email-template-group{width:140px}
 .email-template-subject{min-width:280px; white-space:normal; word-break:break-word}
-.email-test-result{display:none}
+.email-test-result{
+    width:100%;
+    margin-bottom:0;
+    padding:.7rem .85rem;
+    border:1px solid #dbe3f0;
+    border-radius:10px;
+    background:#f8fbff;
+    text-align:left;
+}
+.email-test-result.text-success{
+    border-color:#bbf7d0;
+    background:#f0fdf4;
+    color:#166534 !important;
+}
+.email-test-result.text-danger{
+    border-color:#fecaca;
+    background:#fef2f2;
+    color:#b91c1c !important;
+}
+@media (max-width: 1199.98px){
+    .email-sticky-actions{
+        flex-basis:100%;
+        width:100%;
+        min-width:0;
+    }
+}
 .email-sponsor-callout{
     margin-top:1rem;
     padding:1rem 1.125rem;
@@ -350,6 +391,67 @@ foreach ($templates as $templateRow) {
 </style>
 
 <script>
+function updateEmailToolResult(resultDiv, status, message) {
+    if (!resultDiv) {
+        return;
+    }
+
+    resultDiv.className = 'email-test-result small mt-2 ' + (status === 'success' ? 'text-success' : 'text-danger');
+    resultDiv.textContent = message;
+    resultDiv.hidden = false;
+}
+
+function parseEmailToolResponse(response) {
+    return response.text().then(text => {
+        let payload = null;
+        try {
+            payload = JSON.parse(text);
+        } catch (error) {
+            payload = null;
+        }
+
+        if (payload && typeof payload === 'object') {
+            return payload;
+        }
+
+        const fallbackMessage = text.trim() !== '' ? text.trim() : 'The server returned an unexpected response.';
+        return {
+            status: 'error',
+            message: fallbackMessage
+        };
+    });
+}
+
+function emailToolRequest(url, formData, timeoutMs) {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timeoutHandle = null;
+
+    if (controller) {
+        timeoutHandle = window.setTimeout(function() {
+            controller.abort();
+        }, timeoutMs);
+    }
+
+    return fetch(url, {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin',
+        signal: controller ? controller.signal : undefined
+    })
+    .then(parseEmailToolResponse)
+    .catch(function(error) {
+        if (error && error.name === 'AbortError') {
+            throw new Error('The request timed out before the server responded. Check the SMTP host, port, and firewall reachability.');
+        }
+        throw error;
+    })
+    .finally(function() {
+        if (timeoutHandle !== null) {
+            window.clearTimeout(timeoutHandle);
+        }
+    });
+}
+
 function editTemplate(tpl) {
     document.getElementById('tplKey').value = tpl.template_key;
     document.getElementById('tplTitle').innerText = 'Edit: ' + tpl.template_key;
@@ -360,18 +462,24 @@ function editTemplate(tpl) {
 
 function testSmtpConnection(btn) {
     const originalHtml = btn.innerHTML;
+    const resultDiv = document.getElementById('smtpConnectionResult');
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Testing...';
     btn.disabled = true;
+    updateEmailToolResult(resultDiv, 'success', 'Testing SMTP connection...');
 
     const formData = new FormData(document.getElementById('smtpForm'));
-    
-    fetch('/admin/email/test-connection', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
+
+    emailToolRequest('/admin/email/test-connection', formData, 15000)
     .then(data => {
-        alert(data.message);
+        updateEmailToolResult(resultDiv, data.status === 'success' ? 'success' : 'error', data.message || 'SMTP connection test finished.');
+        if (data.status !== 'success') {
+            window.adminAlert(data.message || 'SMTP connection test failed.');
+        }
+    })
+    .catch(error => {
+        const message = 'SMTP connection test failed before a valid response was returned. ' + error.message;
+        updateEmailToolResult(resultDiv, 'error', message);
+        window.adminAlert(message);
     })
     .finally(() => {
         btn.innerHTML = originalHtml;
@@ -381,55 +489,68 @@ function testSmtpConnection(btn) {
 
 function sendTestEmail() {
     const target = document.getElementById('testEmailAddr').value;
-    if(!target) { alert('Enter an email address'); return; }
+    if(!target) { window.adminAlert('Enter an email address'); return; }
 
     const resultDiv = document.getElementById('testResult');
-    resultDiv.className = 'small mt-2 text-primary';
-    resultDiv.innerHTML = 'Sending...';
-    resultDiv.style.display = '';
+    updateEmailToolResult(resultDiv, 'success', 'Sending test email...');
 
     const formData = new FormData(document.getElementById('smtpForm'));
     formData.append('test_email_address', target);
 
-    fetch('/admin/email/test-send', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
+    emailToolRequest('/admin/email/test-send', formData, 20000)
     .then(data => {
-        resultDiv.className = 'small mt-2 ' + (data.status === 'success' ? 'text-success' : 'text-danger');
-        resultDiv.innerHTML = data.message;
+        updateEmailToolResult(resultDiv, data.status === 'success' ? 'success' : 'error', data.message || 'Test email request finished.');
+        if (data.status !== 'success') {
+            window.adminAlert(data.message || 'Test email failed.');
+        }
     })
     .catch(e => {
-        resultDiv.className = 'small mt-2 text-danger';
-        resultDiv.innerHTML = 'Error: ' + e.message;
+        const message = 'Test email failed before a valid response was returned. ' + e.message;
+        updateEmailToolResult(resultDiv, 'error', message);
+        window.adminAlert(message);
     });
 }
 
-document.addEventListener('DOMContentLoaded', function() {
+function initializeEmailToolBindings() {
     const smtpAuth = document.getElementById('smtpAuth');
     const authFields = document.getElementById('authFields');
-    if (smtpAuth && authFields) {
+    const smtpAuthHelp = document.getElementById('smtpAuthHelp');
+    if (smtpAuth && authFields && smtpAuth.dataset.emailInit !== '1') {
         const syncAuthFields = function() {
-            authFields.style.display = smtpAuth.checked ? '' : 'none';
+            authFields.classList.toggle('email-auth-optional', !smtpAuth.checked);
+            if (smtpAuthHelp) {
+                smtpAuthHelp.innerHTML = smtpAuth.checked
+                    ? 'SMTP authentication is enabled. These credentials will be used for save, connection test, and test email requests.'
+                    : 'Most real SMTP providers on ports 465 or 587 expect authentication. Turn on <strong>Server Requires Authentication</strong> to use these credentials.';
+            }
         };
         smtpAuth.addEventListener('change', syncAuthFields);
+        smtpAuth.dataset.emailInit = '1';
         syncAuthFields();
     }
 
     const testConnectionBtn = document.getElementById('testSmtpConnectionBtn');
-    if (testConnectionBtn) {
-        testConnectionBtn.addEventListener('click', function() {
+    if (testConnectionBtn && testConnectionBtn.dataset.emailInit !== '1') {
+        testConnectionBtn.addEventListener('click', function(event) {
+            event.preventDefault();
             testSmtpConnection(testConnectionBtn);
         });
+        testConnectionBtn.dataset.emailInit = '1';
     }
 
     const sendTestEmailBtn = document.getElementById('sendTestEmailBtn');
-    if (sendTestEmailBtn) {
-        sendTestEmailBtn.addEventListener('click', sendTestEmail);
+    if (sendTestEmailBtn && sendTestEmailBtn.dataset.emailInit !== '1') {
+        sendTestEmailBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+            sendTestEmail();
+        });
+        sendTestEmailBtn.dataset.emailInit = '1';
     }
 
     document.querySelectorAll('[data-template]').forEach(function(button) {
+        if (button.dataset.emailInit === '1') {
+            return;
+        }
         button.addEventListener('click', function() {
             const rawTemplate = button.getAttribute('data-template');
             if (!rawTemplate) {
@@ -442,7 +563,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('Failed to parse template data:', error);
             }
         });
+        button.dataset.emailInit = '1';
     });
-});
-</script>
+}
 
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeEmailToolBindings, { once: true });
+} else {
+    initializeEmailToolBindings();
+}
+</script>

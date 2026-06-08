@@ -46,6 +46,7 @@ $typeLinks = [
     'dmca_report' => 'DMCA',
     'abuse_report' => 'Abuse',
 ];
+$typeLinks = is_array($availableTypeLinks ?? null) && !empty($availableTypeLinks) ? $availableTypeLinks : $typeLinks;
 
 $statusChipClass = static function (string $typeKey, string $status): string {
     return match ($typeKey) {
@@ -116,10 +117,43 @@ $staleClass = static function (int $days): string {
 
 include 'header.php';
 include __DIR__ . '/partials/shell_helpers.php';
-$returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
+$requestBasePath = $requestBasePath ?? '/admin/requests';
+$requestsLockedType = $requestsLockedType ?? null;
+$returnTo = $returnTo ?? ($_SERVER['REQUEST_URI'] ?? $requestBasePath);
+$requestsPageTitle = $requestsPageTitle ?? 'Tickets';
+$requestsPageIntro = $requestsPageIntro ?? 'One queue for support tickets, contact submissions, abuse reports, and DMCA notices.';
+$requestPagination = is_array($requestPagination ?? null) ? $requestPagination : [];
+$requestPage = max(1, (int)($requestPagination['page'] ?? 1));
+$requestPerPage = max(1, (int)($requestPagination['per_page'] ?? max(1, count($items ?? []))));
+$requestTotal = max(0, (int)($requestPagination['total'] ?? count($items ?? [])));
+$requestTotalPages = max(1, (int)($requestPagination['total_pages'] ?? 1));
+$requestPageStart = $requestTotal > 0 ? (($requestPage - 1) * $requestPerPage) + 1 : 0;
+$requestPageEnd = $requestTotal > 0 ? min($requestTotal, $requestPageStart + count($items ?? []) - 1) : 0;
+$requestQueueUrl = static function (int $page) use ($requestBasePath, $requestsLockedType, $filterType, $filterStatus, $filterPriority, $filterStale, $searchQuery): string {
+    $params = [
+        'type' => $requestsLockedType !== null ? (string)$requestsLockedType : (string)$filterType,
+    ];
+    if ($filterStatus !== '') {
+        $params['status'] = $filterStatus;
+    }
+    if ($filterPriority !== '') {
+        $params['priority'] = $filterPriority;
+    }
+    if ($filterStale !== '') {
+        $params['stale'] = $filterStale;
+    }
+    if ($searchQuery !== '') {
+        $params['q'] = $searchQuery;
+    }
+    if ($page > 1) {
+        $params['page'] = $page;
+    }
+
+    return $requestBasePath . '?' . http_build_query($params);
+};
 ?>
 
-<?php renderAdminPageHeader('Tickets', 'One queue for support tickets, contact submissions, abuse reports, and DMCA notices.'); ?>
+<?php renderAdminPageHeader($requestsPageTitle, $requestsPageIntro); ?>
 
 <div class="row g-3 mb-4">
     <div class="col-md-6 col-xl-2">
@@ -144,35 +178,41 @@ $returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
 
 <?php renderAdminCardStart(null, ['cardClass' => 'card border-0 shadow-sm mb-4', 'bodyClass' => 'card-body']); ?>
     <div class="d-flex flex-column gap-3">
-        <div class="d-flex flex-wrap gap-2 align-items-center">
-            <?php foreach ($typeLinks as $typeKey => $label): ?>
-                <?php
-                $count = match ($typeKey) {
-                    'support_ticket' => (int)($typeCounts['support_ticket'] ?? 0),
-                    'site_request' => (int)($typeCounts['site_request'] ?? 0),
-                    'abuse_report' => (int)($typeCounts['abuse_report'] ?? 0),
-                    'dmca_report' => (int)($typeCounts['dmca_report'] ?? 0),
-                    'all' => (int)($summary['open_total'] ?? 0),
-                    'archived' => 0,
-                    default => 0,
-                };
-                $url = '/admin/requests?type=' . urlencode($typeKey)
-                    . ($filterStatus !== '' ? '&status=' . urlencode($filterStatus) : '')
-                    . ($filterPriority !== '' ? '&priority=' . urlencode($filterPriority) : '')
-                    . ($filterStale !== '' ? '&stale=' . urlencode($filterStale) : '')
-                    . ($searchQuery !== '' ? '&q=' . urlencode($searchQuery) : '');
-                ?>
-                <a href="<?= htmlspecialchars($url) ?>" class="btn btn-sm <?= $filterType === $typeKey ? 'btn-primary' : 'btn-outline-secondary' ?>">
-                    <?= htmlspecialchars($label) ?>
-                    <?php if ($typeKey !== 'archived'): ?>
-                        <span class="badge ms-2 <?= $filterType === $typeKey ? 'bg-white text-primary' : 'bg-light text-dark border' ?>"><?= number_format($count) ?></span>
-                    <?php endif; ?>
-                </a>
-            <?php endforeach; ?>
-        </div>
+        <?php if ($requestsLockedType === null): ?>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <?php foreach ($typeLinks as $typeKey => $label): ?>
+                    <?php
+                    $count = match ($typeKey) {
+                        'support_ticket' => (int)($typeCounts['support_ticket'] ?? 0),
+                        'site_request' => (int)($typeCounts['site_request'] ?? 0),
+                        'abuse_report' => (int)($typeCounts['abuse_report'] ?? 0),
+                        'dmca_report' => (int)($typeCounts['dmca_report'] ?? 0),
+                        'all' => (int)($summary['open_total'] ?? 0),
+                        'archived' => 0,
+                        default => 0,
+                    };
+                    $url = $requestBasePath . '?type=' . urlencode($typeKey)
+                        . ($filterStatus !== '' ? '&status=' . urlencode($filterStatus) : '')
+                        . ($filterPriority !== '' ? '&priority=' . urlencode($filterPriority) : '')
+                        . ($filterStale !== '' ? '&stale=' . urlencode($filterStale) : '')
+                        . ($searchQuery !== '' ? '&q=' . urlencode($searchQuery) : '');
+                    ?>
+                    <a href="<?= htmlspecialchars($url) ?>" class="btn btn-sm <?= $filterType === $typeKey ? 'btn-primary' : 'btn-outline-secondary' ?>">
+                        <?= htmlspecialchars($label) ?>
+                        <?php if ($typeKey !== 'archived'): ?>
+                            <span class="badge ms-2 <?= $filterType === $typeKey ? 'bg-white text-primary' : 'bg-light text-dark border' ?>"><?= number_format($count) ?></span>
+                        <?php endif; ?>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
 
-        <form method="GET" action="/admin/requests" class="row g-2 align-items-end">
-            <input type="hidden" name="type" value="<?= htmlspecialchars((string)$filterType) ?>">
+        <form method="GET" action="<?= htmlspecialchars($requestBasePath) ?>" class="row g-2 align-items-end">
+            <?php if ($requestsLockedType !== null): ?>
+                <input type="hidden" name="type" value="<?= htmlspecialchars((string)$requestsLockedType) ?>">
+            <?php else: ?>
+                <input type="hidden" name="type" value="<?= htmlspecialchars((string)$filterType) ?>">
+            <?php endif; ?>
             <div class="col-lg-4">
                 <label class="form-label fw-semibold small mb-1">Search Queue</label>
                 <input type="text" name="q" class="form-control form-control-sm" placeholder="Ticket ID, subject, user, email..." value="<?= htmlspecialchars((string)$searchQuery) ?>">
@@ -205,13 +245,27 @@ $returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
             </div>
             <div class="col-lg-2 d-flex gap-2">
                 <button type="submit" class="btn btn-sm btn-primary flex-grow-1">Apply</button>
-                <a href="/admin/requests?type=<?= urlencode((string)$filterType) ?>" class="btn btn-sm btn-outline-secondary">Reset</a>
+                <a href="<?= htmlspecialchars($requestBasePath . '?type=' . urlencode((string)$filterType)) ?>" class="btn btn-sm btn-outline-secondary">Reset</a>
             </div>
         </form>
     </div>
 <?php renderAdminCardEnd(); ?>
 
 <?php renderAdminCardStart(null, ['cardClass' => 'card border-0 shadow-sm']); ?>
+    <div class="requests-pagination">
+        <div class="requests-pagination__copy">
+            <?php if ($requestTotal > 0): ?>
+                Showing <?= number_format($requestPageStart) ?>-<?= number_format($requestPageEnd) ?> of <?= number_format($requestTotal) ?> tickets
+            <?php else: ?>
+                No tickets to show
+            <?php endif; ?>
+        </div>
+        <div class="requests-pagination__actions">
+            <a class="btn btn-sm btn-outline-secondary <?= $requestPage <= 1 ? 'disabled' : '' ?>" href="<?= htmlspecialchars($requestQueueUrl(max(1, $requestPage - 1))) ?>" aria-disabled="<?= $requestPage <= 1 ? 'true' : 'false' ?>">Previous</a>
+            <span class="requests-pagination__page">Page <?= number_format($requestPage) ?> of <?= number_format($requestTotalPages) ?></span>
+            <a class="btn btn-sm btn-outline-secondary <?= $requestPage >= $requestTotalPages ? 'disabled' : '' ?>" href="<?= htmlspecialchars($requestQueueUrl(min($requestTotalPages, $requestPage + 1))) ?>" aria-disabled="<?= $requestPage >= $requestTotalPages ? 'true' : 'false' ?>">Next</a>
+        </div>
+    </div>
     <?php if (empty($items)): ?>
         <div class="text-center text-muted py-5 mb-0">
             <?= !empty($showArchived) ? 'No archived tickets matched this view.' : 'No tickets matched this queue filter.' ?>
@@ -228,6 +282,10 @@ $returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
                 $itemStatusOptions = is_array($item['status_options'] ?? null) && !empty($item['status_options']) ? $item['status_options'] : ($statusOptions[$typeKey] ?? []);
                 $itemStatusLabels = is_array($item['status_labels'] ?? null) && !empty($item['status_labels']) ? $item['status_labels'] : ($statusLabels[$typeKey] ?? []);
                 $label = (string)($itemStatusLabels[$item['status']] ?? $item['status']);
+                $assignedStaffName = trim((string)($item['assigned_staff_username'] ?? ''));
+                $hiddenFromOthers = !empty($item['hidden_from_others']);
+                $typeAssignableStaff = is_array($assignableStaffByType[$typeKey] ?? null) ? $assignableStaffByType[$typeKey] : [];
+                $canReassignHiddenTicket = !empty($item['can_reassign_hidden_ticket']);
                 ?>
                 <div class="requests-item border-bottom">
                     <div class="requests-item__summary">
@@ -238,6 +296,12 @@ $returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
                             <span class="<?= $staleClass($days) ?>"><?= htmlspecialchars($staleLabel($days)) ?></span>
                             <?php if (!empty($item['public_id'])): ?>
                                 <code class="requests-public-id">#<?= htmlspecialchars((string)$item['public_id']) ?></code>
+                            <?php endif; ?>
+                            <?php if ($assignedStaffName !== ''): ?>
+                                <span class="requests-assignee-chip">Assigned: <?= htmlspecialchars($assignedStaffName) ?></span>
+                            <?php endif; ?>
+                            <?php if ($hiddenFromOthers): ?>
+                                <span class="requests-hidden-chip">Hidden</span>
                             <?php endif; ?>
                         </div>
 
@@ -455,6 +519,67 @@ $returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
                                         </div>
                                     </div>
 
+                                    <?php if ($backend === 'ticket'): ?>
+                                        <form method="POST" action="/admin/requests/assign" class="requests-panel mb-4">
+                                            <?= \App\Core\Csrf::field() ?>
+                                            <input type="hidden" name="request_type" value="<?= htmlspecialchars($typeKey) ?>">
+                                            <input type="hidden" name="request_id" value="<?= (int)$item['id'] ?>">
+                                            <input type="hidden" name="request_backend" value="<?= htmlspecialchars($backend) ?>">
+                                            <?php if (!empty($item['public_id'])): ?>
+                                                <input type="hidden" name="request_public_id" value="<?= htmlspecialchars((string)$item['public_id']) ?>">
+                                            <?php endif; ?>
+                                            <input type="hidden" name="return_to" value="<?= htmlspecialchars((string)$returnTo) ?>">
+                                            <div class="requests-panel__title">Assignment</div>
+                                            <div class="small text-muted mb-3">Assign this ticket to a specific admin or moderator who can work this queue.</div>
+                                            <div class="mb-3">
+                                                <label class="form-label fw-semibold">Assigned Staff</label>
+                                                <select name="assigned_staff_user_id" class="form-select form-select-sm">
+                                                    <option value="">Unassigned</option>
+                                                    <?php foreach ($typeAssignableStaff as $staffOption): ?>
+                                                        <option value="<?= (int)$staffOption['id'] ?>" <?= !empty($item['assigned_staff_user_id']) && (int)$item['assigned_staff_user_id'] === (int)$staffOption['id'] ? 'selected' : '' ?>>
+                                                            <?= htmlspecialchars((string)$staffOption['name']) ?> (<?= htmlspecialchars(ucfirst((string)$staffOption['role'])) ?>)
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                            <?php if ($hiddenFromOthers && !$canReassignHiddenTicket): ?>
+                                                <div class="small text-muted">Hidden tickets can only be reassigned by the admin who hid them or the protected super admin.</div>
+                                            <?php else: ?>
+                                                <button type="submit" class="btn btn-outline-primary btn-sm">Save Assignment</button>
+                                            <?php endif; ?>
+                                        </form>
+
+                                        <form method="POST" action="/admin/requests/visibility" class="requests-panel mb-4">
+                                            <?= \App\Core\Csrf::field() ?>
+                                            <input type="hidden" name="request_type" value="<?= htmlspecialchars($typeKey) ?>">
+                                            <input type="hidden" name="request_id" value="<?= (int)$item['id'] ?>">
+                                            <input type="hidden" name="request_backend" value="<?= htmlspecialchars($backend) ?>">
+                                            <?php if (!empty($item['public_id'])): ?>
+                                                <input type="hidden" name="request_public_id" value="<?= htmlspecialchars((string)$item['public_id']) ?>">
+                                            <?php endif; ?>
+                                            <input type="hidden" name="return_to" value="<?= htmlspecialchars((string)$returnTo) ?>">
+                                            <input type="hidden" name="hidden_from_others" value="<?= $hiddenFromOthers ? '0' : '1' ?>">
+                                            <div class="requests-panel__title">Visibility</div>
+                                            <div class="small text-muted mb-3">
+                                                <?php if ($hiddenFromOthers): ?>
+                                                    Hidden tickets are only visible to the protected super admin, the admin who hid them, and the assigned staff member.
+                                                <?php else: ?>
+                                                    Visible tickets can be seen by any eligible staff member for this queue.
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php if ($hiddenFromOthers && !empty($item['hidden_by_admin_username'])): ?>
+                                                <div class="small text-muted mb-3">Hidden by <?= htmlspecialchars((string)$item['hidden_by_admin_username']) ?>.</div>
+                                            <?php endif; ?>
+                                            <?php if (!empty($canHideTicketVisibility)): ?>
+                                                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                                    <?= $hiddenFromOthers ? 'Make Visible to Staff' : 'Hide from Other Staff' ?>
+                                                </button>
+                                            <?php else: ?>
+                                                <div class="small text-muted">Only admins can change hidden visibility. Moderators can still assign tickets.</div>
+                                            <?php endif; ?>
+                                        </form>
+                                    <?php endif; ?>
+
                                     <?php if (in_array($typeKey, ['support_ticket', 'site_request', 'dmca_report'], true)): ?>
                                         <div class="collapse mb-4" id="<?= htmlspecialchars($replyId) ?>">
                                             <form method="POST" action="/admin/requests/reply" class="requests-panel">
@@ -538,11 +663,27 @@ $returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
                 </div>
             <?php endforeach; ?>
         </div>
+        <div class="requests-pagination requests-pagination--bottom">
+            <div class="requests-pagination__copy">
+                Showing <?= number_format($requestPageStart) ?>-<?= number_format($requestPageEnd) ?> of <?= number_format($requestTotal) ?> tickets
+            </div>
+            <div class="requests-pagination__actions">
+                <a class="btn btn-sm btn-outline-secondary <?= $requestPage <= 1 ? 'disabled' : '' ?>" href="<?= htmlspecialchars($requestQueueUrl(max(1, $requestPage - 1))) ?>" aria-disabled="<?= $requestPage <= 1 ? 'true' : 'false' ?>">Previous</a>
+                <span class="requests-pagination__page">Page <?= number_format($requestPage) ?> of <?= number_format($requestTotalPages) ?></span>
+                <a class="btn btn-sm btn-outline-secondary <?= $requestPage >= $requestTotalPages ? 'disabled' : '' ?>" href="<?= htmlspecialchars($requestQueueUrl(min($requestTotalPages, $requestPage + 1))) ?>" aria-disabled="<?= $requestPage >= $requestTotalPages ? 'true' : 'false' ?>">Next</a>
+            </div>
+        </div>
     <?php endif; ?>
 <?php renderAdminCardEnd(); ?>
 
 <style>
 .requests-list { display: flex; flex-direction: column; }
+.requests-pagination { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid rgba(15, 23, 42, 0.08); flex-wrap: wrap; }
+.requests-pagination--bottom { border-top: 1px solid rgba(15, 23, 42, 0.08); border-bottom: 0; }
+.requests-pagination__copy { color: #64748b; font-size: 0.92rem; font-weight: 600; }
+.requests-pagination__actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.requests-pagination__actions .btn[aria-disabled="true"] { pointer-events: none; opacity: 0.55; }
+.requests-pagination__page { color: #475569; font-size: 0.88rem; font-weight: 700; }
 .requests-item__summary { padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.9rem; }
 .requests-item__meta { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .requests-item__header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
@@ -551,7 +692,9 @@ $returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
 .requests-status-chip,
 .requests-priority-chip,
 .requests-stale-chip,
-.requests-public-id {
+.requests-public-id,
+.requests-assignee-chip,
+.requests-hidden-chip {
     font-size: 0.72rem;
     font-weight: 700;
     border-radius: 999px;
@@ -567,6 +710,8 @@ $returnTo = $_SERVER['REQUEST_URI'] ?? '/admin/requests';
 .requests-stale-chip--warning { background: rgba(245, 158, 11, 0.12); color: #b45309; }
 .requests-stale-chip--danger { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
 .requests-public-id { background: rgba(15, 23, 42, 0.06); color: #334155; }
+.requests-assignee-chip { background: rgba(16, 185, 129, 0.12); color: #047857; }
+.requests-hidden-chip { background: rgba(107, 33, 168, 0.12); color: #7c3aed; }
 .requests-item__detail { border-top: 1px solid rgba(15, 23, 42, 0.08); }
 .requests-panel { background: #fff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 10px; padding: 1rem; }
 .requests-panel__title { font-weight: 800; margin-bottom: 0.85rem; }

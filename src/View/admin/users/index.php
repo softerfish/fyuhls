@@ -1,6 +1,7 @@
 <?php
 include __DIR__ . '/../header.php';
 include __DIR__ . '/../partials/shell_helpers.php';
+$currentAdminId = (int)(\App\Core\Auth::id() ?? 0);
 ?>
 
 <style>
@@ -36,7 +37,15 @@ include __DIR__ . '/../partials/shell_helpers.php';
         color: #2563eb;
         font-weight: 600;
     }
+    .users-role-moderator {
+        color: #7c3aed;
+        font-weight: 600;
+    }
     .users-role-user { color: var(--text-muted); }
+    .users-role-super-admin {
+        color: #b45309;
+        font-weight: 700;
+    }
     .users-status-active { color: #10b981; }
     .users-status-banned { color: #ef4444; }
     .users-status-other { color: #f59e0b; }
@@ -65,13 +74,25 @@ include __DIR__ . '/../partials/shell_helpers.php';
 <?php ob_start(); ?>
     <div class="d-flex justify-content-between align-items-center">
         <div class="fw-semibold">Create Account</div>
-        <span class="users-card-header-note">Create a standard or admin account without leaving the Users page.</span>
+        <span class="users-card-header-note">Create standard users, moderators, or admins without leaving the Users page.</span>
     </div>
 <?php $usersCreateHeader = ob_get_clean(); ?>
 <?php renderAdminCardStart(null, ['cardClass' => 'card mb-4', 'headerHtml' => $usersCreateHeader]); ?>
-        <?php if (!empty($demoMode)): ?>
-            <div class="alert alert-info users-demo-note">Demo mode is active. You can mark one active admin account as the demo admin. That account keeps sensitive items hidden, while other admins can still reveal protected fields when needed.</div>
-        <?php endif; ?>
+        <div class="alert alert-info users-demo-note">
+            <?php if (!empty($demoMode)): ?>
+                <?php if (!empty($canManageStaffPermissions)): ?>
+                    Demo mode is active. You can move the demo-admin designation between active admin accounts from User Management. That account keeps sensitive items hidden, while other admins can still reveal protected fields when needed.
+                <?php else: ?>
+                    Demo mode is active. The designated demo admin account keeps sensitive items hidden, and staff with permission-management access can move that designation between active admin accounts from User Management.
+                <?php endif; ?>
+            <?php else: ?>
+                <?php if (!empty($canManageStaffPermissions)): ?>
+                    You can predesignate one active admin account as the demo admin before turning demo mode on. After you create the admin, use the Users list to mark it here so you do not need to sign into that account first.
+                <?php else: ?>
+                    Staff with permission-management access can predesignate one active admin account as the demo admin before turning demo mode on, so the target account does not need to sign in first.
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
         <form method="POST" action="/admin/users/create">
             <?= \App\Core\Csrf::field() ?>
             <div class="row">
@@ -85,27 +106,49 @@ include __DIR__ . '/../partials/shell_helpers.php';
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold small">Temporary Password</label>
-                    <input type="text" class="form-control" name="password" required minlength="6" autocomplete="new-password">
+                    <input type="password" class="form-control" name="password" required minlength="10" autocomplete="new-password">
                 </div>
             </div>
 
             <div class="row">
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold small">Package</label>
-                    <select class="form-select" name="package_id">
-                        <?php foreach ($packages as $package): ?>
-                            <option value="<?= (int)$package['id'] ?>" <?= (int)($createForm['package_id'] ?? 1) === (int)$package['id'] ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($package['name']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
+                    <?php if (!empty($canManagePackages)): ?>
+                        <select class="form-select" name="package_id">
+                            <?php foreach ($packages as $package): ?>
+                                <option value="<?= (int)$package['id'] ?>" <?= (int)($createForm['package_id'] ?? $defaultAssignablePackageId ?? 0) === (int)$package['id'] ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($package['name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php else: ?>
+                        <?php
+                        $defaultPackageName = 'Default package';
+                        foreach ($packages as $package) {
+                            if ((int)$package['id'] === (int)($defaultAssignablePackageId ?? 0)) {
+                                $defaultPackageName = (string)$package['name'];
+                                break;
+                            }
+                        }
+                        ?>
+                        <input type="hidden" name="package_id" value="<?= (int)($defaultAssignablePackageId ?? 0) ?>">
+                        <input type="text" class="form-control" value="<?= htmlspecialchars($defaultPackageName) ?>" disabled>
+                        <small class="text-muted d-block mt-2">Package assignment requires subscription-management access. New accounts you create will use the default assignable package.</small>
+                    <?php endif; ?>
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold small">Role</label>
                     <select class="form-select" name="role">
-                        <option value="user" <?= ($createForm['role'] ?? 'user') === 'user' ? 'selected' : '' ?>>User</option>
-                        <option value="admin" <?= ($createForm['role'] ?? '') === 'admin' ? 'selected' : '' ?>>Admin</option>
+                        <?php foreach (($roleOptions ?? []) as $roleKey => $roleLabel): ?>
+                            <?php if (!$canManageStaffPermissions && $roleKey !== 'user') continue; ?>
+                            <option value="<?= htmlspecialchars($roleKey) ?>" <?= ($createForm['role'] ?? 'user') === $roleKey ? 'selected' : '' ?>><?= htmlspecialchars($roleLabel) ?></option>
+                        <?php endforeach; ?>
                     </select>
+                    <?php if (!$canManageStaffPermissions): ?>
+                        <small class="text-muted d-block mt-2">Your staff profile can create standard users. Staff role assignment stays with accounts that can manage permissions.</small>
+                    <?php elseif (empty($canEditProtectedSuperAdmin)): ?>
+                        <small class="text-muted d-block mt-2">New admin accounts do not get access to the protected super admin account unless you explicitly turn that permission on later.</small>
+                    <?php endif; ?>
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold small">Status</label>
@@ -117,7 +160,7 @@ include __DIR__ . '/../partials/shell_helpers.php';
             </div>
 
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
-                <small class="text-muted">Use Edit after creation for password resets, credits, package changes, or 2FA overrides.</small>
+                <small class="text-muted">Use Edit after creation for password resets, credits, non-paid package changes, or 2FA overrides. Use Subscriptions for paid-package changes.</small>
                 <button type="submit" class="btn btn-primary">Create User</button>
             </div>
         </form>
@@ -157,9 +200,14 @@ include __DIR__ . '/../partials/shell_helpers.php';
                             <td>
                                 <?php if ($user['role'] === 'admin'): ?>
                                     <span class="users-role-admin">admin</span>
-                                    <?php if (!empty($demoMode) && (int)($demoAdminUserId ?? 0) === (int)$user['id']): ?>
-                                        <span class="badge bg-warning text-dark ms-2">demo admin</span>
+                                    <?php if (!empty($user['is_super_admin'])): ?>
+                                        <span class="badge bg-warning text-dark ms-2">super admin</span>
                                     <?php endif; ?>
+                                    <?php if ((int)($demoAdminUserId ?? 0) === (int)$user['id']): ?>
+                                        <span class="badge bg-warning text-dark ms-2"><?= !empty($demoMode) ? 'demo admin' : 'designated demo admin' ?></span>
+                                    <?php endif; ?>
+                                <?php elseif ($user['role'] === 'moderator'): ?>
+                                    <span class="users-role-moderator">moderator</span>
                                 <?php else: ?>
                                     <span class="users-role-user">user</span>
                                 <?php endif; ?>
@@ -176,30 +224,45 @@ include __DIR__ . '/../partials/shell_helpers.php';
                             <td class="users-joined"><?= date('M j, Y', strtotime($user['created_at'])) ?></td>
                             <td>
                                 <div class="users-actions">
-                                    <a href="/admin/users/edit/<?= $user['id'] ?>" class="btn btn-sm btn-secondary">edit</a>
+                                    <?php if (!empty($user['is_super_admin']) && empty($canEditProtectedSuperAdmin) && (int)$user['id'] !== $currentAdminId): ?>
+                                        <span class="btn btn-sm btn-secondary disabled" aria-disabled="true">protected</span>
+                                    <?php else: ?>
+                                        <?php $userActionLink = \App\Service\AdminUserNavigationService::destinationForUserEdit((int)$user['id'], $currentAdminId); ?>
+                                        <a href="<?= htmlspecialchars($userActionLink) ?>" class="btn btn-sm btn-secondary"><?= (int)$user['id'] === $currentAdminId ? 'my settings' : 'edit' ?></a>
+                                    <?php endif; ?>
                                     <form method="POST" action="/admin/users/action" class="users-actions-form" data-confirm-message="are you sure?">
                                         <?= \App\Core\Csrf::field() ?>
                                         <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
-                                        <?php if ($user['status'] !== 'banned'): ?>
+                                        <?php if ($user['status'] !== 'banned' && (int)$user['id'] !== $currentAdminId && (empty($user['is_super_admin']) || !empty($canEditProtectedSuperAdmin))): ?>
                                             <button type="submit" name="action" value="ban" class="btn btn-sm btn-warning-light">ban</button>
-                                        <?php else: ?>
+                                        <?php elseif ($user['status'] === 'banned' && (empty($user['is_super_admin']) || !empty($canEditProtectedSuperAdmin))): ?>
                                             <button type="submit" name="action" value="unban" class="btn btn-sm btn-outline-primary">unban</button>
                                         <?php endif; ?>
-                                        <?php if ($user['role'] !== 'admin'): ?>
-                                            <button type="submit" name="action" value="make_admin" class="btn btn-sm btn-outline-primary">make admin</button>
-                                        <?php elseif ($user['role'] === 'admin'): ?>
-                                            <button type="submit" name="action" value="remove_admin" class="btn btn-sm btn-secondary">remove admin</button>
-                                        <?php endif; ?>
-                                        <?php if (!empty($demoMode) && $user['role'] === 'admin' && $user['status'] === 'active'): ?>
+                                        <?php if ($canManageStaffPermissions && (empty($user['is_super_admin']) || !empty($canEditProtectedSuperAdmin))): ?>
+                                            <?php if ($user['role'] !== 'admin'): ?>
+                                                <button type="submit" name="action" value="make_admin" class="btn btn-sm btn-outline-primary">make admin</button>
+                                            <?php elseif ((int)$user['id'] !== $currentAdminId): ?>
+                                                <button type="submit" name="action" value="remove_admin" class="btn btn-sm btn-secondary">remove admin</button>
+                                            <?php endif; ?>
+                                            <?php if ($user['role'] !== 'moderator' && (int)$user['id'] !== $currentAdminId): ?>
+                                                <button type="submit" name="action" value="make_moderator" class="btn btn-sm btn-outline-primary">make moderator</button>
+                                            <?php elseif ((int)$user['id'] !== $currentAdminId): ?>
+                                                <button type="submit" name="action" value="remove_moderator" class="btn btn-sm btn-secondary">remove moderator</button>
+                                            <?php endif; ?>
                                             <?php if ((int)($demoAdminUserId ?? 0) === (int)$user['id']): ?>
                                                 <button type="submit" name="action" value="clear_demo_admin" class="btn btn-sm btn-outline-secondary">clear demo admin</button>
-                                            <?php else: ?>
-                                                <button type="submit" name="action" value="set_demo_admin" class="btn btn-sm btn-outline-primary">set demo admin</button>
+                                            <?php elseif ($user['role'] === 'admin' && $user['status'] === 'active'): ?>
+                                                <button type="submit" name="action" value="set_demo_admin" class="btn btn-sm btn-outline-primary"><?= !empty($demoMode) ? 'set demo admin' : 'designate demo admin' ?></button>
                                             <?php endif; ?>
                                         <?php endif; ?>
-                                        <button type="submit" name="action" value="delete" class="btn btn-sm btn-danger-light">delete</button>
+                                        <?php if (($canManageStaffPermissions || !in_array((string)$user['role'], ['admin', 'moderator'], true)) && (int)$user['id'] !== $currentAdminId && (empty($user['is_super_admin']) || !empty($canEditProtectedSuperAdmin))): ?>
+                                            <button type="submit" name="action" value="delete" class="btn btn-sm btn-danger-light">delete</button>
+                                        <?php endif; ?>
                                     </form>
                                 </div>
+                                <?php if (!empty($user['is_super_admin']) && empty($canEditProtectedSuperAdmin) && (int)$user['id'] !== $currentAdminId): ?>
+                                    <div class="users-joined mt-2">Protected super admin account. Default admin access cannot edit this user.</div>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -218,10 +281,10 @@ include __DIR__ . '/../partials/shell_helpers.php';
                                 <li class="page-item <?= $currentPage <= 1 ? 'disabled' : '' ?>">
                                     <a class="page-link" href="?page=<?= $currentPage - 1 ?>&q=<?= urlencode($search) ?>">Previous</a>
                                 </li>
-                                <?php 
+                                <?php
                                 $start = max(1, $currentPage - 2);
                                 $end = min($totalPages, $currentPage + 2);
-                                for ($i = $start; $i <= $end; $i++): 
+                                for ($i = $start; $i <= $end; $i++):
                                 ?>
                                     <li class="page-item <?= $i == $currentPage ? 'active' : '' ?>">
                                         <a class="page-link" href="?page=<?= $i ?>&q=<?= urlencode($search) ?>"><?= $i ?></a>

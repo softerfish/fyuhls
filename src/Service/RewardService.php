@@ -6,6 +6,7 @@ use App\Core\Config;
 use App\Core\Database;
 use App\Model\File;
 use App\Model\Setting;
+use App\Service\Database\SchemaService;
 
 /**
  * RewardService - High-Scale Enterprise Edition
@@ -20,6 +21,368 @@ class RewardService
     public static function retentionDays(): int
     {
         return max(1, (int)Setting::get('rewards_retention_days', '7'));
+    }
+
+    public static function prepareFileEarningsReversalRuntime(): void
+    {
+        $service = new self();
+        $service->ensureSchema();
+        (new RewardFraudService())->ensureSchema();
+    }
+
+    public static function reverseFileEarnings(int $fileId, ?int $reviewerId = null, string $reason = ''): array
+    {
+        if ($fileId <= 0 || !FeatureService::rewardsEnabled()) {
+            return ['count' => 0, 'amount' => 0.0, 'user_ids' => []];
+        }
+
+        $service = new self();
+        $service->ensureSchema();
+        (new RewardFraudService())->ensureSchema();
+
+        $db = Database::getInstance()->getConnection();
+        $db->beginTransaction();
+
+        try {
+            $stmt = $db->prepare("
+                SELECT id, user_id
+                FROM files
+                WHERE id = ?
+                LIMIT 1
+                FOR UPDATE
+            ");
+            $stmt->execute([$fileId]);
+            $file = $stmt->fetch();
+            if (!$file) {
+                $db->rollBack();
+                return ['count' => 0, 'amount' => 0.0, 'user_ids' => []];
+            }
+
+            $result = self::reverseFileEarningsWithinTransaction(
+                $db,
+                (int)$fileId,
+                (int)($file['user_id'] ?? 0),
+                $reviewerId,
+                $reason
+            );
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+
+        if (($result['user_ids'] ?? []) !== []) {
+            \App\Service\BonusOfferService::touchUsersFailSoft($result['user_ids'], true, [
+                'workflow' => 'reverse_file_earnings',
+                'file_id' => $fileId,
+            ]);
+        }
+
+        return $result;
+    }
+
+    public static function reverseFileEarningsWithinTransaction(\PDO $db, int $fileId, int $ownerId, ?int $reviewerId = null, string $reason = ''): array
+    {
+        if ($fileId <= 0 || $ownerId <= 0 || !FeatureService::rewardsEnabled()) {
+            return ['count' => 0, 'amount' => 0.0, 'user_ids' => []];
+        }
+
+        ReviewIntegrityService::assertNotSelfRewardReview($reviewerId, $ownerId);
+
+        $service = new self();
+        if (!$db->inTransaction()) {
+            $service->ensureSchema();
+            (new RewardFraudService())->ensureSchema();
+        }
+
+        $lockKey = $service->acquireProcessingLock($db, $ownerId);
+        if ($lockKey === false) {
+            throw new \RuntimeException('Could not acquire reward processing lock for this file deletion.');
+        }
+
+        try {
+            $service->assertNoAmbiguousHistoricalRewards($db, $fileId, $ownerId);
+
+            $note = trim($reason);
+            $baseNote = 'Removed because staff deleted the source file.';
+            $reviewNote = $note !== '' ? ($baseNote . ' Reason: ' . $note) : $baseNote;
+
+            $db->prepare("
+                UPDATE reward_receipts
+                SET status = 'processed',
+                    reward_counted = 0,
+                    risk_level = 'not_counted',
+                    risk_reasons_json = ?,
+                    processing_token = NULL,
+                    processing_started_at = NULL
+                WHERE file_id = ?
+                  AND user_id = ?
+                  AND status = 'pending'
+            ")->execute([
+                json_encode([$baseNote], JSON_UNESCAPED_SLASHES),
+                $fileId,
+                $ownerId,
+            ]);
+
+            $stmt = $db->prepare("
+                SELECT id, user_id, file_id, session_id, parent_earning_id, type, amount, ip_hash, risk_score,
+                       risk_reasons_json, review_note, country_code, network_type, asn, metadata, status, created_at
+                FROM earnings
+                WHERE file_id = ?
+                  AND type IN ('download_reward', 'aggregate_summary')
+                  AND status IN ('pending', 'held', 'flagged_review', 'cleared', 'paid')
+                FOR UPDATE
+            ");
+            $stmt->execute([$fileId]);
+            $rows = $stmt->fetchAll() ?: [];
+
+            if ($rows === []) {
+                return ['count' => 0, 'amount' => 0.0, 'user_ids' => []];
+            }
+
+            $update = $db->prepare("
+                UPDATE earnings
+                SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_note = ?, hold_until = NULL
+                WHERE id = ? AND status = ?
+            ");
+
+            $affectedCount = 0;
+            $affectedAmount = 0.0;
+            $touchUserIds = [];
+            $dayAdjustments = [];
+
+            foreach ($rows as $row) {
+                $currentStatus = (string)($row['status'] ?? '');
+                $reversalCreated = false;
+
+                if (in_array($currentStatus, ['pending', 'held', 'flagged_review'], true)) {
+                    $targetStatus = 'cancelled';
+                    $update->execute([
+                        $targetStatus,
+                        $reviewerId,
+                        $reviewNote,
+                        (int)$row['id'],
+                        $currentStatus,
+                    ]);
+
+                    if ($update->rowCount() !== 1) {
+                        continue;
+                    }
+
+                    $parentEarningId = (int)($row['id'] ?? 0);
+                    if ($parentEarningId > 0) {
+                        AffiliateRewardService::syncReferralChildrenForParent($db, $parentEarningId, $targetStatus);
+                    }
+                } else {
+                    $reversal = self::ensureLedgerReversalEntry(
+                        $db,
+                        $row,
+                        $reviewNote,
+                        $reviewerId,
+                        [
+                            'source' => 'file_delete',
+                            'source_file_id' => $fileId,
+                        ]
+                    );
+                    if (($reversal['id'] ?? 0) <= 0) {
+                        continue;
+                    }
+                    $reversalCreated = !empty($reversal['created']);
+                    $touchUserIds = array_merge(
+                        $touchUserIds,
+                        AffiliateRewardService::reverseReferralChildrenForParent($db, (int)$row['id'], $reviewNote, $reviewerId)
+                    );
+                }
+
+                if ($reversalCreated && in_array($currentStatus, ['cleared', 'paid'], true)) {
+                    $day = date('Y-m-d', strtotime((string)($row['created_at'] ?? 'now')));
+                    $downloadCountDelta = self::earningDownloadCountForStats($row);
+                    if (!isset($dayAdjustments[$day])) {
+                        $dayAdjustments[$day] = ['downloads' => 0, 'earnings' => 0.0];
+                    }
+                    $dayAdjustments[$day]['downloads'] += $downloadCountDelta;
+                    $dayAdjustments[$day]['earnings'] += (float)($row['amount'] ?? 0);
+                }
+
+                $affectedCount++;
+                $affectedAmount += (float)($row['amount'] ?? 0);
+                $touchUserIds[] = (int)($row['user_id'] ?? 0);
+            }
+
+            if ($dayAdjustments !== []) {
+                $adjustStats = $db->prepare("
+                    UPDATE stats_daily
+                    SET downloads = GREATEST(0, downloads - ?),
+                        earnings = GREATEST(0, earnings - ?)
+                    WHERE user_id = ? AND day = ?
+                ");
+                foreach ($dayAdjustments as $day => $delta) {
+                    $adjustStats->execute([
+                        (int)$delta['downloads'],
+                        round((float)$delta['earnings'], 4),
+                        $ownerId,
+                        $day,
+                    ]);
+                }
+            }
+
+            $touchUserIds = array_values(array_unique(array_filter($touchUserIds, static fn (int $id): bool => $id > 0)));
+
+            return [
+                'count' => $affectedCount,
+                'amount' => round($affectedAmount, 4),
+                'user_ids' => $touchUserIds,
+            ];
+        } finally {
+            $service->releaseReceiptLock($db, $lockKey);
+        }
+    }
+
+    public static function ensureLedgerReversalEntry(\PDO $db, array $earning, string $reason, ?int $reviewerId = null, array $extraMetadata = []): array
+    {
+        $earningId = (int)($earning['id'] ?? 0);
+        $currentStatus = strtolower(trim((string)($earning['status'] ?? '')));
+        $amount = round((float)($earning['amount'] ?? 0), 4);
+        if ($earningId <= 0 || $amount <= 0 || !in_array($currentStatus, ['cleared', 'paid'], true)) {
+            return ['id' => 0, 'created' => false];
+        }
+
+        $metadata = self::decodeEarningMetadata($earning['metadata'] ?? null);
+        $existingId = (int)($metadata['ledger_reversal_entry_id'] ?? 0);
+        if ($existingId > 0) {
+            return ['id' => $existingId, 'created' => false];
+        }
+
+        $reason = trim($reason);
+        $description = 'Ledger reversal for earning #' . $earningId . ': ' . $reason;
+        $existingStmt = $db->prepare("
+            SELECT id
+            FROM earnings
+            WHERE parent_earning_id = ?
+              AND type = ?
+              AND amount = ?
+              AND description = ?
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $existingStmt->execute([
+            $earningId,
+            (string)($earning['type'] ?? ''),
+            -abs($amount),
+            $description,
+        ]);
+        $existingReversalId = (int)($existingStmt->fetchColumn() ?: 0);
+
+        if ($existingReversalId <= 0) {
+            $reversalMetadata = array_merge([
+                'kind' => 'ledger_reversal',
+                'reversal_of_earning_id' => $earningId,
+                'original_status' => $currentStatus,
+                'source_parent_earning_id' => isset($earning['parent_earning_id']) ? (int)$earning['parent_earning_id'] : null,
+            ], $extraMetadata);
+
+            $insert = $db->prepare("
+                INSERT INTO earnings (
+                    user_id, file_id, session_id, parent_earning_id, type, amount, ip_hash, risk_score,
+                    risk_reasons_json, hold_until, reviewed_by, reviewed_at, review_note, country_code,
+                    network_type, asn, status, description, metadata, created_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
+                )
+            ");
+            $insert->execute([
+                (int)($earning['user_id'] ?? 0),
+                isset($earning['file_id']) ? (int)$earning['file_id'] : null,
+                isset($earning['session_id']) ? (int)$earning['session_id'] : null,
+                $earningId,
+                (string)($earning['type'] ?? ''),
+                -abs($amount),
+                $earning['ip_hash'] ?? null,
+                (int)($earning['risk_score'] ?? 0),
+                $earning['risk_reasons_json'] ?? null,
+                $reviewerId,
+                $reason,
+                $earning['country_code'] ?? null,
+                $earning['network_type'] ?? null,
+                $earning['asn'] ?? null,
+                $currentStatus,
+                $description,
+                json_encode($reversalMetadata, JSON_UNESCAPED_SLASHES),
+            ]);
+            $existingReversalId = (int)$db->lastInsertId();
+        }
+
+        $metadata['ledger_reversal_entry_id'] = $existingReversalId;
+        $metadata['ledger_reversed_at'] = gmdate('Y-m-d H:i:s');
+        $metadata['ledger_reversal_reason'] = $reason;
+
+        $updateOriginal = $db->prepare("
+            UPDATE earnings
+            SET reviewed_by = COALESCE(?, reviewed_by),
+                reviewed_at = CURRENT_TIMESTAMP,
+                review_note = ?,
+                metadata = ?
+            WHERE id = ?
+        ");
+        $updateOriginal->execute([
+            $reviewerId,
+            $reason,
+            json_encode($metadata, JSON_UNESCAPED_SLASHES),
+            $earningId,
+        ]);
+
+        return ['id' => $existingReversalId, 'created' => $existingId <= 0];
+    }
+
+    public static function decodeEarningMetadata($rawMetadata): array
+    {
+        if (is_array($rawMetadata)) {
+            return $rawMetadata;
+        }
+        if (!is_string($rawMetadata) || trim($rawMetadata) === '') {
+            return [];
+        }
+        $decoded = json_decode($rawMetadata, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private static function earningDownloadCountForStats(array $earning): int
+    {
+        if ((string)($earning['type'] ?? '') !== 'aggregate_summary') {
+            return 1;
+        }
+
+        $metadata = self::decodeEarningMetadata($earning['metadata'] ?? null);
+        return max(1, (int)($metadata['rolled_up_reward_count'] ?? 1));
+    }
+
+    private function assertNoAmbiguousHistoricalRewards(\PDO $db, int $fileId, int $ownerId): void
+    {
+        $this->adoptSafeLegacyAggregateSummaries($db, $fileId, $ownerId);
+
+        $legacySummaryStmt = $db->prepare("
+            SELECT COUNT(*)
+            FROM earnings
+            WHERE user_id = ?
+              AND file_id IS NULL
+              AND type = 'aggregate_summary'
+              AND status IN ('cleared', 'paid')
+              AND DATE(created_at) IN (
+                    SELECT DISTINCT DATE(created_at)
+                    FROM reward_receipts
+                    WHERE file_id = ?
+                      AND user_id = ?
+                      AND reward_counted = 1
+                )
+        ");
+        $legacySummaryStmt->execute([$ownerId, $fileId, $ownerId]);
+        if ((int)$legacySummaryStmt->fetchColumn() > 0) {
+            throw new \RuntimeException(
+                'This file has older rolled-up cleared rewards. Fyuhls cannot safely remove them from the file delete flow after historical rollup.'
+            );
+        }
     }
 
     private function isRewardsDisabled(): bool
@@ -148,6 +511,7 @@ class RewardService
 
         $db = Database::getInstance()->getConnection();
         $results = ['processed' => 0, 'credited' => 0, 'flagged' => 0, 'errors' => []];
+        $bonusTouchUserIds = [];
 
         try {
             $receipts = $this->claimPendingReceipts($batchSize);
@@ -159,7 +523,8 @@ class RewardService
             $ipLimit = max(1, (int)Setting::get('ppd_ip_reward_limit', '1'));
             $minSize = (int)Setting::get('ppd_min_file_size', '1048576');
             $maxSize = (int)Setting::get('ppd_max_file_size', '0');
-            $onlyGuestsCount = Setting::get('ppd_only_guests_count', '0') === '1';
+            $onlyGuestsCount = Setting::get('ppd_only_guests_count', '0') === '1'
+                || Setting::get('rewards_ppd_guests_only', '0') === '1';
             $rewardVpnTraffic = Setting::get('ppd_reward_vpn', '0') === '1';
             $maxEarnIp = (float)Setting::get('ppd_max_earn_ip', '0');
             $maxEarnFile = (float)Setting::get('ppd_max_earn_file', '0');
@@ -168,6 +533,7 @@ class RewardService
             $fraud = new RewardFraudService();
 
             foreach ($receipts as $receipt) {
+                $processingLockKey = null;
                 try {
                     $results['processed']++;
 
@@ -177,6 +543,10 @@ class RewardService
                     $downloaderUserId = isset($receipt['downloader_user_id']) ? (int)$receipt['downloader_user_id'] : null;
                     $ip = EncryptionService::decrypt($receipt['ip_address']);
                     $ipHash = (string)($receipt['ip_hash'] ?? $this->hashIp($ip));
+                    $processingLockKey = $this->acquireProcessingLock($db, $ownerId);
+                    if ($processingLockKey === false) {
+                        throw new \RuntimeException('Could not acquire reward processing lock.');
+                    }
 
                     $file = File::find($fileId);
                     if (!$file || !$file['user_id'] || (int)$file['user_id'] !== $ownerId || !$this->isFileRewardEligible($file)) {
@@ -208,12 +578,22 @@ class RewardService
                         continue;
                     }
 
-                    if (!$rewardVpnTraffic && $security->isVpnOrProxy($ip)) {
-                        $this->markReceiptWithReasons($receiptId, 'flagged', [
-                            'Download came from a VPN or proxy while VPN/proxy reward counting is disabled.',
-                        ], 'high');
-                        $results['flagged']++;
-                        continue;
+                    if (!$rewardVpnTraffic) {
+                        $proxyIntel = $security->lookupProxyIntel($ip);
+                        if (!empty($proxyIntel['is_proxy'])) {
+                            $this->markReceiptWithReasons($receiptId, 'flagged', [
+                                'Download came from a VPN or proxy while VPN/proxy reward counting is disabled.',
+                            ], 'high');
+                            $results['flagged']++;
+                            continue;
+                        }
+
+                        if (SecurityService::proxyIntelRequiresFailClosed($proxyIntel)) {
+                            $this->markReceiptWithReasons($receiptId, 'processed', [
+                                'Proxy/VPN verification was unavailable while VPN/proxy reward counting is disabled, so this receipt was not counted.',
+                            ]);
+                            continue;
+                        }
                     }
 
                     if ($this->hasProcessedReceiptForWindow($ownerId, $fileId, $ipHash, $receiptId, (string)($receipt['visitor_cookie_hash'] ?? ''), (string)($receipt['ua_hash'] ?? ''))) {
@@ -260,12 +640,9 @@ class RewardService
                     }
 
                     $risk = $fraud->evaluateReceipt($receipt, $file);
-                    $holdDays = max(0, (int)Setting::get('rewards_hold_days', '7'));
-                    $autoClearLowRisk = Setting::get('rewards_auto_clear_low_risk', '0') === '1';
-                    $earningStatus = $risk['level'] === 'high'
-                        ? 'flagged_review'
-                        : (($risk['level'] === 'low' && $autoClearLowRisk) ? 'cleared' : 'held');
-                    $holdUntil = $earningStatus === 'held' ? date('Y-m-d H:i:s', strtotime("+{$holdDays} days")) : null;
+                    $disposition = $fraud->decideEarningDisposition($risk, $ownerId);
+                    $earningStatus = (string)($disposition['status'] ?? 'held');
+                    $holdUntil = $disposition['hold_until'] ?? null;
 
                     $db->beginTransaction();
 
@@ -283,14 +660,20 @@ class RewardService
                         $risk['score'],
                         json_encode($risk['reasons'], JSON_UNESCAPED_SLASHES),
                         $holdUntil,
-                        $earningStatus === 'flagged_review' ? 'PPD Reward (Flagged for review)' : ($earningStatus === 'held' ? 'PPD Reward (Held for review)' : 'PPD Reward'),
+                        match ($earningStatus) {
+                            'flagged_review' => 'PPD Reward (Flagged for review)',
+                            'held' => 'PPD Reward (Held for review)',
+                            'reversed' => 'PPD Reward (Auto-reversed)',
+                            'cleared' => 'PPD Reward (Auto-cleared)',
+                            default => 'PPD Reward',
+                        },
                         $receipt['country_code'] ?? null,
                         $receipt['network_type'] ?? null,
                         $receipt['asn'] ?? null,
                     ]);
                     $earningId = (int)$db->lastInsertId();
 
-                    AffiliateRewardService::awardReferralForUserEarning(
+                    $referrerId = AffiliateRewardService::awardReferralForUserEarning(
                         $db,
                         $ownerId,
                         $amount,
@@ -303,14 +686,23 @@ class RewardService
                     $this->updateDailyStats($ownerId, $amount, $earningStatus);
                     $db->prepare("UPDATE reward_receipts SET risk_score = ?, risk_level = ?, risk_reasons_json = ?, proof_status = ? WHERE id = ?")
                         ->execute([
-                            $risk['score'],
-                            $risk['level'],
-                            json_encode($risk['reasons'], JSON_UNESCAPED_SLASHES),
-                            $receipt['proof_status'] ?? 'legacy',
-                            $receiptId,
-                        ]);
-                    $this->markReceipt($receiptId, 'processed');
+                        $risk['score'],
+                        $risk['level'],
+                        json_encode($risk['reasons'], JSON_UNESCAPED_SLASHES),
+                        $receipt['proof_status'] ?? 'legacy',
+                        $receiptId,
+                    ]);
+                    if (!empty($disposition['system_note'])) {
+                        $db->prepare("UPDATE earnings SET review_note = ? WHERE id = ?")
+                            ->execute([(string)$disposition['system_note'], $earningId]);
+                    }
+                    $this->markReceipt($receiptId, 'processed', true);
                     $db->commit();
+
+                    $bonusTouchUserIds[] = $ownerId;
+                    if ($referrerId !== null && $referrerId > 0) {
+                        $bonusTouchUserIds[] = $referrerId;
+                    }
 
                     $results['credited']++;
                 } catch (\Throwable $ex) {
@@ -319,10 +711,20 @@ class RewardService
                     }
                     $this->releaseClaimedReceipt((int)$receipt['id']);
                     $results['errors'][] = "Receipt #{$receipt['id']}: " . $ex->getMessage();
+                } finally {
+                    if (is_string($processingLockKey) && $processingLockKey !== '') {
+                        $this->releaseReceiptLock($db, $processingLockKey);
+                    }
                 }
             }
         } catch (\Throwable $e) {
             $results['errors'][] = "Global Error: " . $e->getMessage();
+        }
+
+        if ($bonusTouchUserIds !== []) {
+            BonusOfferService::touchUsersFailSoft($bonusTouchUserIds, true, [
+                'workflow' => 'process_reward_receipts',
+            ]);
         }
 
         return $results;
@@ -346,13 +748,13 @@ class RewardService
 
         try {
             $stmt = $db->prepare("
-                SELECT DATE(created_at) as day, SUM(amount) as total, COUNT(*) as count
+                SELECT file_id, DATE(created_at) as day, SUM(amount) as total, COUNT(*) as count
                 FROM earnings
                 WHERE user_id = ?
                 AND status = 'cleared'
                 AND type = 'download_reward'
                 AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
-                GROUP BY DATE(created_at)
+                GROUP BY file_id, DATE(created_at)
             ");
             $stmt->execute([$userId, $daysOld]);
             $rows = $stmt->fetchAll();
@@ -361,32 +763,13 @@ class RewardService
                 return 0;
             }
 
+            $processed = 0;
             foreach ($rows as $row) {
-                $db->beginTransaction();
-
-                $ins = $db->prepare("
-                    INSERT INTO earnings (user_id, amount, type, status, description, created_at)
-                    VALUES (?, ?, 'aggregate_summary', 'cleared', ?, ?)
-                ");
-                $ins->execute([
-                    $userId,
-                    $row['total'],
-                    "JIT Rollup ({$row['count']} downloads)",
-                    $row['day'] . " 00:00:00",
-                ]);
-
-                $del = $db->prepare("
-                    DELETE FROM earnings
-                    WHERE user_id = ?
-                    AND type = 'download_reward'
-                    AND DATE(created_at) = ?
-                    AND status = 'cleared'
-                ");
-                $del->execute([$userId, $row['day']]);
-
-                $db->commit();
+                if ($this->rollupDayForUserFile($db, (int)$userId, (int)($row['file_id'] ?? 0), (string)$row['day'], 'JIT Rollup')) {
+                    $processed++;
+                }
             }
-            return count($rows);
+            return $processed;
         } catch (\Throwable $e) {
             if ($db->inTransaction()) {
                 $db->rollBack();
@@ -415,41 +798,20 @@ class RewardService
 
         try {
             $stmt = $db->prepare("
-                SELECT user_id, DATE(created_at) as day, SUM(amount) as total, COUNT(*) as count
+                SELECT user_id, file_id, DATE(created_at) as day, SUM(amount) as total, COUNT(*) as count
                 FROM earnings
                 WHERE status = 'cleared'
                 AND type = 'download_reward'
                 AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
-                GROUP BY user_id, DATE(created_at)
+                GROUP BY user_id, file_id, DATE(created_at)
             ");
             $stmt->execute([$daysOld]);
             $rows = $stmt->fetchAll();
 
             foreach ($rows as $row) {
-                $db->beginTransaction();
-
-                $ins = $db->prepare("
-                    INSERT INTO earnings (user_id, amount, type, status, description, created_at)
-                    VALUES (?, ?, 'aggregate_summary', 'cleared', ?, ?)
-                ");
-                $ins->execute([
-                    $row['user_id'],
-                    $row['total'],
-                    "Daily Rollup ({$row['count']} downloads)",
-                    $row['day'] . " 00:00:00",
-                ]);
-
-                $del = $db->prepare("
-                    DELETE FROM earnings
-                    WHERE user_id = ?
-                    AND type = 'download_reward'
-                    AND DATE(created_at) = ?
-                    AND status = 'cleared'
-                ");
-                $del->execute([$row['user_id'], $row['day']]);
-
-                $db->commit();
-                $processed++;
+                if ($this->rollupDayForUserFile($db, (int)$row['user_id'], (int)($row['file_id'] ?? 0), (string)$row['day'], 'Daily Rollup')) {
+                    $processed++;
+                }
             }
         } catch (\Throwable $e) {
             if ($db->inTransaction()) {
@@ -466,63 +828,266 @@ class RewardService
         $this->rollupHistory(self::retentionDays());
     }
 
+    private function rollupDayForUserFile(\PDO $db, int $userId, int $fileId, string $day, string $label): bool
+    {
+        if ($userId <= 0 || $fileId <= 0) {
+            return false;
+        }
+
+        $lockKey = $this->rollupLockKey($userId, $fileId, $day);
+        if (!$this->acquireRollupLock($db, $lockKey)) {
+            throw new \RuntimeException('Could not acquire rewards rollup lock.');
+        }
+
+        try {
+            $db->beginTransaction();
+
+            $sourceStmt = $db->prepare("
+                SELECT id, amount
+                FROM earnings
+                WHERE user_id = ?
+                  AND file_id = ?
+                  AND type = 'download_reward'
+                  AND DATE(created_at) = ?
+                  AND status = 'cleared'
+                ORDER BY id ASC
+                FOR UPDATE
+            ");
+            $sourceStmt->execute([$userId, $fileId, $day]);
+            $sourceRows = $sourceStmt->fetchAll();
+            if (empty($sourceRows)) {
+                $db->commit();
+                return false;
+            }
+
+            $total = 0.0;
+            foreach ($sourceRows as $sourceRow) {
+                $total += (float)($sourceRow['amount'] ?? 0);
+            }
+            $total = round($total, 4);
+            $description = $this->aggregateSummaryDescription($label, $day, $fileId);
+            $summaryCreatedAt = $day . ' 00:00:00';
+            $summaryMetadata = json_encode([
+                'kind' => 'aggregate_summary',
+                'rolled_up_source_type' => 'download_reward',
+                'rolled_up_reward_count' => count($sourceRows),
+                'rolled_up_day' => $day,
+                'rolled_up_file_id' => $fileId,
+            ], JSON_UNESCAPED_SLASHES);
+
+            $summaryStmt = $db->prepare("
+                SELECT id
+                FROM earnings
+                WHERE user_id = ?
+                  AND file_id = ?
+                  AND type = 'aggregate_summary'
+                  AND status = 'cleared'
+                  AND description = ?
+                  AND created_at = ?
+                ORDER BY id ASC
+                FOR UPDATE
+            ");
+            $summaryStmt->execute([$userId, $fileId, $description, $summaryCreatedAt]);
+            $summaryRows = $summaryStmt->fetchAll();
+
+            if (!empty($summaryRows)) {
+                $primarySummaryId = (int)$summaryRows[0]['id'];
+                $updateSummary = $db->prepare("UPDATE earnings SET amount = ?, metadata = ? WHERE id = ?");
+                $updateSummary->execute([$total, $summaryMetadata, $primarySummaryId]);
+
+                if (count($summaryRows) > 1) {
+                    $duplicateIds = array_map(static fn(array $row): int => (int)$row['id'], array_slice($summaryRows, 1));
+                    $this->deleteEarningsByIds($db, $duplicateIds);
+                }
+            } else {
+                $insertSummary = $db->prepare("
+                    INSERT INTO earnings (user_id, file_id, amount, type, status, description, metadata, created_at)
+                    VALUES (?, ?, ?, 'aggregate_summary', 'cleared', ?, ?, ?)
+                ");
+                $insertSummary->execute([
+                    $userId,
+                    $fileId,
+                    $total,
+                    $description,
+                    $summaryMetadata,
+                    $summaryCreatedAt,
+                ]);
+            }
+
+            $sourceIds = array_map(static fn(array $row): int => (int)$row['id'], $sourceRows);
+            $this->deleteEarningsByIds($db, $sourceIds);
+
+            $db->commit();
+            return true;
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        } finally {
+            $this->releaseRollupLock($db, $lockKey);
+        }
+    }
+
+    private function deleteEarningsByIds(\PDO $db, array $ids): void
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0));
+        if ($ids === []) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $db->prepare("DELETE FROM earnings WHERE id IN ($placeholders)");
+        $stmt->execute($ids);
+    }
+
+    private function aggregateSummaryDescription(string $label, string $day, int $fileId): string
+    {
+        return $label . ' [' . $day . '] file #' . $fileId;
+    }
+
+    private function adoptSafeLegacyAggregateSummaries(\PDO $db, int $fileId, int $ownerId): void
+    {
+        if ($fileId <= 0 || $ownerId <= 0) {
+            return;
+        }
+
+        $dayStmt = $db->prepare("
+            SELECT DISTINCT DATE(created_at) AS day
+            FROM reward_receipts
+            WHERE file_id = ?
+              AND user_id = ?
+              AND reward_counted = 1
+        ");
+        $dayStmt->execute([$fileId, $ownerId]);
+        $days = array_values(array_filter(array_map(static fn(array $row): string => (string)($row['day'] ?? ''), $dayStmt->fetchAll() ?: [])));
+        if ($days === []) {
+            return;
+        }
+
+        $summaryLookup = $db->prepare("
+            SELECT id, amount, status
+            FROM earnings
+            WHERE user_id = ?
+              AND file_id IS NULL
+              AND type = 'aggregate_summary'
+              AND DATE(created_at) = ?
+            ORDER BY id ASC
+            FOR UPDATE
+        ");
+        $receiptScope = $db->prepare("
+            SELECT COUNT(DISTINCT file_id)
+            FROM reward_receipts
+            WHERE user_id = ?
+              AND reward_counted = 1
+              AND DATE(created_at) = ?
+        ");
+        $downloadCountStmt = $db->prepare("
+            SELECT COUNT(*)
+            FROM reward_receipts
+            WHERE user_id = ?
+              AND file_id = ?
+              AND reward_counted = 1
+              AND DATE(created_at) = ?
+        ");
+        $sourceCheck = $db->prepare("
+            SELECT COUNT(*)
+            FROM earnings
+            WHERE user_id = ?
+              AND type = 'download_reward'
+              AND DATE(created_at) = ?
+        ");
+        $updateSummary = $db->prepare("
+            UPDATE earnings
+            SET file_id = ?, description = ?, metadata = ?
+            WHERE id = ?
+        ");
+
+        foreach ($days as $day) {
+            $receiptScope->execute([$ownerId, $day]);
+            if ((int)$receiptScope->fetchColumn() !== 1) {
+                continue;
+            }
+
+            $sourceCheck->execute([$ownerId, $day]);
+            if ((int)$sourceCheck->fetchColumn() > 0) {
+                continue;
+            }
+
+            $summaryLookup->execute([$ownerId, $day]);
+            $summaryRows = $summaryLookup->fetchAll() ?: [];
+            if (count($summaryRows) !== 1) {
+                continue;
+            }
+
+            $downloadCountStmt->execute([$ownerId, $fileId, $day]);
+            $rolledUpCount = (int)$downloadCountStmt->fetchColumn();
+            if ($rolledUpCount <= 0) {
+                continue;
+            }
+
+            $summaryId = (int)($summaryRows[0]['id'] ?? 0);
+            if ($summaryId <= 0) {
+                continue;
+            }
+
+            $metadata = [
+                'kind' => 'aggregate_summary',
+                'rolled_up_source_type' => 'download_reward',
+                'rolled_up_reward_count' => $rolledUpCount,
+                'rolled_up_day' => $day,
+                'rolled_up_file_id' => $fileId,
+                'adopted_from_legacy_summary' => true,
+            ];
+            $updateSummary->execute([
+                $fileId,
+                $this->aggregateSummaryDescription('Legacy Rollup', $day, $fileId),
+                json_encode($metadata, JSON_UNESCAPED_SLASHES),
+                $summaryId,
+            ]);
+        }
+    }
+
+    private function rollupLockKey(int $userId, int $fileId, string $day): string
+    {
+        return 'rewards_rollup:' . $userId . ':' . $fileId . ':' . $day;
+    }
+
+    private function acquireRollupLock(\PDO $db, string $lockKey): bool
+    {
+        $stmt = $db->prepare("SELECT GET_LOCK(?, 5)");
+        $stmt->execute([$lockKey]);
+        return (bool)$stmt->fetchColumn();
+    }
+
+    private function releaseRollupLock(\PDO $db, string $lockKey): void
+    {
+        try {
+            $stmt = $db->prepare("SELECT RELEASE_LOCK(?)");
+            $stmt->execute([$lockKey]);
+        } catch (\Throwable $e) {
+        }
+    }
+
     private function ensureSchema(): void
     {
         if (self::$schemaEnsured) {
             return;
         }
 
-        $db = Database::getInstance()->getConnection();
-        try {
-            $db->exec("CREATE TABLE IF NOT EXISTS `reward_receipts` (
-                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `file_id` BIGINT UNSIGNED NOT NULL,
-                `session_id` BIGINT UNSIGNED NULL,
-                `source_event_key` VARCHAR(191) NULL,
-                `user_id` BIGINT UNSIGNED NULL,
-                `downloader_user_id` BIGINT UNSIGNED NULL,
-                `ip_address` TEXT NOT NULL,
-                `ip_hash` VARCHAR(64) NOT NULL,
-                `processing_token` VARCHAR(64) NULL,
-                `processing_started_at` DATETIME NULL,
-                `status` ENUM('pending', 'flagged', 'processed') NOT NULL DEFAULT 'pending',
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (`id`),
-                INDEX `status_idx` (`status`),
-                INDEX `receipt_source_event_idx` (`source_event_key`),
-                INDEX `receipt_guard_idx` (`user_id`, `file_id`, `ip_hash`, `created_at`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `session_id` BIGINT UNSIGNED NULL AFTER `file_id`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `source_event_key` VARCHAR(191) NULL AFTER `session_id`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `downloader_user_id` BIGINT UNSIGNED NULL AFTER `user_id`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `ip_hash` VARCHAR(64) NOT NULL DEFAULT '' AFTER `ip_address`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `processing_token` VARCHAR(64) NULL AFTER `ip_hash`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `processing_started_at` DATETIME NULL AFTER `processing_token`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proxy_intel_risk_score` INT NOT NULL DEFAULT 0 AFTER `processing_started_at`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proxy_intel_type` VARCHAR(32) NULL AFTER `proxy_intel_risk_score`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proxy_intel_provider` VARCHAR(128) NULL AFTER `proxy_intel_type`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD COLUMN IF NOT EXISTS `proxy_intel_last_seen` VARCHAR(64) NULL AFTER `proxy_intel_provider`");
-            $db->exec("ALTER TABLE `reward_receipts` ADD INDEX IF NOT EXISTS `receipt_source_event_idx` (`source_event_key`)");
-            $db->exec("ALTER TABLE `reward_receipts` ADD INDEX IF NOT EXISTS `receipt_processing_idx` (`status`, `processing_token`, `processing_started_at`, `id`)");
-            $db->exec("ALTER TABLE `reward_receipts` ADD UNIQUE INDEX IF NOT EXISTS `receipt_source_event_unique` (`source_event_key`)");
-            $db->exec("ALTER TABLE `reward_receipts` ADD UNIQUE INDEX IF NOT EXISTS `receipt_session_unique` (`session_id`)");
-            $db->exec("ALTER TABLE `earnings` ADD COLUMN IF NOT EXISTS `ip_hash` VARCHAR(64) NULL AFTER `file_id`");
-        } catch (\Throwable $e) {
-            // Schema self-heal is best-effort.
-        }
+        SchemaService::ensureTables(['reward_receipts', 'earnings'], false);
 
         self::$schemaEnsured = true;
     }
 
-    private function markReceipt(int $id, string $status): void
+    private function markReceipt(int $id, string $status, bool $rewardCounted = false): void
     {
         $db = Database::getInstance()->getConnection();
         $db->prepare("
             UPDATE reward_receipts
-            SET status = ?, processing_token = NULL, processing_started_at = NULL
+            SET status = ?, reward_counted = ?, processing_token = NULL, processing_started_at = NULL
             WHERE id = ?
-        ")->execute([$status, $id]);
+        ")->execute([$status, $rewardCounted ? 1 : 0, $id]);
     }
 
     private function markReceiptWithReasons(int $id, string $status, array $reasons, string $riskLevel = 'not_counted'): void
@@ -530,7 +1095,7 @@ class RewardService
         $db = Database::getInstance()->getConnection();
         $db->prepare("
             UPDATE reward_receipts
-            SET status = ?, risk_level = ?, risk_reasons_json = ?, processing_token = NULL, processing_started_at = NULL
+            SET status = ?, reward_counted = 0, risk_level = ?, risk_reasons_json = ?, processing_token = NULL, processing_started_at = NULL
             WHERE id = ?
         ")->execute([
             $status,
@@ -558,7 +1123,7 @@ class RewardService
 
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("
-            SELECT u.monetization_model, p.ppd_enabled
+            SELECT u.monetization_model, p.ppd_enabled, p.pps_enabled
             FROM users u
             LEFT JOIN packages p ON p.id = u.package_id
             WHERE u.id = ?
@@ -567,11 +1132,17 @@ class RewardService
         $stmt->execute([(int)$file['user_id']]);
         $row = $stmt->fetch();
 
-        if (!$row || (int)($row['ppd_enabled'] ?? 0) !== 1) {
+        if (!$row) {
             return false;
         }
 
-        return in_array((string)($row['monetization_model'] ?? 'ppd'), ['ppd', 'mixed'], true);
+        return MonetizationModelService::ppdEligible(
+            (string)($row['monetization_model'] ?? 'ppd'),
+            [
+                'ppd_enabled' => (int)($row['ppd_enabled'] ?? 0),
+                'pps_enabled' => (int)($row['pps_enabled'] ?? 0),
+            ]
+        );
     }
 
     private function countRecentIpRewards(int $userId, string $ipHash, string $visitorCookieHash = ''): int
@@ -584,6 +1155,7 @@ class RewardService
                 WHERE user_id = ?
                 AND (ip_hash = ? OR visitor_cookie_hash = ?)
                 AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                AND reward_counted = 1
                 AND status = 'processed'
             ");
             $stmt->execute([$userId, $ipHash, $visitorCookieHash]);
@@ -593,6 +1165,8 @@ class RewardService
                 FROM earnings
                 WHERE user_id = ?
                 AND ip_hash = ?
+                AND type = 'download_reward'
+                AND status IN ('pending', 'held', 'flagged_review', 'cleared', 'paid')
                 AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
             ");
             $stmt->execute([$userId, $ipHash]);
@@ -606,6 +1180,7 @@ class RewardService
         $clauses = [
             "user_id = ?",
             "file_id = ?",
+            "reward_counted = 1",
             "status = 'processed'",
             "id < ?",
             "created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)",
@@ -634,7 +1209,12 @@ class RewardService
     private function sumRecentEarnings(int $userId, ?string $ipHash, ?int $fileId): float
     {
         $db = Database::getInstance()->getConnection();
-        $clauses = ["user_id = ?", "created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)"];
+        $clauses = [
+            "user_id = ?",
+            "type = 'download_reward'",
+            "status IN ('held', 'flagged_review', 'cleared', 'paid', 'pending')",
+            "created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)",
+        ];
         $params = [$userId];
 
         if ($ipHash !== null) {
@@ -659,6 +1239,8 @@ class RewardService
             SELECT COALESCE(SUM(amount), 0)
             FROM earnings
             WHERE user_id = ?
+            AND type = 'download_reward'
+            AND status IN ('held', 'flagged_review', 'cleared', 'paid', 'pending')
             AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
         ");
         $stmt->execute([$userId]);
@@ -673,11 +1255,22 @@ class RewardService
         }
 
         $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT monetization_model FROM users WHERE id = ?");
+        $stmt = $db->prepare("
+            SELECT u.monetization_model, p.ppd_enabled, p.pps_enabled
+            FROM users u
+            LEFT JOIN packages p ON p.id = u.package_id
+            WHERE u.id = ?
+            LIMIT 1
+        ");
         $stmt->execute([(int)$file['user_id']]);
-        $model = (string)($stmt->fetchColumn() ?: 'ppd');
+        $row = $stmt->fetch();
+        $model = (string)($row['monetization_model'] ?? 'ppd');
+        $package = [
+            'ppd_enabled' => (int)($row['ppd_enabled'] ?? 0),
+            'pps_enabled' => (int)($row['pps_enabled'] ?? 0),
+        ];
 
-        if ($model === 'pps') {
+        if (!MonetizationModelService::ppdEligible($model, $package)) {
             return 0.0;
         }
 
@@ -762,7 +1355,12 @@ class RewardService
 
     private function hashIp(string $ip): string
     {
-        return hash_hmac('sha256', SecurityService::normalizeIp($ip), Config::get('app_key', 'change_this_to_a_random_string'));
+        $secret = SecurityService::getSecureAppKey();
+        if ($secret === null) {
+            throw new \RuntimeException('Rewards fraud protections require a rotated application key.');
+        }
+
+        return hash_hmac('sha256', SecurityService::normalizeIp($ip), $secret);
     }
 
     private function resolveReceiptSignals(RewardFraudService $fraud, array $context, string $ip): array
@@ -868,6 +1466,18 @@ class RewardService
         return (int)$stmt->fetchColumn() === 1 ? $lockKey : false;
     }
 
+    private function acquireProcessingLock(\PDO $db, int $ownerId)
+    {
+        if ($ownerId <= 0) {
+            return null;
+        }
+
+        $lockKey = 'fyuhls_reward_process_' . $ownerId;
+        $stmt = $db->prepare("SELECT GET_LOCK(?, 5)");
+        $stmt->execute([$lockKey]);
+        return (int)$stmt->fetchColumn() === 1 ? $lockKey : false;
+    }
+
     private function releaseReceiptLock(\PDO $db, string $lockKey): void
     {
         try {
@@ -881,6 +1491,7 @@ class RewardService
     {
         $db = Database::getInstance()->getConnection();
         $token = bin2hex(random_bytes(16));
+        $batchSize = max(1, min(5000, (int)$batchSize));
 
         $stmt = $db->prepare("
             UPDATE reward_receipts
@@ -888,9 +1499,9 @@ class RewardService
             WHERE status = 'pending'
               AND (processing_token IS NULL OR processing_started_at < DATE_SUB(NOW(), INTERVAL " . self::CLAIM_TTL_MINUTES . " MINUTE))
             ORDER BY id ASC
-            LIMIT ?
+            LIMIT {$batchSize}
         ");
-        $stmt->execute([$token, $batchSize]);
+        $stmt->execute([$token]);
 
         if ($stmt->rowCount() <= 0) {
             return [];

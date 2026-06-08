@@ -3,7 +3,7 @@
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">How To Read This Page</h6>
     <ul class="extra-small text-muted mb-4">
-        <li class="mb-2"><strong>Held Earnings:</strong> Legitimate-looking traffic that is still waiting for the configured hold period or manual review.</li>
+        <li class="mb-2"><strong>Held Earnings:</strong> Traffic that is still waiting for the configured hold period, additional signals, or manual review before it can clear or be reversed.</li>
         <li class="mb-2"><strong>Flagged Earnings:</strong> Higher-risk traffic that matched multiple suspicious signals and should usually be inspected before clearing.</li>
         <li class="mb-2"><strong>Cleared Today / Reversed Today:</strong> Shows how much value you have already approved or reversed in the current day.</li>
         <li class="mb-2"><strong>Review Queue:</strong> Counts the earnings records that are currently waiting for a manual decision.</li>

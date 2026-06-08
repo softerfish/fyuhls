@@ -6,6 +6,8 @@ use Exception;
 
 class MailService
 {
+    private static $templateSendHandler = null;
+    private static $createFromSettingsFactory = null;
     private string $host;
     private int $port;
     private string $fromAddress;
@@ -25,8 +27,8 @@ class MailService
         string $password = '',
         string $template = ''
     ) {
-        $this->host = $host;
-        $this->port = $port;
+        $this->host = MailHostSafetyService::normalizeSmtpHost($host);
+        $this->port = MailHostSafetyService::normalizeSmtpPort($port);
         $this->fromAddress = $fromAddress;
         $this->secureMethod = strtolower($secureMethod);
         $this->requiresAuth = $requiresAuth;
@@ -50,10 +52,35 @@ class MailService
         try {
             $service = self::createFromSettings();
             return $service->send($to, $subject, $body);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             // If instant fail, fallback to high-priority queue so we don't lose it
             return MailQueueService::queue($to, $subject, $body, 'high');
         }
+    }
+
+    /**
+     * @internal Test-only hook for template send workflows.
+     */
+    public static function setTemplateSendHandlerForTests(?callable $handler): void
+    {
+        self::$templateSendHandler = $handler;
+    }
+
+    public static function setCreateFromSettingsFactoryForTests(?callable $factory): void
+    {
+        self::$createFromSettingsFactory = $factory;
+    }
+
+    public static function normalizeEnvelopeAddress(string $value): string
+    {
+        return trim(str_replace(["\r", "\n"], '', $value));
+    }
+
+    public static function normalizeHeaderValue(string $value): string
+    {
+        $value = str_replace(["\r", "\n"], ' ', $value);
+        $value = preg_replace('/[ \t]+/', ' ', $value) ?? $value;
+        return trim($value);
     }
 
     /**
@@ -61,33 +88,37 @@ class MailService
      */
     public static function sendTemplate(string $to, string $templateKey, array $placeholders, string $priority = 'low'): bool
     {
-        self::ensureDefaultTemplates();
-        $db = \App\Core\Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT subject, body FROM email_templates WHERE template_key = ? LIMIT 1");
-        $stmt->execute([$templateKey]);
-        $tpl = $stmt->fetch();
+        try {
+            self::ensureDefaultTemplates();
+            $template = self::loadTemplate($templateKey) ?? self::defaultTemplateByKey($templateKey);
+            if (!is_array($template)) {
+                return false;
+            }
 
-        if (!$tpl) {
-            return false;
+            return self::dispatchRenderedTemplate($to, $templateKey, $template, $placeholders, $priority);
+        } catch (\Throwable $e) {
+            \App\Core\Logger::warning('mail template send degraded', [
+                'template_key' => $templateKey,
+                'to' => $to,
+                'error' => $e->getMessage(),
+            ]);
+
+            try {
+                $fallbackTemplate = self::defaultTemplateByKey($templateKey);
+                if (!is_array($fallbackTemplate)) {
+                    return false;
+                }
+
+                return self::dispatchRenderedTemplate($to, $templateKey, $fallbackTemplate, $placeholders, $priority);
+            } catch (\Throwable $fallbackError) {
+                \App\Core\Logger::warning('mail template fallback failed', [
+                    'template_key' => $templateKey,
+                    'to' => $to,
+                    'error' => $fallbackError->getMessage(),
+                ]);
+                return false;
+            }
         }
-
-        // 1. Prepare global placeholders
-        $globalPlaceholders = [
-            '{site_name}'     => \App\Model\Setting::get('app.name', 'fyuhls'),
-            '{site_url}'      => \App\Service\SeoService::trustedBaseUrl(),
-            '{support_email}' => \App\Model\Setting::get('email_from_address', 'support@localhost'),
-            '{email}'         => $to,
-            '{current_year}'  => date('Y')
-        ];
-
-        // 2. Merge with provided placeholders (provided ones take precedence)
-        $allPlaceholders = array_merge($globalPlaceholders, $placeholders);
-
-        // 3. Perform replacement
-        $subject = strtr($tpl['subject'], $allPlaceholders);
-        $body = strtr($tpl['body'], $allPlaceholders);
-
-        return self::sendSmart($to, $subject, $body, $priority);
     }
 
     public static function ensureDefaultTemplates(): void
@@ -253,6 +284,30 @@ class MailService
                 'description' => 'Sent when a user submits a withdrawal request.',
             ],
             [
+                'template_key' => 'bonus_offer_started',
+                'subject' => 'A new promotion is live on {site_name}',
+                'body' => "Hi {username},\n\nA new promotion is now available on {site_name}.\n\nOffer: {offer_title}\nReward: {bonus_value}\nDetails: {offer_description}\nSchedule: {deadline}\nTimezone: {timezone}\n\nOpen your account to track progress:\n{site_url}/promotions\n\nRegards,\n{site_name}",
+                'description' => 'Sent when a bonus offer becomes active for a user.',
+            ],
+            [
+                'template_key' => 'bonus_offer_earned_pending',
+                'subject' => 'You earned a bonus that is waiting for review',
+                'body' => "Hi {username},\n\nYou reached the trigger for a bonus offer on {site_name}.\n\nOffer: {offer_title}\nAmount: {bonus_amount}\nDetails: {offer_description}\nSchedule: {deadline}\nTimezone: {timezone}\n\nThis bonus is now waiting for admin approval before it is added to your balance.\n\nRegards,\n{site_name}",
+                'description' => 'Sent when a user earns a bonus that requires admin approval.',
+            ],
+            [
+                'template_key' => 'bonus_offer_credited',
+                'subject' => 'A bonus was added to your rewards balance',
+                'body' => "Hi {username},\n\nA bonus was added to your rewards balance on {site_name}.\n\nOffer: {offer_title}\nAmount: {bonus_amount}\nDetails: {offer_description}\nSchedule: {deadline}\nTimezone: {timezone}\n\nYou can review the updated balance here:\n{site_url}/rewards\n\nRegards,\n{site_name}",
+                'description' => 'Sent when a bonus award is auto-credited or approved and added to the user balance.',
+            ],
+            [
+                'template_key' => 'bonus_offer_reversed',
+                'subject' => 'A bonus was removed from your rewards balance',
+                'body' => "Hi {username},\n\nA previously credited bonus was removed from your rewards balance on {site_name}.\n\nOffer: {offer_title}\nAmount removed: {bonus_amount}\nDetails: {offer_description}\nSchedule: {deadline}\nTimezone: {timezone}\nReason: {reversal_reason}\n\nYou can review the updated balance here:\n{site_url}/rewards\n\nRegards,\n{site_name}",
+                'description' => 'Sent when a previously credited bonus is reversed because the qualifying activity no longer meets the offer requirements.',
+            ],
+            [
                 'template_key' => 'withdrawal_status_approved',
                 'subject' => 'Your withdrawal request has been approved',
                 'body' => "Hi {username},\n\nYour withdrawal request has been approved.\n\nAmount: {amount}\nMethod: {method}\n\nAdmin note:\n{admin_note}\n\nRegards,\n{site_name}",
@@ -327,14 +382,75 @@ class MailService
         ];
     }
 
+    private static function loadTemplate(string $templateKey): ?array
+    {
+        $db = \App\Core\Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT subject, body FROM email_templates WHERE template_key = ? LIMIT 1");
+        $stmt->execute([$templateKey]);
+        $template = $stmt->fetch();
+        return is_array($template) ? $template : null;
+    }
+
+    private static function defaultTemplateByKey(string $templateKey): ?array
+    {
+        foreach (self::defaultTemplates() as $template) {
+            if (($template['template_key'] ?? '') === $templateKey) {
+                return [
+                    'subject' => (string)($template['subject'] ?? ''),
+                    'body' => (string)($template['body'] ?? ''),
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    private static function dispatchRenderedTemplate(string $to, string $templateKey, array $template, array $placeholders, string $priority): bool
+    {
+        [$subject, $body] = self::renderTemplatePayload($to, $template, $placeholders);
+
+        if (is_callable(self::$templateSendHandler)) {
+            return (bool)call_user_func(self::$templateSendHandler, $to, $templateKey, $subject, $body, $priority, $placeholders);
+        }
+
+        return self::sendSmart($to, $subject, $body, $priority);
+    }
+
+    private static function renderTemplatePayload(string $to, array $template, array $placeholders): array
+    {
+        $globalPlaceholders = [
+            '{site_name}'     => \App\Model\Setting::get('app.name', 'fyuhls'),
+            '{site_url}'      => \App\Service\SeoService::trustedBaseUrl(),
+            '{support_email}' => \App\Model\Setting::get('email_from_address', 'support@localhost'),
+            '{email}'         => $to,
+            '{current_year}'  => date('Y'),
+        ];
+
+        $allPlaceholders = array_merge($globalPlaceholders, $placeholders);
+
+        return [
+            strtr((string)($template['subject'] ?? ''), $allPlaceholders),
+            strtr((string)($template['body'] ?? ''), $allPlaceholders),
+        ];
+    }
+
 
     /**
      * Factory to create instance from DB settings
-     * 
+     *
      * @throws Exception
      */
     public static function createFromSettings(): self
     {
+        if (is_callable(self::$createFromSettingsFactory)) {
+            $service = call_user_func(self::$createFromSettingsFactory);
+            if ($service instanceof self) {
+                return $service;
+            }
+
+            throw new Exception('MailService test factory must return a MailService instance.');
+        }
+
         $host = trim(\App\Model\Setting::get('email_smtp_host', ''));
         $port = (int)\App\Model\Setting::get('email_smtp_port', '25');
         $from = \App\Model\Setting::get('email_from_address', 'noreply@localhost');
@@ -351,7 +467,7 @@ class MailService
 
     /**
      * Test the SMTP connection only (does not send an email)
-     * 
+     *
      * @throws Exception
      */
     public function testConnection(): bool
@@ -366,11 +482,15 @@ class MailService
 
     /**
      * Send an email via SMTP
-     * 
+     *
      * @throws Exception
      */
     public function send(string $to, string $subject, string $body, array $attachments = []): bool
     {
+        $to = self::normalizeEnvelopeAddress($to);
+        $subject = self::normalizeHeaderValue($subject);
+        $fromAddress = self::normalizeEnvelopeAddress($this->fromAddress);
+
         if (!empty($this->template)) {
             $body .= "\r\n\r\n-- \r\n" . $this->template;
         }
@@ -379,19 +499,19 @@ class MailService
         if (!$socket) {
             throw new Exception("Unable to connect to SMTP server");
         }
-        
+
         try {
             // mail from
-            $this->sendCommand($socket, "MAIL FROM:<{$this->fromAddress}>", 250);
-            
+            $this->sendCommand($socket, "MAIL FROM:<{$fromAddress}>", 250);
+
             // rcpt to
             $this->sendCommand($socket, "RCPT TO:<{$to}>", 250);
-            
+
             // data
             $this->sendCommand($socket, "DATA", 354);
-            
+
             // Headers & Body
-            $headers = "From: {$this->fromAddress}\r\n";
+            $headers = "From: {$fromAddress}\r\n";
             $headers .= "To: {$to}\r\n";
             $headers .= "Subject: {$subject}\r\n";
             $headers .= "MIME-Version: 1.0\r\n";
@@ -422,10 +542,10 @@ class MailService
                 $headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
                 $messageBody = $body;
             }
-            
+
             $message = $headers . "\r\n" . $this->dotStuff($messageBody) . "\r\n.";
             $this->sendCommand($socket, $message, 250);
-            
+
             // quit
             $this->disconnect($socket);
             return true;
@@ -446,14 +566,14 @@ class MailService
         if (empty($hostname)) {
             throw new Exception("SMTP connection failed: Hostname is empty.");
         }
-        
+
         if ($this->secureMethod === 'ssl') {
             $hostname = "ssl://" . $this->host;
         } elseif ($this->secureMethod === 'tls' && $this->port == 465) {
             // Edge case where TLS is specified but port is 465
             $hostname = "ssl://" . $this->host;
         }
-        
+
         $socket = stream_socket_client(
             $hostname . ':' . $this->port,
             $errno,
@@ -483,12 +603,12 @@ class MailService
         // STARTTLS
         if ($this->secureMethod === 'tls' && strpos($hostname, 'ssl://') === false) {
             $this->sendCommand($socket, "STARTTLS", 220);
-            
+
             // Enable crypto
             if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
                 throw new Exception("Failed to enable TLS encryption");
             }
-            
+
             // Send EHLO again after STARTTLS
             $this->sendCommand($socket, "EHLO localhost", 250);
         }
@@ -519,12 +639,12 @@ class MailService
     {
         fwrite($socket, $command . "\r\n");
         $response = $this->readResponse($socket);
-        
+
         $code = (int) substr($response, 0, 3);
         if ($code !== $expectedCode && !($expectedCode === 250 && ($code === 250 || $code === 220))) {
             throw new Exception("SMTP Error. Expected $expectedCode, got: $response");
         }
-        
+
         return $response;
     }
 

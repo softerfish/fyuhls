@@ -54,11 +54,34 @@ class QuotaReservation
         return $stmt->fetch() ?: null;
     }
 
+    public static function findActiveByPublicId(string $publicId): ?array
+    {
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            SELECT *
+            FROM quota_reservations
+            WHERE public_id = ? AND status = 'active'
+            LIMIT 1
+        ");
+        $stmt->execute([$publicId]);
+        return $stmt->fetch() ?: null;
+    }
+
     public static function updateStatus(int $id, string $status): void
     {
         $db = Database::getInstance()->getConnection();
         $releasedAt = in_array($status, ['released', 'expired', 'committed'], true) ? date('Y-m-d H:i:s') : null;
         $db->prepare("UPDATE quota_reservations SET status = ?, released_at = ? WHERE id = ?")->execute([$status, $releasedAt, $id]);
+    }
+
+    public static function updateReservedBytes(int $id, int $reservedBytes, ?string $expiresAt = null): void
+    {
+        $db = Database::getInstance()->getConnection();
+        $db->prepare("
+            UPDATE quota_reservations
+            SET reserved_bytes = ?, expires_at = COALESCE(?, expires_at)
+            WHERE id = ? AND status = 'active'
+        ")->execute([max(0, $reservedBytes), $expiresAt, $id]);
     }
 
     public static function activeReservedBytesForUser(int $userId): int

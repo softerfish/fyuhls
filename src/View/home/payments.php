@@ -73,6 +73,22 @@ $extraHead = '
     .payments-status--refunded,
     .payments-status--expired { background: #fee2e2; color: #b91c1c; }
     .payments-meta { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.25rem; }
+    .payments-sync-alert {
+        margin-top: 0.5rem;
+        padding: 0.55rem 0.7rem;
+        border-radius: 8px;
+        font-size: 0.78rem;
+        line-height: 1.45;
+        border: 1px solid #fecaca;
+        background: #fef2f2;
+        color: #991b1b;
+    }
+    .payments-sync-alert--pending {
+        border-color: #fde68a;
+        background: #fffbeb;
+        color: #92400e;
+    }
+    .payments-coupon-note { color: #166534; font-size: 0.8rem; margin-top: 0.25rem; font-weight: 700; }
     .payments-reference {
         font-family: monospace;
         font-size: 0.8rem;
@@ -122,6 +138,7 @@ $subscriptions = is_array($subscriptions ?? null) ? $subscriptions : [];
 $summary = is_array($summary ?? null) ? $summary : ['transaction_count' => 0, 'completed_total' => 0, 'refunded_total' => 0];
 $currentPackage = is_array($currentPackage ?? null) ? $currentPackage : null;
 $currentUser = is_array($currentUser ?? null) ? $currentUser : null;
+$paymentsPlanStatusCopy = \App\Service\AccountPlanStatusService::paymentsCopy($currentUser, $currentPackage);
 
 $formatStatusClass = static function (string $status): string {
     $status = strtolower(trim($status));
@@ -178,11 +195,7 @@ $formatMoney = static fn($amount, $currency = 'USD') => strtoupper((string)$curr
         <div class="payments-current-plan">
             <h3 class="payments-current-plan-title">Account billing status</h3>
             <p class="payments-current-plan-copy">
-                <?php if (!empty($currentUser['premium_expiry'])): ?>
-                    Your current premium access is active until <?= htmlspecialchars(date('M d, Y', strtotime((string)$currentUser['premium_expiry']))) ?>.
-                <?php else: ?>
-                    Your account is currently on the free plan. Any successful upgrade or renewal will appear in the tables below.
-                <?php endif; ?>
+                <?= htmlspecialchars($paymentsPlanStatusCopy) ?>
             </p>
         </div>
 
@@ -223,6 +236,12 @@ $formatMoney = static fn($amount, $currency = 'USD') => strtoupper((string)$curr
                             </td>
                             <td data-label="Amount">
                                 <?= htmlspecialchars($formatMoney($transaction['amount'] ?? 0, (string)($transaction['currency'] ?? 'USD'))) ?>
+                                <?php if (!empty($transaction['coupon_code']) && (float)($transaction['discount_amount'] ?? 0) > 0): ?>
+                                    <div class="payments-coupon-note">
+                                        Saved <?= htmlspecialchars($formatMoney($transaction['discount_amount'] ?? 0, (string)($transaction['currency'] ?? 'USD'))) ?> with <?= htmlspecialchars((string)$transaction['coupon_code']) ?>
+                                    </div>
+                                    <div class="payments-meta">Original price: <?= htmlspecialchars($formatMoney($transaction['original_amount'] ?? 0, (string)($transaction['currency'] ?? 'USD'))) ?></div>
+                                <?php endif; ?>
                             </td>
                             <td data-label="Status">
                                 <span class="<?= $formatStatusClass($transactionStatus) ?>"><?= htmlspecialchars($transactionStatus) ?></span>
@@ -262,6 +281,9 @@ $formatMoney = static fn($amount, $currency = 'USD') => strtoupper((string)$curr
                     <tbody>
                     <?php foreach ($subscriptions as $subscription): ?>
                         <?php $subscriptionStatus = strtolower((string)($subscription['status'] ?? 'pending')); ?>
+                        <?php $syncState = is_array($subscription['gateway_sync'] ?? null) ? $subscription['gateway_sync'] : null; ?>
+                        <?php $syncPending = in_array((string)($syncState['status'] ?? ''), ['pending', 'processing'], true); ?>
+                        <?php $syncFailed = (string)($syncState['status'] ?? '') === 'failed'; ?>
                         <tr>
                             <td data-label="Started">
                                 <?= htmlspecialchars(date('M d, Y g:i A', strtotime((string)$subscription['created_at']))) ?>
@@ -269,12 +291,29 @@ $formatMoney = static fn($amount, $currency = 'USD') => strtoupper((string)$curr
                             <td data-label="Package">
                                 <strong><?= htmlspecialchars((string)($subscription['package_name'] ?? 'Package')) ?></strong>
                                 <div class="payments-meta"><?= htmlspecialchars($formatMoney($subscription['amount'] ?? 0, (string)($subscription['currency'] ?? 'USD'))) ?></div>
+                                <?php if (!empty($subscription['coupon_code']) && (float)($subscription['discount_amount'] ?? 0) > 0): ?>
+                                    <div class="payments-coupon-note">
+                                        Coupon <?= htmlspecialchars((string)$subscription['coupon_code']) ?> saved <?= htmlspecialchars($formatMoney($subscription['discount_amount'] ?? 0, (string)($subscription['currency'] ?? 'USD'))) ?>
+                                    </div>
+                                <?php endif; ?>
                             </td>
                             <td data-label="Status">
                                 <span class="<?= $formatStatusClass($subscriptionStatus) ?>"><?= htmlspecialchars($subscriptionStatus) ?></span>
                             </td>
                             <td data-label="Billing">
-                                <?= htmlspecialchars(ucfirst((string)($subscription['billing_period'] ?? 'monthly'))) ?>
+                                <?= htmlspecialchars(\App\Service\PaymentService::formatTermLabel((int)($subscription['term_days'] ?? 30))) ?>
+                                <div class="payments-meta">
+                                    <?php if (!empty($subscription['auto_renew'])): ?>
+                                        Auto-renew on
+                                    <?php else: ?>
+                                        Auto-renew off
+                                    <?php endif; ?>
+                                </div>
+                                <?php if ($syncPending): ?>
+                                    <div class="payments-sync-alert payments-sync-alert--pending">Gateway sync is still running for this subscription. Wait for it to finish before treating this billing change as final.</div>
+                                <?php elseif ($syncFailed): ?>
+                                    <div class="payments-sync-alert">Gateway sync did not complete for this subscription. Billing may still need manual review.</div>
+                                <?php endif; ?>
                             </td>
                             <td data-label="Expires">
                                 <?= htmlspecialchars(date('M d, Y g:i A', strtotime((string)$subscription['expires_at']))) ?>
@@ -282,6 +321,20 @@ $formatMoney = static fn($amount, $currency = 'USD') => strtoupper((string)$curr
                             <td data-label="Gateway">
                                 <?= htmlspecialchars(strtoupper((string)($subscription['gateway'] ?? ''))) ?>
                                 <div class="payments-meta"><?= htmlspecialchars((string)($subscription['gateway_reference'] ?? '')) ?></div>
+                                <?php if ($syncFailed && !empty($syncState['last_error'])): ?>
+                                    <div class="payments-meta">Last sync error: <?= htmlspecialchars((string)$syncState['last_error']) ?></div>
+                                <?php endif; ?>
+                                <?php if (in_array((string)($subscription['gateway'] ?? ''), ['stripe', 'paypal'], true) && !empty($subscription['provider_subscription_id']) && (string)($subscription['status'] ?? '') === 'active' && ((string)($subscription['gateway'] ?? '') === 'stripe' || !empty($subscription['auto_renew']))): ?>
+                                    <form method="POST" action="/subscription/auto-renew/<?= (int)$subscription['id'] ?>" class="mt-2">
+                                        <?= \App\Core\Csrf::field() ?>
+                                        <input type="hidden" name="enabled" value="<?= !empty($subscription['auto_renew']) ? '0' : '1' ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary" <?= $syncPending ? 'disabled' : '' ?>>
+                                            <?= !empty($subscription['auto_renew']) ? 'Turn Off Auto-Renew' : 'Turn On Auto-Renew' ?>
+                                        </button>
+                                    </form>
+                                <?php elseif ((string)($subscription['gateway'] ?? '') === 'paypal' && !empty($subscription['provider_subscription_id']) && (string)($subscription['status'] ?? '') === 'active'): ?>
+                                    <div class="payments-meta mt-2">PayPal auto-renew can be turned off here. Turning it back on later requires a fresh PayPal checkout.</div>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>

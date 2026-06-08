@@ -3,9 +3,15 @@
 namespace App\Model;
 
 use App\Core\Database;
+use App\Service\Database\SchemaService;
 
 class ApiIdempotencyKey
 {
+    public static function stalePendingTimeoutSeconds(): int
+    {
+        return 300;
+    }
+
     public static function find(string $key, string $endpoint, string $actorKey, ?int $userId, ?int $tokenId): ?array
     {
         self::ensureSchema();
@@ -22,7 +28,7 @@ class ApiIdempotencyKey
         return $stmt->fetch() ?: null;
     }
 
-    public static function create(string $key, string $endpoint, string $actorKey, ?int $userId, ?int $tokenId, string $requestHash): int
+    public static function create(string $key, string $endpoint, string $actorKey, ?int $userId, ?int $tokenId, string $requestHash): array
     {
         self::ensureSchema();
         $db = Database::getInstance()->getConnection();
@@ -32,11 +38,21 @@ class ApiIdempotencyKey
                 VALUES (?, ?, ?, ?, ?, ?, 'pending')
             ");
             $stmt->execute([$key, $endpoint, $actorKey, $userId, $tokenId, $requestHash]);
-            return (int)$db->lastInsertId();
+            return [
+                'id' => (int)$db->lastInsertId(),
+                'created' => true,
+            ];
         } catch (\Throwable $e) {
             $existing = self::find($key, $endpoint, $actorKey, $userId, $tokenId);
             if ($existing) {
-                return (int)$existing['id'];
+                return [
+                    'id' => (int)$existing['id'],
+                    'created' => false,
+                    'status' => (string)($existing['status'] ?? ''),
+                    'request_hash' => (string)($existing['request_hash'] ?? ''),
+                    'response_code' => (int)($existing['response_code'] ?? 200),
+                    'response_json' => (string)($existing['response_json'] ?? ''),
+                ];
             }
 
             throw $e;
@@ -55,30 +71,38 @@ class ApiIdempotencyKey
         $stmt->execute([$statusCode, json_encode($response, JSON_UNESCAPED_SLASHES), $id]);
     }
 
+    public static function release(int $id): void
+    {
+        self::ensureSchema();
+        if ($id <= 0) {
+            return;
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            DELETE FROM api_idempotency_keys
+            WHERE id = ?
+              AND status = 'pending'
+        ");
+        $stmt->execute([$id]);
+    }
+
+    public static function isPendingStale(array $row): bool
+    {
+        if (($row['status'] ?? '') !== 'pending') {
+            return false;
+        }
+
+        $createdAt = strtotime((string)($row['created_at'] ?? ''));
+        if ($createdAt === false) {
+            return false;
+        }
+
+        return (time() - $createdAt) >= self::stalePendingTimeoutSeconds();
+    }
+
     private static function ensureSchema(): void
     {
-        $db = Database::getInstance()->getConnection();
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS `api_idempotency_keys` (
-                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `idem_key` VARCHAR(128) NOT NULL,
-                `endpoint` VARCHAR(80) NOT NULL,
-                `actor_key` VARCHAR(96) NOT NULL,
-                `user_id` BIGINT UNSIGNED NULL,
-                `api_token_id` BIGINT UNSIGNED NULL,
-                `request_hash` CHAR(64) NOT NULL,
-                `status` ENUM('pending', 'completed') NOT NULL DEFAULT 'pending',
-                `response_code` SMALLINT UNSIGNED NULL,
-                `response_json` LONGTEXT NULL,
-                `completed_at` DATETIME NULL,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (`id`),
-                UNIQUE KEY `api_idem_lookup` (`idem_key`, `endpoint`, `actor_key`),
-                KEY `api_idem_created` (`created_at`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
-        try { $db->exec("ALTER TABLE `api_idempotency_keys` ADD COLUMN `actor_key` VARCHAR(96) NOT NULL DEFAULT '' AFTER `endpoint`"); } catch (\Throwable $e) {}
-        try { $db->exec("ALTER TABLE `api_idempotency_keys` DROP INDEX `api_idem_lookup`"); } catch (\Throwable $e) {}
-        try { $db->exec("ALTER TABLE `api_idempotency_keys` ADD UNIQUE KEY `api_idem_lookup` (`idem_key`, `endpoint`, `actor_key`)"); } catch (\Throwable $e) {}
+        SchemaService::ensureTables(['api_idempotency_keys'], false);
     }
 }

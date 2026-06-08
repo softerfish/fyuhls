@@ -12,6 +12,11 @@ $recentReservations = is_array($recentReservations ?? null) ? $recentReservation
 $metrics = is_array($metrics ?? null) ? $metrics : [];
 $updateStatus = is_array($updateStatus ?? null) ? $updateStatus : [];
 $demoAdmin = !empty($demoAdmin);
+$canAccessOperationalDiagnostics = !empty($canAccessOperationalDiagnostics);
+$canAccessSupportDiagnostics = !empty($canAccessSupportDiagnostics);
+$canAccessServerMonitoringHistory = !empty($canAccessServerMonitoringHistory);
+$canManageConfiguration = !empty($canManageConfiguration);
+$canManageUpdates = !empty($canManageUpdates);
 
 $logSizeBytes = (int)($logSizeBytes ?? 0);
 $logMaxBytes = (int)($logMaxBytes ?? 26214400);
@@ -35,6 +40,10 @@ if (!empty($runtimeSecurityNotices)) {
     $environmentWarnings += count($runtimeSecurityNotices);
 }
 $logNearCap = $logMaxBytes > 0 && $logSizeBytes >= (int)($logMaxBytes * 0.8);
+$currentVersionLabel = (string)($updateStatus['current_version'] ?? 'unknown');
+$latestVersionLabel = (string)($updateStatus['latest_version'] ?? 'Unavailable');
+$lastUpdateReport = is_array($updateStatus['last_update_report'] ?? null) ? $updateStatus['last_update_report'] : null;
+$updateApplyBlockers = is_array($updateStatus['apply_blockers'] ?? null) ? $updateStatus['apply_blockers'] : [];
 
 $updateStateLabel = 'Up to date';
 $updateStateClass = 'text-success';
@@ -134,7 +143,7 @@ if (empty($gdOk)) {
 if (empty($ffmpegOk)) {
     $triageWarnings[] = [
         'title' => 'FFmpeg is not ready',
-        'message' => 'Video thumbnails and video processing will stay unavailable.',
+        'message' => 'Video thumbnails will stay unavailable until FFmpeg is configured.',
         'next' => 'Set the FFmpeg binary path in General settings and confirm the file exists.',
     ];
 }
@@ -149,7 +158,7 @@ if (empty($triageCritical) && empty($triageWarnings)) {
 if (($writable ?? '') === 'ok' && !empty($gdOk) && !empty($ffmpegOk)) {
     $triageHealthy[] = [
         'title' => 'Core media basics look healthy',
-        'message' => 'Uploads path, GD, and FFmpeg are all available.',
+        'message' => 'Uploads path, GD, and FFmpeg thumbnail support are all available.',
         'next' => 'If users still report media issues, move on to delivery or storage diagnostics.',
     ];
 }
@@ -164,11 +173,17 @@ if ($smtpConfigured && !$demoAdmin) {
 ob_start();
 ?>
 <div class="d-flex flex-wrap gap-2">
-    <a href="/admin/support" class="btn btn-sm btn-outline-secondary">Open Support Center</a>
-    <a href="/admin/configuration?tab=email" class="btn btn-sm btn-outline-secondary">Email Settings</a>
-    <a href="/admin/configuration?tab=downloads" class="btn btn-sm btn-outline-secondary">Download Settings</a>
-    <a href="/admin/configuration?tab=cron" class="btn btn-sm btn-outline-secondary">Cron Jobs</a>
-    <a href="/admin/server-monitoring" class="btn btn-sm btn-outline-secondary">Server Monitoring</a>
+    <?php if ($canAccessSupportDiagnostics): ?>
+        <a href="/admin/support" class="btn btn-sm btn-outline-secondary">Open Diagnostics</a>
+    <?php endif; ?>
+    <?php if ($canManageConfiguration): ?>
+        <a href="/admin/configuration?tab=email" class="btn btn-sm btn-outline-secondary">Email Settings</a>
+        <a href="/admin/configuration?tab=downloads" class="btn btn-sm btn-outline-secondary">Download Settings</a>
+        <a href="/admin/configuration?tab=cron" class="btn btn-sm btn-outline-secondary">Cron Jobs</a>
+    <?php endif; ?>
+    <?php if ($canAccessServerMonitoringHistory): ?>
+        <a href="/admin/server-monitoring" class="btn btn-sm btn-outline-secondary">Server Monitoring</a>
+    <?php endif; ?>
 </div>
 <?php
 $statusActions = ob_get_clean();
@@ -180,6 +195,7 @@ renderAdminPageHeader(
 ?>
 
 <style>
+    .status-page-anchor { scroll-margin-top: 90px; }
     .status-summary-grid,
     .status-domain-grid,
     .status-action-grid,
@@ -188,6 +204,48 @@ renderAdminPageHeader(
     .status-log-filter-row {
         display:grid;
         gap:1rem;
+    }
+    .status-top-grid { display:grid; gap:1rem; margin-bottom:1.25rem; }
+    .status-version-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:1rem; }
+    .status-version-card {
+        background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
+        border:1px solid rgba(37,99,235,.14);
+        border-radius:16px;
+        box-shadow:0 12px 30px rgba(15,23,42,.06);
+        padding:1.1rem 1.2rem;
+    }
+    .status-version-head {
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:1rem;
+        flex-wrap:wrap;
+        margin-bottom:1rem;
+    }
+    .status-version-title { font-size:1.05rem; font-weight:800; margin:0; }
+    .status-version-copy { margin:.35rem 0 0; color:var(--text-muted); line-height:1.6; max-width:720px; }
+    .status-section-nav {
+        display:flex;
+        flex-wrap:wrap;
+        gap:.65rem;
+    }
+    .status-section-chip {
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        padding:.55rem .9rem;
+        border-radius:999px;
+        border:1px solid rgba(15,23,42,.08);
+        background:#fff;
+        color:var(--text-color);
+        text-decoration:none;
+        font-size:.8rem;
+        font-weight:700;
+    }
+    .status-section-chip:hover {
+        border-color:#bfdbfe;
+        background:#eff6ff;
+        color:#1d4ed8;
     }
     .status-summary-grid { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-bottom: 1.5rem; }
     .status-domain-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
@@ -388,6 +446,101 @@ renderAdminPageHeader(
     }
 </style>
 
+<div class="status-top-grid">
+    <div class="status-version-card status-page-anchor" id="status-updates">
+        <div class="status-version-head">
+            <div>
+                <h2 class="status-version-title">Current Version and Updates</h2>
+                <p class="status-version-copy">Keep release posture visible at the top. This section answers what version is installed, whether a newer release exists, and whether updater checks look trustworthy enough to act on.</p>
+            </div>
+            <div class="status-section-tools">
+                <a href="/admin/status?refresh_update=1" class="btn btn-sm btn-outline-secondary">Refresh Release Check</a>
+                <?php if (!empty($updateStatus['release_url'])): ?>
+                    <a href="<?= htmlspecialchars((string)$updateStatus['release_url']) ?>" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">View Release</a>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="status-version-grid">
+            <div class="status-check-card">
+                <div class="status-check-label">Installed Version</div>
+                <div class="status-check-value"><?= htmlspecialchars($currentVersionLabel) ?></div>
+                <div class="status-check-copy">The version currently running on this install.</div>
+            </div>
+            <div class="status-check-card">
+                <div class="status-check-label">Latest Release</div>
+                <div class="status-check-value"><?= htmlspecialchars($latestVersionLabel) ?></div>
+                <div class="status-check-copy">The latest release discovered by the updater check.</div>
+            </div>
+            <div class="status-check-card">
+                <div class="status-check-label">Updater State</div>
+                <div class="status-check-value <?= $updateStateClass === 'text-danger' ? 'status-bad' : ($updateStateClass === 'text-warning' ? 'status-warn' : 'status-good') ?>"><?= htmlspecialchars($updateStateLabel) ?></div>
+                <div class="status-check-copy">Quick signal for whether this install is current and update checks are healthy.</div>
+            </div>
+        </div>
+
+        <?php if (!empty($updateStatus['error'])): ?>
+            <div class="alert alert-warning mt-3 mb-0"><?= htmlspecialchars((string)$updateStatus['error']) ?></div>
+        <?php elseif (!empty($updateStatus['update_available'])): ?>
+            <div class="status-note-card mt-3 mb-0">
+                <div class="status-note-label">Update Available</div>
+                <p class="status-note-copy">A newer release is available. Review the release details, take backups, and update during a maintenance window.</p>
+                <p class="status-note-copy">The updater preserves local config files, <code>storage/</code>, <code>themes/custom/</code>, and <code>src/Plugin/</code>, while backing up overwritten core files and quarantining safe stale core files instead of hard-deleting them.</p>
+                <?php if ($canManageUpdates && !empty($updateStatus['apply_available'])): ?>
+                    <form method="POST" action="/admin/update/apply" data-confirm-message="Download and apply the latest GitHub release now?" class="mt-3">
+                        <?= \App\Core\Csrf::field() ?>
+                        <button type="submit" class="btn btn-primary">Install Update</button>
+                    </form>
+                <?php elseif ($canManageUpdates): ?>
+                    <div class="status-small-copy mt-3">One-click apply is available only after the rollout safety gates pass for this install.</div>
+                    <?php foreach ($updateApplyBlockers as $blocker): ?>
+                        <div class="alert alert-warning mt-2 mb-0"><?= htmlspecialchars((string)$blocker) ?></div>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <div class="status-small-copy mt-3">Installing updates from this page requires full Configuration access.</div>
+                <?php endif; ?>
+            </div>
+        <?php elseif (empty($updateStatus['repo_configured'])): ?>
+            <div class="alert alert-secondary mt-3 mb-0">Set <code>update.github_repo</code> in <code>config/version.php</code> to enable one-click release checks.</div>
+        <?php endif; ?>
+
+        <?php if (!empty($updateStatus['repo'])): ?>
+            <div class="status-muted-copy mt-3">Source repo: <code><?= htmlspecialchars((string)$updateStatus['repo']) ?></code></div>
+        <?php endif; ?>
+
+        <?php if ($lastUpdateReport !== null): ?>
+            <div class="status-note-card mt-3 mb-0">
+                <div class="status-note-label">Latest Update Report</div>
+                <p class="status-note-copy">
+                    <?= htmlspecialchars((string)($lastUpdateReport['from_version'] ?? 'unknown')) ?>
+                    to
+                    <?= htmlspecialchars((string)($lastUpdateReport['to_version'] ?? 'unknown')) ?>
+                    completed with <?= (int)($lastUpdateReport['copied_files_count'] ?? 0) ?> copied file(s)
+                    and <?= (int)($lastUpdateReport['skipped_files_count'] ?? 0) ?> preserved file(s) skipped.
+                </p>
+                <div class="status-small-copy">
+                    Report: <code><?= htmlspecialchars((string)($lastUpdateReport['report_path'] ?? 'Unavailable')) ?></code>
+                    · Backup: <code><?= htmlspecialchars((string)($lastUpdateReport['backup_path'] ?? 'Unavailable')) ?></code>
+                    · Quarantine: <code><?= htmlspecialchars((string)($lastUpdateReport['quarantine_path'] ?? 'Not used')) ?></code>
+                </div>
+                <?php foreach (is_array($lastUpdateReport['warnings'] ?? null) ? $lastUpdateReport['warnings'] : [] as $warning): ?>
+                    <div class="alert alert-warning mt-2 mb-0"><?= htmlspecialchars((string)$warning) ?></div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <div class="status-section-nav">
+        <a class="status-section-chip" href="#status-updates">Updates</a>
+        <a class="status-section-chip" href="#status-triage">Triage</a>
+        <a class="status-section-chip" href="#status-health">App Health</a>
+        <a class="status-section-chip" href="#status-uploads">Uploads</a>
+        <a class="status-section-chip" href="#status-storage">Storage</a>
+        <a class="status-section-chip" href="#status-delivery">Delivery</a>
+        <a class="status-section-chip" href="#status-support">Support</a>
+        <a class="status-section-chip" href="#status-logs">Logs</a>
+    </div>
+</div>
+
 <div class="status-summary-grid">
     <div class="status-summary-card">
         <div class="status-summary-label">Recent Errors</div>
@@ -405,9 +558,9 @@ renderAdminPageHeader(
         <div class="status-summary-meta">How download routing currently behaves for public and object-storage files.</div>
     </div>
     <div class="status-summary-card">
-        <div class="status-summary-label">Update Status</div>
-        <div class="status-summary-value <?= htmlspecialchars($updateStateClass) ?>"><?= htmlspecialchars($updateStateLabel) ?></div>
-        <div class="status-summary-meta">Release check state and updater readiness.</div>
+        <div class="status-summary-label">Current Version</div>
+        <div class="status-summary-value"><?= htmlspecialchars($currentVersionLabel) ?></div>
+        <div class="status-summary-meta">Latest release: <?= htmlspecialchars($latestVersionLabel) ?>.</div>
     </div>
     <div class="status-summary-card">
         <div class="status-summary-label">Support Readiness</div>
@@ -421,6 +574,7 @@ renderAdminPageHeader(
     </div>
 </div>
 
+<div class="status-page-anchor" id="status-triage">
 <?php renderAdminCardStart('Triage First', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <p class="status-section-intro">This top section is for deciding what needs attention right now. If nothing looks urgent, the deeper sections below are still available for inspection and support prep.</p>
     <div class="status-domain-grid">
@@ -470,135 +624,108 @@ renderAdminPageHeader(
         </div>
     </div>
 <?php renderAdminCardEnd(); ?>
+</div>
 
 <?php renderAdminCardStart('Action Center', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <p class="status-section-intro">Use these quick links when you already know the next safe move and do not want to hunt through the sidebar.</p>
     <div class="status-action-grid">
-        <a href="/admin/configuration?tab=cron" class="status-action-card">
-            <div class="status-action-label">Automation</div>
-            <div class="fw-semibold">Check Cron Jobs</div>
-            <div class="small text-muted">Review stale schedules, heartbeat timing, and task frequencies.</div>
-        </a>
-        <a href="/admin/configuration?tab=email" class="status-action-card">
-            <div class="status-action-label">Mail</div>
-            <div class="fw-semibold">Open Email Settings</div>
-            <div class="small text-muted">Fix SMTP, queue delivery, or template issues before testing support mail.</div>
-        </a>
-        <a href="/admin/configuration?tab=downloads" class="status-action-card">
-            <div class="status-action-label">Delivery</div>
-            <div class="fw-semibold">Open Download Settings</div>
-            <div class="small text-muted">Check CDN redirects, streaming, and Nginx completion-log behavior.</div>
-        </a>
-        <a href="/admin/configuration?tab=storage" class="status-action-card">
-            <div class="status-action-label">Storage</div>
-            <div class="fw-semibold">Open Storage Settings</div>
-            <div class="small text-muted">Review storage-node inventory, migration paths, and provider-side behavior.</div>
-        </a>
-        <a href="/admin/server-monitoring" class="status-action-card">
-            <div class="status-action-label">Infrastructure</div>
-            <div class="fw-semibold">Server Monitoring</div>
-            <div class="small text-muted">Cross-check storage-node availability and longer-term host trends.</div>
-        </a>
-        <a href="/admin/support" class="status-action-card">
-            <div class="status-action-label">Escalation</div>
-            <div class="fw-semibold">Open Support Center</div>
-            <div class="small text-muted">Prepare a sanitized bundle when the deeper diagnostics still are not enough.</div>
-        </a>
-    </div>
-<?php renderAdminCardEnd(); ?>
-
-<?php
-ob_start();
-?>
-<div class="status-card-header-between">
-    <span>Updates</span>
-    <div class="status-section-tools">
-        <a href="/admin/status?refresh_update=1" class="btn btn-sm btn-outline-secondary">Refresh Release Check</a>
-        <?php if (!empty($updateStatus['release_url'])): ?>
-            <a href="<?= htmlspecialchars((string)$updateStatus['release_url']) ?>" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">View Release</a>
+        <?php if ($canManageConfiguration): ?>
+            <a href="/admin/configuration?tab=cron" class="status-action-card">
+                <div class="status-action-label">Automation</div>
+                <div class="fw-semibold">Check Cron Jobs</div>
+                <div class="small text-muted">Review stale schedules, heartbeat timing, and task frequencies.</div>
+            </a>
+            <a href="/admin/configuration?tab=email" class="status-action-card">
+                <div class="status-action-label">Mail</div>
+                <div class="fw-semibold">Open Email Settings</div>
+                <div class="small text-muted">Fix SMTP, queue delivery, or template issues before testing support mail.</div>
+            </a>
+            <a href="/admin/configuration?tab=downloads" class="status-action-card">
+                <div class="status-action-label">Delivery</div>
+                <div class="fw-semibold">Open Download Settings</div>
+                <div class="small text-muted">Check CDN redirects, streaming, and Nginx completion-log behavior.</div>
+            </a>
+            <a href="/admin/configuration?tab=storage" class="status-action-card">
+                <div class="status-action-label">Storage</div>
+                <div class="fw-semibold">Open Storage Settings</div>
+                <div class="small text-muted">Review storage-node inventory, migration paths, and provider-side behavior.</div>
+            </a>
+        <?php endif; ?>
+        <?php if ($canAccessServerMonitoringHistory): ?>
+            <a href="/admin/server-monitoring" class="status-action-card">
+                <div class="status-action-label">Infrastructure</div>
+                <div class="fw-semibold">Server Monitoring</div>
+                <div class="small text-muted">Cross-check storage-node availability and longer-term host trends.</div>
+            </a>
+        <?php endif; ?>
+        <?php if ($canAccessSupportDiagnostics): ?>
+            <a href="/admin/support" class="status-action-card">
+                <div class="status-action-label">Escalation</div>
+                <div class="fw-semibold">Open Diagnostics</div>
+                <div class="small text-muted">Prepare a sanitized bundle when the deeper diagnostics still are not enough.</div>
+            </a>
         <?php endif; ?>
     </div>
-</div>
-<?php
-$updatesHeader = ob_get_clean();
-renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']);
-?>
-    <p class="status-section-intro">This section is for release posture and updater safety. It should help you decide whether the install is current and whether the built-in updater looks trustworthy enough for a maintenance window.</p>
-    <div class="status-metric-grid mb-4">
-        <div class="status-check-card">
-            <div class="status-check-label">Installed</div>
-            <div class="status-check-value"><?= htmlspecialchars((string)($updateStatus['current_version'] ?? 'unknown')) ?></div>
-        </div>
-        <div class="status-check-card">
-            <div class="status-check-label">Latest Release</div>
-            <div class="status-check-value"><?= htmlspecialchars((string)($updateStatus['latest_version'] ?? 'Unavailable')) ?></div>
-        </div>
-        <div class="status-check-card">
-            <div class="status-check-label">Updater State</div>
-            <div class="status-check-value <?= $updateStateClass === 'text-danger' ? 'status-bad' : ($updateStateClass === 'text-warning' ? 'status-warn' : 'status-good') ?>"><?= htmlspecialchars($updateStateLabel) ?></div>
-        </div>
-    </div>
-
-    <?php if (!empty($updateStatus['error'])): ?>
-        <div class="alert alert-warning mb-3"><?= htmlspecialchars((string)$updateStatus['error']) ?></div>
-    <?php endif; ?>
-
-    <?php if (!empty($updateStatus['repo'])): ?>
-        <div class="status-muted-copy mb-3">Source repo: <code><?= htmlspecialchars((string)$updateStatus['repo']) ?></code></div>
-    <?php endif; ?>
-
-    <?php if (!empty($updateStatus['update_available']) && empty($updateStatus['error'])): ?>
-        <div class="status-note-card mb-3">
-            <div class="status-note-label">What this means</div>
-            <p class="status-note-copy">The updater preserves local config files, <code>storage/</code>, <code>themes/custom/</code>, and <code>src/Plugin/</code>. It tracks core-owned files, backs up overwritten core files, and quarantines stale unchanged core files instead of hard-deleting them.</p>
-        </div>
-        <form method="POST" action="/admin/update/apply" data-confirm-message="Download and apply the latest GitHub release now?">
-            <?= \App\Core\Csrf::field() ?>
-            <button type="submit" class="btn btn-primary">Install Update</button>
-        </form>
-    <?php elseif (empty($updateStatus['repo_configured'])): ?>
-        <div class="alert alert-secondary mb-0">Set <code>update.github_repo</code> in <code>config/version.php</code> to enable one-click release checks.</div>
-    <?php endif; ?>
-
-    <?php if (!empty($updateStatus['last_report']) && is_array($updateStatus['last_report'])): ?>
-        <?php $lastReport = $updateStatus['last_report']; ?>
-        <div class="status-policy-grid mt-4">
-            <div class="status-policy-card">
-                <div class="status-policy-title">Last Update Report</div>
-                <div class="status-policy-copy">
-                    Mode: <strong><?= htmlspecialchars((string)($lastReport['mode'] ?? 'unknown')) ?></strong><br>
-                    Generated: <strong><?= !empty($lastReport['generated_at']) ? htmlspecialchars(date('M j, Y H:i', strtotime((string)$lastReport['generated_at']))) : 'Unknown' ?></strong><br>
-                    Target: <strong><?= htmlspecialchars((string)($lastReport['from_version'] ?? '?')) ?> -> <?= htmlspecialchars((string)($lastReport['to_version'] ?? '?')) ?></strong>
-                </div>
-            </div>
-            <div class="status-policy-card">
-                <div class="status-policy-title">Safety Summary</div>
-                <div class="status-policy-copy">
-                    Copy candidates: <strong><?= (int)($lastReport['copy_candidates'] ?? 0) ?></strong><br>
-                    Backed up: <strong><?= (int)($lastReport['files_backed_up'] ?? 0) ?></strong><br>
-                    Quarantined stale core files: <strong><?= (int)($lastReport['stale_quarantined'] ?? 0) ?></strong><br>
-                    Skipped modified stale files: <strong><?= (int)($lastReport['stale_modified_skipped'] ?? 0) ?></strong>
-                </div>
-            </div>
-            <div class="status-policy-card">
-                <div class="status-policy-title">Paths</div>
-                <div class="status-policy-copy">
-                    Backup root: <code><?= htmlspecialchars((string)($lastReport['backup_root'] ?? 'Not created yet')) ?></code><br>
-                    Quarantine root: <code><?= htmlspecialchars((string)($lastReport['quarantine_root'] ?? 'Not created yet')) ?></code><br>
-                    Report file: <code><?= htmlspecialchars((string)($lastReport['report_path'] ?? 'storage/cache/update_report.json')) ?></code>
-                </div>
-            </div>
+    <?php if (!$canManageConfiguration): ?>
+        <div class="status-note-card status-note-card--operator mt-4">
+            <div class="status-note-label">Configuration Access</div>
+            <p class="status-note-copy">Configuration-only shortcuts stay hidden on this page unless your account also has full Configuration access.</p>
         </div>
     <?php endif; ?>
 <?php renderAdminCardEnd(); ?>
 
+<?php if (!empty($updateStatus['last_report']) && is_array($updateStatus['last_report'])): ?>
+    <?php $lastReport = $updateStatus['last_report']; ?>
+    <?php renderAdminCardStart('Last Update Report', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
+        <details class="status-collapsible">
+            <summary>
+                <span>Open last updater run details</span>
+                <span class="status-small-copy">
+                    <?= !empty($lastReport['generated_at']) ? htmlspecialchars(date('M j, Y H:i', strtotime((string)$lastReport['generated_at']))) : 'Unknown time' ?>
+                </span>
+            </summary>
+            <div class="status-collapsible-body">
+                <p class="status-section-intro">This is the most recent updater run summary, kept separate so it does not crowd the live version and release status at the top of the page.</p>
+                <div class="status-policy-grid">
+                    <div class="status-policy-card">
+                        <div class="status-policy-title">Report Summary</div>
+                        <div class="status-policy-copy">
+                            Mode: <strong><?= htmlspecialchars((string)($lastReport['mode'] ?? 'unknown')) ?></strong><br>
+                            Generated: <strong><?= !empty($lastReport['generated_at']) ? htmlspecialchars(date('M j, Y H:i', strtotime((string)$lastReport['generated_at']))) : 'Unknown' ?></strong><br>
+                            Target: <strong><?= htmlspecialchars((string)($lastReport['from_version'] ?? '?')) ?> -> <?= htmlspecialchars((string)($lastReport['to_version'] ?? '?')) ?></strong>
+                        </div>
+                    </div>
+                    <div class="status-policy-card">
+                        <div class="status-policy-title">Safety Summary</div>
+                        <div class="status-policy-copy">
+                            Copy candidates: <strong><?= (int)($lastReport['copy_candidates'] ?? 0) ?></strong><br>
+                            Backed up: <strong><?= (int)($lastReport['files_backed_up'] ?? 0) ?></strong><br>
+                            Quarantined stale core files: <strong><?= (int)($lastReport['stale_quarantined'] ?? 0) ?></strong><br>
+                            Skipped modified stale files: <strong><?= (int)($lastReport['stale_modified_skipped'] ?? 0) ?></strong>
+                        </div>
+                    </div>
+                    <div class="status-policy-card">
+                        <div class="status-policy-title">Paths</div>
+                        <div class="status-policy-copy">
+                            Backup root: <code><?= htmlspecialchars((string)($lastReport['backup_root'] ?? 'Not created yet')) ?></code><br>
+                            Quarantine root: <code><?= htmlspecialchars((string)($lastReport['quarantine_root'] ?? 'Not created yet')) ?></code><br>
+                            Report file: <code><?= htmlspecialchars((string)($lastReport['report_path'] ?? 'storage/cache/update_report.json')) ?></code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </details>
+    <?php renderAdminCardEnd(); ?>
+<?php endif; ?>
+
+<div class="status-page-anchor" id="status-health">
 <?php renderAdminCardStart('App Health', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <div class="status-domain-band">
         <div class="status-domain-title"><span>Core environment checks</span></div>
         <p class="status-section-intro">These checks answer whether the app can perform basic local work before you chase narrower workflow bugs.</p>
         <div class="status-note-card status-note-card--operator mb-4">
             <div class="status-note-label">Operator Note</div>
-            <p class="status-note-copy">Treat this section like the "is the ground solid?" check. If uploads path, GD, or FFmpeg are unhealthy, fix those basics before debugging ticket reports, delivery complaints, or thumbnail issues one by one.</p>
+        <p class="status-note-copy">Treat this section like the "is the ground solid?" check. If uploads path, GD, or FFmpeg are unhealthy, fix those basics before debugging ticket reports, delivery complaints, or thumbnail issues one by one.</p>
         </div>
         <div class="status-health-grid">
             <div class="status-check-card">
@@ -614,7 +741,7 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
             <div class="status-check-card">
                 <div class="status-check-label">Video Thumbnails</div>
                 <div class="status-check-value <?= !empty($ffmpegOk) ? 'status-good' : 'status-warn' ?>"><?= !empty($ffmpegOk) ? 'FFmpeg ready' : 'Not configured' ?></div>
-                <div class="status-check-copy">If FFmpeg is not ready, video previews and processing stay unavailable.</div>
+                <div class="status-check-copy">If FFmpeg is not ready, video thumbnails stay unavailable. Full video transcoding is not available in this build yet.</div>
             </div>
             <div class="status-check-card">
                 <div class="status-check-label">Rate-Limit Blocks</div>
@@ -686,9 +813,11 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
         </div>
     </div>
 <?php renderAdminCardEnd(); ?>
+</div>
 
 
 
+<div class="status-page-anchor" id="status-uploads">
 <?php renderAdminCardStart('Upload Pipeline', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <p class="status-section-intro">This section is about whether uploads are moving cleanly from browser to stored object. Problems here usually become quota drift, stuck sessions, or support tickets later.</p>
     <div class="status-metric-grid mb-4">
@@ -711,84 +840,95 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
     </div>
 
     <div class="status-section-tools mb-4">
-        <a href="/admin/configuration?tab=cron" class="btn btn-sm btn-outline-secondary">Check Cron Jobs</a>
-        <a href="/admin/configuration?tab=uploads" class="btn btn-sm btn-outline-secondary">Open Upload Settings</a>
-        <a href="/admin/configuration?tab=storage" class="btn btn-sm btn-outline-secondary">Open Storage Settings</a>
+        <?php if ($canManageConfiguration): ?>
+            <a href="/admin/configuration?tab=cron" class="btn btn-sm btn-outline-secondary">Check Cron Jobs</a>
+            <a href="/admin/configuration?tab=uploads" class="btn btn-sm btn-outline-secondary">Open Upload Settings</a>
+            <a href="/admin/configuration?tab=storage" class="btn btn-sm btn-outline-secondary">Open Storage Settings</a>
+        <?php endif; ?>
     </div>
 
-    <details class="status-collapsible" open>
-        <summary>
-            <span>Recent Multipart Sessions</span>
-            <span class="status-small-copy"><?= count($recentUploadSessions) ?> rows</span>
-        </summary>
-        <div class="status-collapsible-body">
-            <?php if (empty($recentUploadSessions)): ?>
-                <div class="status-empty">No multipart upload sessions recorded yet.</div>
-            <?php else: ?>
-                <div class="status-table-wrap">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th class="status-cell">Session</th>
-                                <th class="status-cell">User</th>
-                                <th class="status-cell">File</th>
-                                <th class="status-cell">Progress</th>
-                                <th class="status-cell">Status</th>
-                                <th class="status-cell">Updated</th>
-                                <th class="status-cell">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($recentUploadSessions as $session): ?>
-                                <?php
-                                $status = (string)($session['status'] ?? 'unknown');
-                                $statusClass = in_array($status, ['failed', 'expired'], true) ? 'status-bad' : (in_array($status, ['completed'], true) ? 'status-good' : 'status-warn');
-                                $isAbortable = in_array($status, ['pending', 'uploading', 'completing', 'processing'], true);
-                                ?>
+    <?php if ($canAccessOperationalDiagnostics): ?>
+        <details class="status-collapsible" open>
+            <summary>
+                <span>Recent Multipart Sessions</span>
+                <span class="status-small-copy"><?= count($recentUploadSessions) ?> rows</span>
+            </summary>
+            <div class="status-collapsible-body">
+                <?php if (empty($recentUploadSessions)): ?>
+                    <div class="status-empty">No multipart upload sessions recorded yet.</div>
+                <?php else: ?>
+                    <div class="status-table-wrap">
+                        <table class="table table-hover mb-0">
+                            <thead>
                                 <tr>
-                                    <td class="status-cell"><code><?= htmlspecialchars((string)$session['public_id']) ?></code></td>
-                                    <td class="status-cell"><?= htmlspecialchars((string)($session['username'] ?: ('User #' . (int)$session['user_id']))) ?></td>
-                                    <td class="status-cell status-file-cell">
-                                        <div class="status-file-name"><?= htmlspecialchars((string)($session['original_filename'] ?? 'Unknown')) ?></div>
-                                        <div class="status-file-meta"><?= htmlspecialchars((string)($session['storage_provider'] ?? 'unknown')) ?> &middot; <?= \App\Service\FileProcessor::formatSize((int)($session['expected_size'] ?? 0)) ?></div>
-                                    </td>
-                                    <td class="status-cell">
-                                        <div class="status-file-name"><?= \App\Service\FileProcessor::formatSize((int)($session['uploaded_bytes'] ?? 0)) ?> / <?= \App\Service\FileProcessor::formatSize((int)($session['expected_size'] ?? 0)) ?></div>
-                                        <div class="status-file-meta"><?= (int)($session['completed_parts'] ?? 0) ?> parts reported</div>
-                                    </td>
-                                    <td class="status-cell">
-                                        <div class="status-metric <?= $statusClass ?>"><?= htmlspecialchars($status) ?></div>
-                                        <?php if (!empty($session['error_message'])): ?>
-                                            <div class="status-file-meta status-bad"><?= htmlspecialchars((string)$session['error_message']) ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="status-cell status-small-copy">
-                                        <?= !empty($session['updated_at']) ? htmlspecialchars(date('M j, H:i', strtotime((string)$session['updated_at']))) : 'Never' ?>
-                                        <?php if (!empty($session['expires_at'])): ?>
-                                            <div class="status-subcopy">Expires <?= htmlspecialchars(date('M j, H:i', strtotime((string)$session['expires_at']))) ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="status-cell">
-                                        <?php if ($isAbortable): ?>
-                                            <form method="POST" action="/admin/uploads/session/abort" data-confirm-message="Abort upload session <?= htmlspecialchars((string)$session['public_id']) ?>?">
-                                                <?= \App\Core\Csrf::field() ?>
-                                                <input type="hidden" name="session_id" value="<?= htmlspecialchars((string)$session['public_id']) ?>">
-                                                <button type="submit" class="btn btn-sm status-action-btn">Abort</button>
-                                            </form>
-                                        <?php else: ?>
-                                            <span class="status-subcopy">No action</span>
-                                        <?php endif; ?>
-                                    </td>
+                                    <th class="status-cell">Session</th>
+                                    <th class="status-cell">User</th>
+                                    <th class="status-cell">File</th>
+                                    <th class="status-cell">Progress</th>
+                                    <th class="status-cell">Status</th>
+                                    <th class="status-cell">Updated</th>
+                                    <th class="status-cell">Action</th>
                                 </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            <?php endif; ?>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recentUploadSessions as $session): ?>
+                                    <?php
+                                    $status = (string)($session['status'] ?? 'unknown');
+                                    $statusClass = in_array($status, ['failed', 'expired'], true) ? 'status-bad' : (in_array($status, ['completed'], true) ? 'status-good' : 'status-warn');
+                                    $isAbortable = in_array($status, ['pending', 'uploading', 'completing', 'processing'], true);
+                                    ?>
+                                    <tr>
+                                        <td class="status-cell"><code><?= htmlspecialchars((string)$session['public_id']) ?></code></td>
+                                        <td class="status-cell"><?= htmlspecialchars((string)($session['username'] ?: ('User #' . (int)$session['user_id']))) ?></td>
+                                        <td class="status-cell status-file-cell">
+                                            <div class="status-file-name"><?= htmlspecialchars((string)($session['original_filename'] ?? 'Unknown')) ?></div>
+                                            <div class="status-file-meta"><?= htmlspecialchars((string)($session['storage_provider'] ?? 'unknown')) ?> &middot; <?= \App\Service\FileProcessor::formatSize((int)($session['expected_size'] ?? 0)) ?></div>
+                                        </td>
+                                        <td class="status-cell">
+                                            <div class="status-file-name"><?= \App\Service\FileProcessor::formatSize((int)($session['uploaded_bytes'] ?? 0)) ?> / <?= \App\Service\FileProcessor::formatSize((int)($session['expected_size'] ?? 0)) ?></div>
+                                            <div class="status-file-meta"><?= (int)($session['completed_parts'] ?? 0) ?> parts reported</div>
+                                        </td>
+                                        <td class="status-cell">
+                                            <div class="status-metric <?= $statusClass ?>"><?= htmlspecialchars($status) ?></div>
+                                            <?php if (!empty($session['error_message'])): ?>
+                                                <div class="status-file-meta status-bad"><?= htmlspecialchars((string)$session['error_message']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="status-cell status-small-copy">
+                                            <?= !empty($session['updated_at']) ? htmlspecialchars(date('M j, H:i', strtotime((string)$session['updated_at']))) : 'Never' ?>
+                                            <?php if (!empty($session['expires_at'])): ?>
+                                                <div class="status-subcopy">Expires <?= htmlspecialchars(date('M j, H:i', strtotime((string)$session['expires_at']))) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="status-cell">
+                                            <?php if ($isAbortable): ?>
+                                                <form method="POST" action="/admin/uploads/session/abort" data-confirm-message="Abort upload session <?= htmlspecialchars((string)$session['public_id']) ?>?">
+                                                    <?= \App\Core\Csrf::field() ?>
+                                                    <input type="hidden" name="session_id" value="<?= htmlspecialchars((string)$session['public_id']) ?>">
+                                                    <button type="submit" class="btn btn-sm status-action-btn">Abort</button>
+                                                </form>
+                                            <?php else: ?>
+                                                <span class="status-subcopy">No action</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </details>
+    <?php else: ?>
+        <div class="status-note-card status-note-card--operator mb-4">
+            <div class="status-note-label">Operational Detail Access</div>
+            <p class="status-note-copy">Recent upload-session identities, filenames, reservation records, and abort controls are reserved for staff with Support or full Configuration diagnostics access.</p>
         </div>
-    </details>
+    <?php endif; ?>
 <?php renderAdminCardEnd(); ?>
+</div>
 
+<div class="status-page-anchor" id="status-storage">
 <?php renderAdminCardStart('Storage & Reservations', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <p class="status-section-intro">This section is for quota bookkeeping and reservation cleanup. It is the place to look when storage limits feel wrong, space stays "reserved" too long, or uploads appear detached from quota state.</p>
 
@@ -804,62 +944,70 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
     </div>
 
     <div class="status-section-tools mb-4">
-        <a href="/admin/configuration?tab=storage" class="btn btn-sm btn-outline-secondary">Open Storage Settings</a>
-        <a href="/admin/configuration?tab=cron" class="btn btn-sm btn-outline-secondary">Check Cron Jobs</a>
-        <a href="/admin/server-monitoring" class="btn btn-sm btn-outline-secondary">Server Monitoring</a>
+        <?php if ($canManageConfiguration): ?>
+            <a href="/admin/configuration?tab=storage" class="btn btn-sm btn-outline-secondary">Open Storage Settings</a>
+            <a href="/admin/configuration?tab=cron" class="btn btn-sm btn-outline-secondary">Check Cron Jobs</a>
+        <?php endif; ?>
+        <?php if ($canAccessServerMonitoringHistory): ?>
+            <a href="/admin/server-monitoring" class="btn btn-sm btn-outline-secondary">Server Monitoring</a>
+        <?php endif; ?>
     </div>
 
-    <details class="status-collapsible">
-        <summary>
-            <span>Recent Quota Reservations</span>
-            <span class="status-small-copy"><?= count($recentReservations) ?> rows</span>
-        </summary>
-        <div class="status-collapsible-body">
-            <?php if (empty($recentReservations)): ?>
-                <div class="status-empty">No quota reservations recorded yet.</div>
-            <?php else: ?>
-                <div class="status-table-wrap">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th class="status-cell">Reservation</th>
-                                <th class="status-cell">User</th>
-                                <th class="status-cell">Upload Session</th>
-                                <th class="status-cell">Reserved</th>
-                                <th class="status-cell">Status</th>
-                                <th class="status-cell">Created</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($recentReservations as $reservation): ?>
+    <?php if ($canAccessOperationalDiagnostics): ?>
+        <details class="status-collapsible">
+            <summary>
+                <span>Recent Quota Reservations</span>
+                <span class="status-small-copy"><?= count($recentReservations) ?> rows</span>
+            </summary>
+            <div class="status-collapsible-body">
+                <?php if (empty($recentReservations)): ?>
+                    <div class="status-empty">No quota reservations recorded yet.</div>
+                <?php else: ?>
+                    <div class="status-table-wrap">
+                        <table class="table table-hover mb-0">
+                            <thead>
                                 <tr>
-                                    <td class="status-cell"><code><?= htmlspecialchars((string)$reservation['public_id']) ?></code></td>
-                                    <td class="status-cell"><?= htmlspecialchars((string)($reservation['username'] ?: ('User #' . (int)$reservation['user_id']))) ?></td>
-                                    <td class="status-cell">
-                                        <?php if (!empty($reservation['upload_public_id'])): ?>
-                                            <code><?= htmlspecialchars((string)$reservation['upload_public_id']) ?></code>
-                                        <?php else: ?>
-                                            <span class="status-small-copy">Detached</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="status-cell status-file-name"><?= \App\Service\FileProcessor::formatSize((int)($reservation['reserved_bytes'] ?? 0)) ?></td>
-                                    <td class="status-cell"><?= htmlspecialchars((string)($reservation['status'] ?? 'unknown')) ?></td>
-                                    <td class="status-cell status-small-copy">
-                                        <?= !empty($reservation['created_at']) ? htmlspecialchars(date('M j, H:i', strtotime((string)$reservation['created_at']))) : 'Unknown' ?>
-                                        <?php if (!empty($reservation['expires_at'])): ?>
-                                            <div class="status-subcopy">Expires <?= htmlspecialchars(date('M j, H:i', strtotime((string)$reservation['expires_at']))) ?></div>
-                                        <?php endif; ?>
-                                    </td>
+                                    <th class="status-cell">Reservation</th>
+                                    <th class="status-cell">User</th>
+                                    <th class="status-cell">Upload Session</th>
+                                    <th class="status-cell">Reserved</th>
+                                    <th class="status-cell">Status</th>
+                                    <th class="status-cell">Created</th>
                                 </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            <?php endif; ?>
-        </div>
-    </details>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recentReservations as $reservation): ?>
+                                    <tr>
+                                        <td class="status-cell"><code><?= htmlspecialchars((string)$reservation['public_id']) ?></code></td>
+                                        <td class="status-cell"><?= htmlspecialchars((string)($reservation['username'] ?: ('User #' . (int)$reservation['user_id']))) ?></td>
+                                        <td class="status-cell">
+                                            <?php if (!empty($reservation['upload_public_id'])): ?>
+                                                <code><?= htmlspecialchars((string)$reservation['upload_public_id']) ?></code>
+                                            <?php else: ?>
+                                                <span class="status-small-copy">Detached</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="status-cell status-file-name"><?= \App\Service\FileProcessor::formatSize((int)($reservation['reserved_bytes'] ?? 0)) ?></td>
+                                        <td class="status-cell"><?= htmlspecialchars((string)($reservation['status'] ?? 'unknown')) ?></td>
+                                        <td class="status-cell status-small-copy">
+                                            <?= !empty($reservation['created_at']) ? htmlspecialchars(date('M j, H:i', strtotime((string)$reservation['created_at']))) : 'Unknown' ?>
+                                            <?php if (!empty($reservation['expires_at'])): ?>
+                                                <div class="status-subcopy">Expires <?= htmlspecialchars(date('M j, H:i', strtotime((string)$reservation['expires_at']))) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </details>
+    <?php endif; ?>
 <?php renderAdminCardEnd(); ?>
+</div>
 
+<div class="status-page-anchor" id="status-delivery">
 <?php renderAdminCardStart('Download & Delivery', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <p class="status-section-intro">This section answers how downloads are likely being routed right now and what delivery rules are currently shaping the experience.</p>
     <div class="status-metric-grid mb-4">
@@ -898,12 +1046,16 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
     </div>
 
     <div class="status-section-tools">
-        <a href="/admin/configuration?tab=downloads" class="btn btn-sm btn-outline-secondary">Open Download Settings</a>
-        <a href="/admin/configuration?tab=storage" class="btn btn-sm btn-outline-secondary">Open Storage Settings</a>
+        <?php if ($canManageConfiguration): ?>
+            <a href="/admin/configuration?tab=downloads" class="btn btn-sm btn-outline-secondary">Open Download Settings</a>
+            <a href="/admin/configuration?tab=storage" class="btn btn-sm btn-outline-secondary">Open Storage Settings</a>
+        <?php endif; ?>
         <a href="/admin/downloads/current" class="btn btn-sm btn-outline-secondary">Open Live Downloads</a>
     </div>
 <?php renderAdminCardEnd(); ?>
+</div>
 
+<div class="status-page-anchor" id="status-support">
 <?php renderAdminCardStart('Support Diagnostics', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <p class="status-section-intro">This is the escalation side of the ops page. If the lower-level checks look healthy but reports keep coming in, this is where you confirm whether support tooling is ready.</p>
     <div class="status-policy-grid">
@@ -925,27 +1077,38 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
         <div class="status-policy-card">
             <div class="status-policy-title">Next Safe Step</div>
             <div class="status-policy-copy">
-                Check this section after Status still leaves the issue unclear. Use Support Center for sanitized export instead of sharing raw logs or secrets directly.
+                Check this section after Status still leaves the issue unclear. Use Diagnostics for sanitized export instead of sharing raw logs or secrets directly.
             </div>
         </div>
     </div>
     <div class="status-note-card status-note-card--operator mt-4">
         <div class="status-note-label">Operator Note</div>
-        <p class="status-note-copy">Reach for Support Center after you have done the quick triage and still need another pair of eyes. The safe move is to send a sanitized bundle instead of raw logs, secrets, or screenshots with sensitive values visible.</p>
+        <p class="status-note-copy">Reach for Diagnostics after you have done the quick triage and still need another pair of eyes. The safe move is to send a sanitized bundle instead of raw logs, secrets, or screenshots with sensitive values visible.</p>
     </div>
-    <?php if (!$demoAdmin): ?>
+    <?php if (!$demoAdmin && $canAccessSupportDiagnostics): ?>
         <div class="status-section-tools mt-4">
-            <a href="/admin/support" class="btn btn-sm btn-outline-secondary">Open Support Center</a>
-            <a href="/admin/configuration?tab=email" class="btn btn-sm btn-outline-secondary">Open Email Settings</a>
+            <a href="/admin/support" class="btn btn-sm btn-outline-secondary">Open Diagnostics</a>
+            <?php if ($canManageConfiguration): ?>
+                <a href="/admin/configuration?tab=email" class="btn btn-sm btn-outline-secondary">Open Email Settings</a>
+            <?php endif; ?>
+        </div>
+    <?php elseif (!$canAccessSupportDiagnostics): ?>
+        <div class="status-note-card status-note-card--operator mt-4">
+            <div class="status-note-label">Diagnostics Access</div>
+            <p class="status-note-copy">Diagnostics export and support-bundle tools are reserved for staff with Support or full Configuration access.</p>
         </div>
     <?php endif; ?>
 <?php renderAdminCardEnd(); ?>
+</div>
 
+<div class="status-page-anchor" id="status-logs">
 <?php renderAdminCardStart('Logs', ['bodyClass' => 'status-card-body', 'cardClass' => 'mb-4']); ?>
     <p class="status-section-intro">Read the message first, then the metadata. Use the level filters to cut noise before you clear anything.</p>
     <div class="status-note-card status-note-card--operator mb-4">
         <div class="status-note-label">Operator Note</div>
-        <p class="status-note-copy">Logs are for narrowing the question, not just collecting more text. Start with error-level entries, then open context only when the message itself is not enough to choose a next step.</p>
+        <p class="status-note-copy"><?= $canAccessOperationalDiagnostics
+            ? 'Logs are for narrowing the question, not just collecting more text. Start with error-level entries, then open context only when the message itself is not enough to choose a next step.'
+            : 'Operational log contents stay hidden unless you also have Support or full Configuration diagnostics access. Use the rest of the status page for high-level triage.' ?></p>
     </div>
 
     <?php if (!$gdOk || !$ffmpegOk): ?>
@@ -956,76 +1119,87 @@ renderAdminCardStart(null, ['headerHtml' => $updatesHeader, 'bodyClass' => 'stat
                     <li>Install the PHP GD extension for image thumbnails.</li>
                 <?php endif; ?>
                 <?php if (!$ffmpegOk): ?>
-                    <li>Set <code>video.ffmpeg_path</code> to your server's FFmpeg binary.</li>
+                    <li>Set <code>video.ffmpeg_path</code> to your server's FFmpeg binary. On shared hosting this is often unavailable because the host may not provide FFmpeg or may block shell execution.</li>
                 <?php endif; ?>
             </ul>
         </div>
     <?php endif; ?>
 
-    <details class="status-collapsible mb-3" open>
-        <summary>
-            <span>Recent System Errors</span>
-            <span class="status-small-copy"><?= $recentErrorCount ?> entries</span>
-        </summary>
-        <div class="status-collapsible-body">
-            <div class="status-log-size">Current log size: <strong><?= htmlspecialchars((string)($logSizeReadable ?? '0 B')) ?></strong> / <?= htmlspecialchars((string)($logMaxReadable ?? '25 MB')) ?> cap.</div>
-            <pre class="status-log-pre"><?php if (empty($errors)): ?>(no recent errors)<?php else: foreach ($errors as $line): ?><?= htmlspecialchars((string)$line) ?><?php endforeach; endif; ?></pre>
+    <?php if ($canAccessOperationalDiagnostics): ?>
+        <details class="status-collapsible mb-3" open>
+            <summary>
+                <span>Recent System Errors</span>
+                <span class="status-small-copy"><?= $recentErrorCount ?> entries</span>
+            </summary>
+            <div class="status-collapsible-body">
+                <div class="status-log-size">Current log size: <strong><?= htmlspecialchars((string)($logSizeReadable ?? '0 B')) ?></strong> / <?= htmlspecialchars((string)($logMaxReadable ?? '25 MB')) ?> cap.</div>
+                <pre class="status-log-pre"><?php if (empty($errors)): ?>(no recent errors)<?php else: foreach ($errors as $line): ?><?= htmlspecialchars((string)$line) ?><?php endforeach; endif; ?></pre>
+            </div>
+        </details>
+
+        <div class="d-flex flex-wrap justify-content-between gap-3 align-items-center mb-3">
+            <div class="status-log-size mb-0">Current log size: <strong><?= htmlspecialchars((string)($logSizeReadable ?? '0 B')) ?></strong> / <?= htmlspecialchars((string)($logMaxReadable ?? '25 MB')) ?> cap.</div>
+            <?php if (empty($demoAdmin)): ?>
+                <form method="POST" action="/admin/logs/clear" data-confirm-message="Permanently clear all application logs?">
+                    <?= \App\Core\Csrf::field() ?>
+                    <input type="hidden" name="redirect" value="/admin/status">
+                    <button type="submit" class="btn btn-sm status-action-btn">Clear Logs</button>
+                </form>
+            <?php endif; ?>
         </div>
-    </details>
 
-    <div class="d-flex flex-wrap justify-content-between gap-3 align-items-center mb-3">
-        <div class="status-log-size mb-0">Current log size: <strong><?= htmlspecialchars((string)($logSizeReadable ?? '0 B')) ?></strong> / <?= htmlspecialchars((string)($logMaxReadable ?? '25 MB')) ?> cap.</div>
-        <?php if (empty($demoAdmin)): ?>
-            <form method="POST" action="/admin/logs/clear" data-confirm-message="Permanently clear all application logs?">
-                <?= \App\Core\Csrf::field() ?>
-                <input type="hidden" name="redirect" value="/admin/status">
-                <button type="submit" class="btn btn-sm status-action-btn">Clear Logs</button>
-            </form>
-        <?php endif; ?>
-    </div>
+        <div class="status-log-tools">
+            <button type="button" class="status-log-filter is-active" data-log-filter="all">All</button>
+            <button type="button" class="status-log-filter" data-log-filter="error">Errors</button>
+            <button type="button" class="status-log-filter" data-log-filter="warning">Warnings</button>
+            <button type="button" class="status-log-filter" data-log-filter="info">Info</button>
+        </div>
 
-    <div class="status-log-tools">
-        <button type="button" class="status-log-filter is-active" data-log-filter="all">All</button>
-        <button type="button" class="status-log-filter" data-log-filter="error">Errors</button>
-        <button type="button" class="status-log-filter" data-log-filter="warning">Warnings</button>
-        <button type="button" class="status-log-filter" data-log-filter="info">Info</button>
-    </div>
-
-    <div class="status-log-feed" id="statusLogFeed">
-        <?php foreach ($formattedLogs as $index => $entry): ?>
-            <?php
-            $level = strtolower((string)($entry['level'] ?? 'info'));
-            $accentClass = $level === 'error' ? 'status-log-entry--error' : ($level === 'warning' ? 'status-log-entry--warning' : 'status-log-entry--info');
-            $timestamp = !empty($entry['timestamp']) ? date('M j, Y H:i:s', strtotime((string)$entry['timestamp'])) : 'Unknown time';
-            $context = is_array($entry['context'] ?? null) ? $entry['context'] : [];
-            $contextId = 'status-log-context-' . $index;
-            ?>
-            <div class="status-log-entry <?= $accentClass ?>" data-log-level="<?= htmlspecialchars($level) ?>">
-                <div class="status-log-head">
-                    <span class="status-log-level"><?= htmlspecialchars($level) ?></span>
-                    <span class="status-log-time"><?= htmlspecialchars($timestamp) ?></span>
+        <div class="status-log-feed" id="statusLogFeed">
+            <?php foreach ($formattedLogs as $index => $entry): ?>
+                <?php
+                $level = strtolower((string)($entry['level'] ?? 'info'));
+                $accentClass = $level === 'error' ? 'status-log-entry--error' : ($level === 'warning' ? 'status-log-entry--warning' : 'status-log-entry--info');
+                $timestamp = !empty($entry['timestamp']) ? date('M j, Y H:i:s', strtotime((string)$entry['timestamp'])) : 'Unknown time';
+                $context = is_array($entry['context'] ?? null) ? $entry['context'] : [];
+                $contextId = 'status-log-context-' . $index;
+                ?>
+                <div class="status-log-entry <?= $accentClass ?>" data-log-level="<?= htmlspecialchars($level) ?>">
+                    <div class="status-log-head">
+                        <span class="status-log-level"><?= htmlspecialchars($level) ?></span>
+                        <span class="status-log-time"><?= htmlspecialchars($timestamp) ?></span>
+                        <?php if (!empty($context)): ?>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 js-status-log-context-toggle" data-target="<?= htmlspecialchars($contextId) ?>">Context</button>
+                        <?php endif; ?>
+                    </div>
+                    <div class="status-log-message"><?= htmlspecialchars((string)($entry['message'] ?? 'Log entry')) ?></div>
                     <?php if (!empty($context)): ?>
-                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 js-status-log-context-toggle" data-target="<?= htmlspecialchars($contextId) ?>">Context</button>
+                        <div class="status-log-context" id="<?= htmlspecialchars($contextId) ?>" hidden>
+                            <?php foreach ($context as $key => $value): ?>
+                                <span class="status-log-pill">
+                                    <strong class="status-log-key"><?= htmlspecialchars((string)$key) ?>:</strong>
+                                    <span><?= htmlspecialchars(is_scalar($value) || $value === null ? (string)$value : json_encode($value)) ?></span>
+                                </span>
+                            <?php endforeach; ?>
+                        </div>
                     <?php endif; ?>
                 </div>
-                <div class="status-log-message"><?= htmlspecialchars((string)($entry['message'] ?? 'Log entry')) ?></div>
-                <?php if (!empty($context)): ?>
-                    <div class="status-log-context" id="<?= htmlspecialchars($contextId) ?>" hidden>
-                        <?php foreach ($context as $key => $value): ?>
-                            <span class="status-log-pill">
-                                <strong class="status-log-key"><?= htmlspecialchars((string)$key) ?>:</strong>
-                                <span><?= htmlspecialchars(is_scalar($value) || $value === null ? (string)$value : json_encode($value)) ?></span>
-                            </span>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
-        <?php endforeach; ?>
-        <?php if (empty($formattedLogs)): ?>
-            <div class="status-muted-copy mb-0">No application log entries recorded yet.</div>
-        <?php endif; ?>
-    </div>
+            <?php endforeach; ?>
+            <?php if (empty($formattedLogs)): ?>
+                <div class="status-muted-copy mb-0">No application log entries recorded yet.</div>
+            <?php endif; ?>
+        </div>
+    <?php else: ?>
+        <div class="d-flex flex-wrap justify-content-between gap-3 align-items-center mb-3">
+            <div class="status-log-size mb-0">Current log size: <strong><?= htmlspecialchars((string)($logSizeReadable ?? '0 B')) ?></strong> / <?= htmlspecialchars((string)($logMaxReadable ?? '25 MB')) ?> cap.</div>
+        </div>
+        <div class="status-note-card status-note-card--operator">
+            <div class="status-note-label">Restricted</div>
+            <p class="status-note-copy">Log contents, error excerpts, and context details are hidden for staff who only have basic System Status access.</p>
+        </div>
+    <?php endif; ?>
 <?php renderAdminCardEnd(); ?>
+</div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -1068,4 +1242,3 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <?php include 'footer.php'; ?>
-

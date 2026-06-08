@@ -121,6 +121,7 @@ $footerLinks = array_merge($footerDefaultLinks, array_values(array_map(static fu
     <div id="contextMenu" class="context-menu home-footer-hidden">
         <ul>
             <li id="ctxDownload"><span class="icon" aria-hidden="true">&#11015;</span> Download</li>
+            <li id="ctxReplace"><span class="icon" aria-hidden="true">&#128260;</span> Replace File</li>
             <li id="ctxRename"><span class="icon" aria-hidden="true">&#9998;</span> Rename</li>
             <li id="ctxMove"><span class="icon" aria-hidden="true">&#128194;</span> Move to...</li>
             <li id="ctxCopy"><span class="icon" aria-hidden="true">&#128203;</span> Copy to...</li>
@@ -147,11 +148,19 @@ $footerLinks = array_merge($footerDefaultLinks, array_values(array_map(static fu
     document.addEventListener('click', function(event) {
         const navTarget = event.target.closest('[data-nav-url]');
         if (navTarget) {
+            event.preventDefault();
             const url = navTarget.getAttribute('data-nav-url');
             const target = navTarget.getAttribute('data-nav-target');
             if (url) {
                 if (target === '_blank') {
                     window.open(url, '_blank', 'noopener');
+                } else if (
+                    typeof window.__fmHasBlockingUploads === 'function' &&
+                    window.__fmHasBlockingUploads() &&
+                    typeof window.__fmOpenWorkspaceUrl === 'function' &&
+                    (url === '/' || /^\/folder\/\d+(?:[/?#]|$)/.test(url))
+                ) {
+                    window.__fmOpenWorkspaceUrl(url);
                 } else {
                     window.location.href = url;
                 }
@@ -164,12 +173,48 @@ $footerLinks = array_merge($footerDefaultLinks, array_values(array_map(static fu
             const source = copyTarget.previousElementSibling;
             const value = source && 'value' in source ? source.value : '';
             if (value) {
-                navigator.clipboard.writeText(value).then(function() {
-                    const message = copyTarget.getAttribute('data-copy-success');
+                const successMessage = copyTarget.getAttribute('data-copy-success') || 'Copied!';
+                const failureMessage = copyTarget.getAttribute('data-copy-failure') || 'Unable to copy automatically. Please select and copy the value manually.';
+                const showResult = function(message) {
                     if (message) {
                         alert(message);
                     }
-                });
+                };
+                const fallbackCopy = function() {
+                    if (!source || typeof source.select !== 'function') {
+                        showResult(failureMessage);
+                        return;
+                    }
+
+                    source.focus();
+                    source.select();
+                    try {
+                        if (document.execCommand && document.execCommand('copy')) {
+                            showResult(successMessage);
+                        } else {
+                            showResult(failureMessage);
+                        }
+                    } catch (error) {
+                        showResult(failureMessage);
+                    } finally {
+                        if (window.getSelection) {
+                            const selection = window.getSelection();
+                            if (selection && typeof selection.removeAllRanges === 'function') {
+                                selection.removeAllRanges();
+                            }
+                        }
+                    }
+                };
+
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                    navigator.clipboard.writeText(value)
+                        .then(function() {
+                            showResult(successMessage);
+                        })
+                        .catch(fallbackCopy);
+                } else {
+                    fallbackCopy();
+                }
             }
         }
     });

@@ -14,17 +14,7 @@ class ConfigurableLocalStorage implements StorageProvider {
     private string $publicUrl;
 
     public function __construct(string $rootPath, string $publicUrl = '') {
-        // Safety: strip any leading public/
-        $rootPath = preg_replace('/^(\/?public\/)/i', '', $rootPath);
-        
-        // ensure absolute path relative to project root if not already absolute
-        if (!$this->isAbsolutePath($rootPath)) {
-            $rootPath = ltrim($rootPath, '/\\');
-            $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 3);
-            $rootPath = $root . '/' . $rootPath;
-        }
-
-        $this->rootPath  = rtrim($rootPath, '/\\');
+        $this->rootPath  = StoragePathGuard::normalizeLocalRootPath($rootPath);
         $this->publicUrl = rtrim($publicUrl, '/');
 
         if (!is_dir($this->rootPath)) {
@@ -33,43 +23,81 @@ class ConfigurableLocalStorage implements StorageProvider {
     }
 
     public function save(string $sourcePath, string $destinationPath): bool {
-        $fullPath = $this->rootPath . '/' . $destinationPath;
+        try {
+            $fullPath = $this->absoluteObjectPath($destinationPath);
+        } catch (\RuntimeException $e) {
+            return false;
+        }
         $dir = dirname($fullPath);
         if (!is_dir($dir)) mkdir($dir, 0755, true);
         return rename($sourcePath, $fullPath);
     }
 
     public function delete(string $path): bool {
-        $fullPath = $this->rootPath . '/' . $path;
-        return file_exists($fullPath) ? unlink($fullPath) : false;
+        try {
+            $fullPath = $this->absoluteObjectPath($path);
+        } catch (\RuntimeException $e) {
+            return false;
+        }
+        return !file_exists($fullPath) || unlink($fullPath);
     }
 
     public function deleteVariants(string $path, array $variants = []): bool {
-        // For local storage, variants are usually just files with different extensions/suffixes
-        // We'll look for anything matching the base path
-        $dir = dirname($this->rootPath . '/' . $path);
+        if ($variants !== []) {
+            $success = true;
+            foreach ($variants as $variantPath) {
+                try {
+                    $fullPath = $this->absoluteObjectPath((string)$variantPath);
+                } catch (\RuntimeException $e) {
+                    return false;
+                }
+
+                if (file_exists($fullPath) && !unlink($fullPath)) {
+                    $success = false;
+                }
+            }
+
+            return $success;
+        }
+
+        try {
+            $normalizedPath = $this->normalizeObjectPath($path);
+            $dir = dirname($this->absoluteObjectPath($normalizedPath));
+        } catch (\RuntimeException $e) {
+            return false;
+        }
         if (!is_dir($dir)) return false;
-        
-        $pattern = $dir . '/' . pathinfo($path, PATHINFO_FILENAME) . '*';
+
+        $pattern = $dir . '/' . pathinfo($normalizedPath, PATHINFO_FILENAME) . '*';
         $files = glob($pattern);
         $success = true;
         foreach ($files as $file) {
-            if (is_file($file)) {
-                if (!unlink($file)) $success = false;
+            if (is_file($file) && !unlink($file)) {
+                $success = false;
             }
         }
         return $success;
     }
 
     public function exists(string $path): bool {
-        return file_exists($this->rootPath . '/' . $path);
+        try {
+            return file_exists($this->absoluteObjectPath($path));
+        } catch (\RuntimeException $e) {
+            return false;
+        }
     }
 
     public function getUrl(string $path): string {
-        if ($this->publicUrl) {
-            return $this->publicUrl . '/' . ltrim($path, '/');
+        try {
+            $normalizedPath = $this->normalizeObjectPath($path);
+        } catch (\RuntimeException $e) {
+            return '';
         }
-        $normalized = ltrim($path, '/');
+
+        if ($this->publicUrl) {
+            return $this->publicUrl . '/' . ltrim($normalizedPath, '/');
+        }
+        $normalized = ltrim($normalizedPath, '/');
         if (str_starts_with($normalized, 'thumbnails/')) {
             $normalized = substr($normalized, strlen('thumbnails/'));
         }
@@ -78,7 +106,7 @@ class ConfigurableLocalStorage implements StorageProvider {
     }
 
     public function getAbsolutePath(string $path): string {
-        return $this->rootPath . '/' . $path;
+        return $this->absoluteObjectPath($path);
     }
 
     public function getPresignedUrl(string $path, int $expiry = 3600, array $options = []): ?string {
@@ -86,7 +114,12 @@ class ConfigurableLocalStorage implements StorageProvider {
     }
 
     public function stream(string $path, int $seekStart = 0, ?callable $onProgress = null, ?int $maxBytes = null): void {
-        $fullPath = $this->getAbsolutePath($path);
+        try {
+            $fullPath = $this->getAbsolutePath($path);
+        } catch (\RuntimeException $e) {
+            http_response_code(404);
+            return;
+        }
         if (!file_exists($fullPath)) {
             http_response_code(404);
             return;
@@ -120,7 +153,7 @@ class ConfigurableLocalStorage implements StorageProvider {
             if ($remaining !== null) {
                 $remaining -= $sentLength;
             }
-            
+
             if ($onProgress) {
                 $onProgress($totalSent);
             }
@@ -141,10 +174,18 @@ class ConfigurableLocalStorage implements StorageProvider {
             'app_part_upload' => true,
             'presigned_download' => false,
             'head' => true,
+            'completion_validates_part_identity' => false,
+            'multipart_etag_case_insensitive' => false,
         ];
     }
 
     public function createMultipartUpload(string $destinationPath, array $options = []): ?array {
+        try {
+            $this->normalizeObjectPath($destinationPath);
+        } catch (\RuntimeException $e) {
+            return null;
+        }
+
         $uploadId = bin2hex(random_bytes(16));
         $dir = $this->multipartRoot($uploadId);
         if (!is_dir($dir)) {
@@ -159,7 +200,36 @@ class ConfigurableLocalStorage implements StorageProvider {
     }
 
     public function listMultipartParts(string $destinationPath, string $uploadId): array {
-        return [];
+        try {
+            $this->normalizeObjectPath($destinationPath);
+        } catch (\RuntimeException $e) {
+            return [];
+        }
+
+        $partsDir = $this->multipartRoot($uploadId);
+        if (!is_dir($partsDir)) {
+            return [];
+        }
+
+        $parts = [];
+        foreach (glob($partsDir . '/part-*.bin') ?: [] as $partPath) {
+            if (!is_file($partPath)) {
+                continue;
+            }
+
+            if (!preg_match('/part-(\d+)\.bin$/', $partPath, $matches)) {
+                continue;
+            }
+
+            $parts[] = [
+                'part_number' => (int)$matches[1],
+                'etag' => (string)(hash_file('sha256', $partPath) ?: ''),
+                'size' => max(0, (int)(filesize($partPath) ?: 0)),
+            ];
+        }
+
+        usort($parts, static fn(array $a, array $b): int => (int)$a['part_number'] <=> (int)$b['part_number']);
+        return $parts;
     }
 
     public function completeMultipartUpload(string $destinationPath, string $uploadId, array $parts): bool {
@@ -168,7 +238,11 @@ class ConfigurableLocalStorage implements StorageProvider {
             return false;
         }
 
-        $fullPath = $this->rootPath . '/' . $destinationPath;
+        try {
+            $fullPath = $this->absoluteObjectPath($destinationPath);
+        } catch (\RuntimeException $e) {
+            return false;
+        }
         $dir = dirname($fullPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
@@ -205,6 +279,12 @@ class ConfigurableLocalStorage implements StorageProvider {
     }
 
     public function abortMultipartUpload(string $destinationPath, string $uploadId): bool {
+        try {
+            $this->normalizeObjectPath($destinationPath);
+        } catch (\RuntimeException $e) {
+            return false;
+        }
+
         $partsDir = $this->multipartRoot($uploadId);
         if (!is_dir($partsDir)) {
             return true;
@@ -215,6 +295,7 @@ class ConfigurableLocalStorage implements StorageProvider {
     }
 
     public function writeMultipartPart(string $destinationPath, string $uploadId, int $partNumber, $stream): array {
+        $this->normalizeObjectPath($destinationPath);
         $partsDir = $this->multipartRoot($uploadId);
         if (!is_dir($partsDir)) {
             mkdir($partsDir, 0755, true);
@@ -254,32 +335,37 @@ class ConfigurableLocalStorage implements StorageProvider {
     }
 
     public function head(string $path): ?array {
-        $fullPath = $this->getAbsolutePath($path);
+        try {
+            $normalizedPath = $this->normalizeObjectPath($path);
+            $fullPath = $this->getAbsolutePath($normalizedPath);
+        } catch (\RuntimeException $e) {
+            return null;
+        }
         if (!is_file($fullPath)) {
             return null;
         }
 
         return [
-            'path' => $path,
+            'path' => $normalizedPath,
             'content_length' => filesize($fullPath),
             'last_modified' => filemtime($fullPath),
             'etag' => md5_file($fullPath),
         ];
     }
 
-    private function isAbsolutePath(string $path): bool
+    private function normalizeObjectPath(string $path): string
     {
-        return $path !== '' && (
-            preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1 ||
-            str_starts_with($path, '\\\\') ||
-            str_starts_with($path, '/')
-        );
+        return StoragePathGuard::normalizeObjectPath($path);
+    }
+
+    private function absoluteObjectPath(string $path): string
+    {
+        return StoragePathGuard::absoluteObjectPath($this->rootPath, $path);
     }
 
     private function multipartRoot(string $uploadId): string
     {
-        $root = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 3);
-        return rtrim($root, '/\\') . '/storage/framework/multipart-local/' . preg_replace('/[^a-zA-Z0-9_-]/', '', $uploadId);
+        return $this->rootPath . '/.multipart-local/' . preg_replace('/[^a-zA-Z0-9_-]/', '', $uploadId);
     }
 
     private function multipartPartPath(string $uploadId, int $partNumber): string

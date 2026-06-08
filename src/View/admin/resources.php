@@ -265,7 +265,7 @@ renderAdminPageHeader(
 
 <div class="resources-operator-note">
     <h2 class="resources-operator-note-title">Note</h2>
-    <p class="resources-operator-note-copy">We'd love to list more here. If you have a service you can offer, mail <a href="mailto:fyuhls.support@gmail.com">fyuhls.support@gmail.com</a>.</p>
+    <p class="resources-operator-note-copy">We'd love to list more here. If you have a service you can offer, mail <a href="mailto:<?= htmlspecialchars($sponsorEmail) ?>"><?= htmlspecialchars($sponsorEmail) ?></a>.</p>
 </div>
 
 <div class="resources-jump-row">
@@ -305,7 +305,11 @@ renderAdminPageHeader(
                                             <div class="resources-item-main">
                                                 <div class="resources-item-top">
                                                     <h5 class="resources-item-name"><?= htmlspecialchars($item['name']) ?></h5>
-                                                    <span class="resources-item-kind"><?= $groupKey === 'partners' ? 'Partner offer' : 'Operator tool' ?></span>
+                                                    <span class="resources-item-kind"><?=
+                                                        $groupKey === 'partners'
+                                                            ? 'Partner offer'
+                                                            : ((($section['title'] ?? '') === 'Affiliates') ? 'Monetization' : 'Operator tool')
+                                                    ?></span>
                                                 </div>
                                                 <?php if (!empty($item['best_for'])): ?>
                                                     <p class="resources-item-bestfor">Best for: <?= htmlspecialchars($item['best_for']) ?></p>

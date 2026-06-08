@@ -3,7 +3,7 @@
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">When To Use These Tabs</h6>
     <ul class="mb-4">
-        <li><strong>General:</strong> Brand, registration, maintenance, footer branding, and FFmpeg support.</li>
+        <li><strong>General:</strong> Brand, registration, maintenance, footer branding, GD-backed image thumbnails, and FFmpeg-backed video thumbnails.</li>
         <li><strong>Downloads:</strong> Site-wide delivery rules, country blocks, live-download tracking, remote URL processing, streaming, CDN redirects, and Nginx completion-log settings.</li>
         <li><strong>Uploads:</strong> Browser-upload behavior, guest-vs-login policy, deduplication, chunking, and download-page save actions.</li>
     </ul>
@@ -14,6 +14,8 @@
         <li><strong>Admin Notification Email:</strong> Default inbox for site-wide admin alerts.</li>
         <li><strong>Maintenance Mode / Demo Mode:</strong> Operational controls that affect how the whole app behaves.</li>
         <li><strong>Show Powered By:</strong> Controls the public footer credit outside the locked Site Content fields.</li>
+        <li><strong>Thumbnail Generation:</strong> Shows whether GD is available for image thumbnails and where FFmpeg is configured for video thumbnails.</li>
+        <li><strong>Video Transcoding:</strong> Reserved for future conversion features. The current build only exposes a coming-soon notice there.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Downloads Tab Highlights</h6>
@@ -27,9 +29,10 @@
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Uploads Tab Highlights</h6>
     <ul class="mb-4">
         <li><strong>Chunked Uploads and chunk size:</strong> Affect browser behavior and multipart-style upload handling.</li>
+        <li><strong>Deduplication:</strong> When enabled, identical content reuses an existing stored object. When disabled, identical content is stored as a separate physical object.</li>
         <li><strong>Allowed extensions:</strong> Site-wide upload allowlist.</li>
         <li><strong>Login Required:</strong> Governs guest uploads versus logged-in-only uploads.</li>
-        <li><strong>Download Page Actions:</strong> Controls who can use the <code>+</code> save-to-account action from the public download page.</li>
+        <li><strong>Download Page Actions:</strong> Controls who can use the <code>+</code> save-to-account action from the public download page. Saved copies still count toward the saver's quota; deduplication decides whether they reuse the same stored object or create a second physical one.</li>
     </ul>
 
     <div class="alert alert-light border-0 shadow-sm small mb-0">

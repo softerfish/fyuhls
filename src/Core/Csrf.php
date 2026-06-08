@@ -5,6 +5,10 @@ namespace App\Core;
 use App\Core\Config;
 
 class Csrf {
+    // Multipart batches can overlap many authenticated requests in the same session.
+    // Keep a bounded window large enough for those in-flight requests to settle.
+    private const RECENT_TOKEN_LIMIT = 64;
+
     public static function generate(): string {
         return self::getSessionToken();
     }
@@ -21,8 +25,10 @@ class Csrf {
 
         $sessionToken = $_SESSION['csrf_token'] ?? '';
         $previousToken = $_SESSION['csrf_token_prev'] ?? '';
+        $recentTokens = self::getRecentTokens();
 
         if ($sessionToken !== '' && hash_equals($sessionToken, $token)) {
+            self::rememberRecentToken($sessionToken);
             $_SESSION['csrf_token_prev'] = $sessionToken;
             $newToken = bin2hex(random_bytes(32));
             $_SESSION['csrf_token'] = $newToken;
@@ -33,12 +39,19 @@ class Csrf {
         }
 
         if ($previousToken !== '' && hash_equals($previousToken, $token)) {
-            // A concurrent request might have hit the rotated token just before this one processed.
-            // Let it pass with the previous token, and reply with the new current token to get the client re-synced.
             if (!headers_sent()) {
                 header('X-CSRF-Token: ' . $sessionToken);
             }
             return true;
+        }
+
+        foreach ($recentTokens as $recentToken) {
+            if ($recentToken !== '' && hash_equals($recentToken, $token)) {
+                if (!headers_sent()) {
+                    header('X-CSRF-Token: ' . $sessionToken);
+                }
+                return true;
+            }
         }
 
         self::logDebug('CSRF Mismatch');
@@ -61,6 +74,30 @@ class Csrf {
 
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         return (string)$_SESSION['csrf_token'];
+    }
+
+    private static function getRecentTokens(): array {
+        $recent = $_SESSION['csrf_token_recent'] ?? [];
+        if (!is_array($recent)) {
+            return [];
+        }
+
+        return array_values(array_filter($recent, static fn ($value) => is_string($value) && $value !== ''));
+    }
+
+    private static function rememberRecentToken(string $token): void {
+        if ($token === '') {
+            return;
+        }
+
+        $recent = self::getRecentTokens();
+        array_unshift($recent, $token);
+        $recent = array_values(array_unique($recent));
+        if (count($recent) > self::RECENT_TOKEN_LIMIT) {
+            $recent = array_slice($recent, 0, self::RECENT_TOKEN_LIMIT);
+        }
+
+        $_SESSION['csrf_token_recent'] = $recent;
     }
 
     private static function logDebug(string $message): void {

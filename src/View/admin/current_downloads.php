@@ -1,5 +1,7 @@
 <?php
 $title = 'Current Live Downloads';
+$canAccessLiveDownloadIdentities = !empty($canAccessLiveDownloadIdentities);
+$canAccessLiveDownloadFileDetails = !empty($canAccessLiveDownloadFileDetails);
 include __DIR__ . '/header.php';
 include __DIR__ . '/partials/shell_helpers.php';
 ob_start();
@@ -21,15 +23,27 @@ renderAdminPageHeader('Current Live Downloads', '', $currentDownloadsActions);
 </div>
 <?php endif; ?>
 
+<?php if (!$canAccessLiveDownloadIdentities): ?>
+<div class="alert alert-info">
+    Raw downloader identities are hidden unless your account also has investigations, abuse-review, support, or configuration diagnostics access.
+</div>
+<?php endif; ?>
+
+<?php if (!$canAccessLiveDownloadFileDetails): ?>
+<div class="alert alert-info">
+    File names and direct file links are hidden unless your account also has moderation, investigations, support, or configuration diagnostics access.
+</div>
+<?php endif; ?>
+
 <?php renderAdminCardStart(null, ['bodyClass' => 'card-body p-0']); ?>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" id="downloadsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>File ID</th>
-                        <th>Filename</th>
-                        <th><?= !empty($demoAdmin) ? 'Downloader IP (Masked)' : 'Downloader IP' ?></th>
-                        <th>User ID</th>
+                        <th><?= $canAccessLiveDownloadFileDetails ? 'File ID' : 'File Scope' ?></th>
+                        <th><?= $canAccessLiveDownloadFileDetails ? 'Filename' : 'Filename (Restricted)' ?></th>
+                        <th><?= (!empty($demoAdmin) || !$canAccessLiveDownloadIdentities) ? 'Downloader IP (Masked)' : 'Downloader IP' ?></th>
+                        <th><?= $canAccessLiveDownloadIdentities ? 'User ID' : 'Viewer Scope' ?></th>
                         <th>Started At</th>
                         <th>Time Elapsed</th>
                     </tr>
@@ -77,20 +91,18 @@ function refreshDownloads() {
         .then(data => {
             const tbody = document.getElementById('downloadsBody');
             document.getElementById('activeCount').innerText = data.length + ' Active';
-            
+
             if (data.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No active file downloads currently.</td></tr>';
             } else {
                 tbody.innerHTML = data.map(row => `
                     <tr>
-                        <td>#${escapeHtml(row.file_id)}</td>
+                        <td>${row.file_id ? ('#' + escapeHtml(row.file_id)) : '<span class="badge bg-secondary">Restricted</span>'}</td>
                         <td>
-                            <a href="/file/${escapeHtml(row.short_id || row.file_id)}" target="_blank" class="text-decoration-none">
-                                ${escapeHtml(row.filename || 'Unknown File')}
-                            </a>
+                            ${row.short_id ? '<a href="/file/' + escapeHtml(row.short_id || row.file_id) + '" target="_blank" class="text-decoration-none">' + escapeHtml(row.filename || 'Unknown File') + '</a>' : '<span class="text-muted">' + escapeHtml(row.filename || 'Restricted file') + '</span>'}
                         </td>
                         <td><code>${escapeHtml(row.ip_address)}</code></td>
-                        <td>${row.user_id ? '<span class="badge bg-info text-dark">User #' + escapeHtml(row.user_id) + '</span>' : '<span class="badge bg-secondary">Guest</span>'}</td>
+                        <td>${row.user_id ? '<span class="badge bg-info text-dark">User #' + escapeHtml(row.user_id) + '</span>' : '<span class="badge bg-secondary">' + (<?= $canAccessLiveDownloadIdentities ? 'false' : 'true' ?> ? 'Masked viewer' : 'Guest') + '</span>'}</td>
                         <td>${escapeHtml(row.started_at)}</td>
                         <td><span class="text-success fw-medium">${timeSince(row.started_at)}</span></td>
                     </tr>

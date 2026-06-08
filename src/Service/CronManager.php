@@ -4,14 +4,17 @@ namespace App\Service;
 
 use App\Core\Database;
 use App\Model\Setting;
+use App\Service\Database\SchemaService;
 use PDO;
 use Exception;
+use Throwable;
 
 class CronManager {
-    
+
     private array $tasks = [];
     private array $registeredPluginTasks = [];
     private string $lockFile;
+    private string $updateLockFile;
 
     // truth list for core tasks
     private const CORE_TASKS = [
@@ -22,6 +25,7 @@ class CronManager {
         'account_expiry'    => ['Premium Expiry Reminder Emails', 1440],
         'server_monitoring' => ['Storage Node Health Check', 60],
         'mail_queue'        => ['Background Email Worker', 1],
+        'payment_gateway_sync' => ['Payment Gateway Sync Retry Queue', 1],
         'payment_cleanup'   => ['Stale Pending Payment Cleanup', 60],
         'reward_flush'      => ['Reward Queue Flush', 1],
         'reward_rollup'     => ['Reward History Rollup', 1440],
@@ -41,8 +45,10 @@ class CronManager {
         'checksum_jobs'     => ['Checksum Verification Jobs', 15]
     ];
 
-    public function __construct() {
-        $this->lockFile = dirname(__DIR__, 2) . '/storage/cron.lock';
+    public function __construct(?string $projectRoot = null) {
+        $root = $projectRoot !== null ? rtrim($projectRoot, '/\\') : dirname(__DIR__, 2);
+        $this->lockFile = $root . '/storage/cron.lock';
+        $this->updateLockFile = $root . '/storage/cache/update.lock';
     }
 
     /**
@@ -89,15 +95,29 @@ class CronManager {
         $stmt = $db->query("SELECT directory FROM plugins WHERE is_active = 1");
         while($row = $stmt->fetch()) { $activePlugins[] = $row['directory']; }
 
+        $hasPluginRegistrations = !empty($this->registeredPluginTasks);
         $stmt = $db->query("SELECT task_key, plugin_dir FROM cron_tasks");
         while ($row = $stmt->fetch()) {
             $key = $row['task_key'];
             $plugin = $row['plugin_dir'];
 
             $isCore = isset(self::CORE_TASKS[$key]);
-            $isActivePlugin = ($plugin && in_array($plugin, $activePlugins) && isset($this->registeredPluginTasks[$key]));
+            $isPluginTask = !empty($plugin);
+            $isActivePlugin = $isPluginTask && in_array($plugin, $activePlugins, true);
+            $isRegisteredPluginTask = isset($this->registeredPluginTasks[$key]);
 
-            if (!$isCore && !$isActivePlugin) {
+            if ($isCore) {
+                continue;
+            }
+
+            if ($isPluginTask) {
+                if (!$isActivePlugin || ($hasPluginRegistrations && !$isRegisteredPluginTask)) {
+                    $db->prepare("DELETE FROM cron_tasks WHERE task_key = ?")->execute([$key]);
+                }
+                continue;
+            }
+
+            if (!$isPluginTask) {
                 $db->prepare("DELETE FROM cron_tasks WHERE task_key = ?")->execute([$key]);
             }
         }
@@ -105,10 +125,14 @@ class CronManager {
 
     /**
      * Main execution loop
-     * 
+     *
      * @throws Exception
      */
-    public function run(): array {
+    public function run(bool $ignoreFrequency = false): array {
+        if ($this->updateLockIsHeld()) {
+            return ['status' => 'skipped', 'message' => 'An application update is running on this node.'];
+        }
+
         $db = Database::getInstance()->getConnection();
         if (!$db) throw new Exception("Database connection unavailable.");
         $this->ensureTableExists();
@@ -126,26 +150,18 @@ class CronManager {
 
         foreach ($dbTasks as $task) {
             $key = $task['task_key'];
-            
+
             // Skip if logic not registered in this run
             if (!isset($this->tasks[$key])) continue;
 
             // 1. Check frequency
             $lastRun = $task['last_run_at'] ? strtotime($task['last_run_at']) : 0;
-            if ((time() - $lastRun) < ($task['interval_mins'] * 60)) continue;
+            if (!$ignoreFrequency && (time() - $lastRun) < ($task['interval_mins'] * 60)) continue;
 
             // 2. ATOMIC DISTRIBUTED LOCK (Multi-Server Support)
             // Attempt to claim this task. Only one server in the cluster will succeed.
             // Timeout lock after 1 hour in case of a crash.
-            $lockStmt = $db->prepare("
-                UPDATE cron_tasks 
-                SET locked_at = NOW() 
-                WHERE task_key = ? 
-                AND (locked_at IS NULL OR locked_at < DATE_SUB(NOW(), INTERVAL 1 HOUR))
-            ");
-            $lockStmt->execute([$key]);
-            
-            if ($lockStmt->rowCount() === 0) {
+            if (!$this->claimTaskLock($db, $key, $ignoreFrequency)) {
                 $results[$key] = 'skipped (locked by another node)';
                 continue;
             }
@@ -156,7 +172,7 @@ class CronManager {
                 $output = call_user_func($this->tasks[$key]);
                 $status = 'success';
                 $error = is_array($output) ? json_encode($output) : null;
-            } catch (Exception $e) {
+            } catch (Throwable $e) {
                 $status = 'failed';
                 $error = $e->getMessage();
             }
@@ -165,7 +181,7 @@ class CronManager {
             // 3. Update DB & RELEASE LOCK
             $upd = $db->prepare("UPDATE cron_tasks SET last_run_at = NOW(), last_status = ?, last_error = ?, execution_time = ?, locked_at = NULL WHERE task_key = ?");
             $upd->execute([$status, $error, $duration, $key]);
-            
+
             $results[$key] = $status;
         }
 
@@ -177,23 +193,79 @@ class CronManager {
         return $results;
     }
 
+    private function updateLockIsHeld(): bool
+    {
+        if (!is_file($this->updateLockFile)) {
+            return false;
+        }
+
+        $handle = @fopen($this->updateLockFile, 'c+');
+        if ($handle === false) {
+            return true;
+        }
+        if (!@flock($handle, LOCK_SH | LOCK_NB)) {
+            fclose($handle);
+            return true;
+        }
+
+        @flock($handle, LOCK_UN);
+        fclose($handle);
+        return false;
+    }
+
     public function ensureTableExists(): void {
-        $db = Database::getInstance()->getConnection();
-        $db->exec("CREATE TABLE IF NOT EXISTS `cron_tasks` (
-            `task_key` VARCHAR(50) NOT NULL,
-            `task_name` VARCHAR(100) NOT NULL,
-            `plugin_dir` VARCHAR(100) NULL,
-            `interval_mins` INT UNSIGNED NOT NULL DEFAULT 15,
-            `last_run_at` TIMESTAMP NULL,
-            `last_status` ENUM('success', 'failed', 'skipped') NOT NULL DEFAULT 'skipped',
-            `last_error` TEXT NULL,
-            `execution_time` DECIMAL(10,4) NOT NULL DEFAULT 0.0000,
-            `locked_at` TIMESTAMP NULL,
-            PRIMARY KEY (`task_key`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
-        
-        // Ensure plugin_dir column exists (Self-healing for older DBs)
-        try { $db->exec("ALTER TABLE `cron_tasks` ADD COLUMN `plugin_dir` VARCHAR(100) NULL AFTER `task_name`"); } catch (\Exception $e) {}
-        try { $db->exec("ALTER TABLE `cron_tasks` ADD COLUMN `locked_at` TIMESTAMP NULL AFTER `execution_time`"); } catch (\Exception $e) {}
+        SchemaService::withRepairWindow(static function (): void {
+            SchemaService::ensureTables(['cron_tasks'], true);
+        });
+    }
+
+    private function claimTaskLock(PDO $db, string $taskKey, bool $ignoreFrequency): bool
+    {
+        $driver = (string)$db->getAttribute(PDO::ATTR_DRIVER_NAME);
+
+        if ($driver === 'sqlite') {
+            $sql = "
+                UPDATE cron_tasks
+                SET locked_at = CURRENT_TIMESTAMP
+                WHERE task_key = ?
+                  AND (
+                        locked_at IS NULL
+                        OR datetime(locked_at) < datetime('now', '-1 hour')
+                      )
+            ";
+
+            if (!$ignoreFrequency) {
+                $sql .= "
+                  AND (
+                        last_run_at IS NULL
+                        OR datetime(last_run_at) <= datetime('now', '-' || interval_mins || ' minutes')
+                      )
+                ";
+            }
+        } else {
+            $sql = "
+                UPDATE cron_tasks
+                SET locked_at = NOW()
+                WHERE task_key = ?
+                  AND (
+                        locked_at IS NULL
+                        OR locked_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                      )
+            ";
+
+            if (!$ignoreFrequency) {
+                $sql .= "
+                  AND (
+                        last_run_at IS NULL
+                        OR last_run_at <= DATE_SUB(NOW(), INTERVAL interval_mins MINUTE)
+                      )
+                ";
+            }
+        }
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute([$taskKey]);
+
+        return $stmt->rowCount() === 1;
     }
 }

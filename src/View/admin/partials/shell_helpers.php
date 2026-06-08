@@ -1,4 +1,71 @@
 <?php
+if (!function_exists('adminWikiBaseUrl')) {
+    function adminWikiBaseUrl(): string
+    {
+        return 'https://github.com/softerfish/fyuhls/wiki';
+    }
+}
+
+if (!function_exists('adminWikiPageUrl')) {
+    function adminWikiPageUrl(?string $helpKey = null): ?string
+    {
+        $helpKey = trim((string)$helpKey);
+        if ($helpKey === '' || $helpKey === 'docs') {
+            return adminWikiBaseUrl();
+        }
+
+        $map = [
+            'dashboard' => 'Admin-Dashboard-Guide',
+            'configuration' => 'Config-Hub-Guide',
+            'settings' => 'Config-Hub-Reference',
+            'ticket_settings' => 'Config-Hub-Reference',
+            'status' => 'System-Status-and-Diagnostics',
+            'logs' => 'Application-Logs',
+            'support' => 'Support-Center-and-Support-Bundles',
+            'resources' => 'Home',
+            'staff_activity' => 'Staff-Permissions-and-Activity',
+            'requests' => 'Requests-and-Compliance',
+            'contacts' => 'Requests-and-Compliance',
+            'abuse' => 'Requests-and-Compliance',
+            'dmca' => 'Requests-and-Compliance',
+            'files' => 'Uploads-and-Downloads',
+            'uploader_investigation' => 'Investigations',
+            'file_investigation' => 'Investigations',
+            'live_downloads' => 'Live-Downloads',
+            'withdrawals' => 'Rewards-and-Withdrawals',
+            'rewards_fraud' => 'Rewards-Fraud',
+            'bonus_reviews' => 'Bonus-Offers',
+            'users' => 'Users',
+            'packages' => 'Packages',
+            'subscriptions' => 'Subscriptions',
+            'subscription_create' => 'Manual-Subscription-and-Offline-Premium-Grants',
+            'coupons' => 'Coupons',
+            'site_content' => 'Site-Content-Editor',
+            'file-servers' => 'Storage-Nodes',
+            'file_server_add' => 'Storage-Nodes',
+            'file_server_edit' => 'Storage-Nodes',
+            'file_server_migrate' => 'Storage-Nodes',
+            'delivery' => 'Downloads,-CDN,-and-Delivery-Methods',
+            'file_manager' => 'File-Manager-Guide',
+            'scaling' => 'Scaling-Guide',
+            'security' => 'Security-Operations',
+            'email' => 'Email-and-SMTP',
+            'plugins' => 'Plugins',
+            'monitoring' => 'Server-Monitoring',
+            'search' => 'Find-the-Right-Page',
+            'link_checker' => 'Link-Checker',
+            'seo' => 'Find-the-Right-Page',
+        ];
+
+        $slug = $map[$helpKey] ?? null;
+        if ($slug === null) {
+            return null;
+        }
+
+        return adminWikiBaseUrl() . '/' . $slug;
+    }
+}
+
 if (!function_exists('renderAdminPageHeader')) {
     function renderAdminPageHeader(string $title, string $description = '', string $actionsHtml = ''): void
     {

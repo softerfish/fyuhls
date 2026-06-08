@@ -109,8 +109,8 @@ $downloadActionButtonTitle = !empty($downloadAlreadySaved) ? 'Already in your ac
                                     type="button"
                                     id="downloadDeleteBtn"
                                     class="download-file-action download-file-action--delete"
-                                    title="Delete file"
-                                    aria-label="Delete file"
+                                    title="Move file to trash"
+                                    aria-label="Move file to trash"
                                 >&#128465;</button>
                             <?php endif; ?>
                             <?php if (!empty($downloadActionVisible)): ?>
@@ -252,19 +252,19 @@ $downloadActionButtonTitle = !empty($downloadAlreadySaved) ? 'Already in your ac
             <div id="deleteReasonModal" class="modal-overlay">
                 <div class="modal-container">
                     <div class="modal-header">
-                        <h3>Delete File</h3>
+                        <h3>Move File to Trash</h3>
                         <button type="button" class="modal-close" id="closeDeleteReasonModalBtn">&times;</button>
                     </div>
                     <div class="modal-body">
                         <div class="form-group">
-                            <label for="deleteReasonInput">Reason for deleting this file</label>
-                            <textarea id="deleteReasonInput" class="form-control" rows="4" placeholder="Explain why this file is being removed."></textarea>
+                            <label for="deleteReasonInput">Reason for moving this file to trash</label>
+                            <textarea id="deleteReasonInput" class="form-control" rows="4" placeholder="Explain why this file is being moved to trash."></textarea>
                         </div>
                         <div id="deleteReasonStatus" class="download-action-status"></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" id="cancelDeleteReasonModalBtn">Cancel</button>
-                        <button type="button" class="btn btn-danger" id="confirmDeleteReasonBtn">Delete File</button>
+                        <button type="button" class="btn btn-danger" id="confirmDeleteReasonBtn">Move to Trash</button>
                     </div>
                 </div>
             </div>
@@ -505,7 +505,7 @@ function performDownloadDelete() {
     }
 
     deleteBtn.disabled = true;
-    setDownloadActionStatus("Deleting file...", "");
+    setDownloadActionStatus("Moving file to trash...", "");
 
     fetch("/file/delete", {
         method: "POST",
@@ -517,13 +517,13 @@ function performDownloadDelete() {
     })
     .then(function(data) {
         if (data && data.status === "success") {
-            setDownloadActionStatus(data.message || "File deleted.", "success");
+            setDownloadActionStatus(data.message || "File moved to trash.", "success");
             window.setTimeout(function() {
                 window.location.href = (data && data.redirect_url) ? data.redirect_url : "/";
             }, 500);
             return;
         }
-        throw new Error((data && data.message) ? data.message : "Delete failed.");
+        throw new Error((data && data.message) ? data.message : "Move to trash failed.");
     })
     .catch(function(error) {
         deleteBtn.disabled = false;
@@ -551,7 +551,7 @@ if (downloadDeleteBtn) {
             modal.style.display = "flex";
         }
         <?php else: ?>
-        if (window.confirm("Delete this file permanently?")) {
+        if (window.confirm("Move this file to trash?")) {
             performDownloadDelete();
         }
         <?php endif; ?>

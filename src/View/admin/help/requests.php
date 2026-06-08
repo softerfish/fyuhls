@@ -54,6 +54,6 @@
     </div>
 
     <div class="alert alert-light border-0 shadow-sm small mb-0">
-        <strong>Related pages:</strong> <a href="/admin/configuration?tab=tickets" class="guide-action-link">Config Hub &gt; Tickets</a> for rate limits and reminder settings, <a href="/admin/configuration?tab=email" class="guide-action-link">Config Hub &gt; Email</a> for ticket templates and SMTP, and <a href="/admin/support" class="guide-action-link">Support Center</a> when you need a sanitized escalation bundle.
+        <strong>Related pages:</strong> <a href="/admin/configuration?tab=tickets" class="guide-action-link">Config Hub &gt; Tickets</a> for rate limits and reminder settings, <a href="/admin/configuration?tab=email" class="guide-action-link">Config Hub &gt; Email</a> for ticket templates and SMTP, and <a href="/admin/support" class="guide-action-link">Diagnostics</a> when you need a sanitized escalation bundle.
     </div>
 </div>

@@ -18,14 +18,14 @@ renderAdminPageHeader(
     'Application Logs',
     !empty($demoAdmin)
         ? 'Raw application logs are hidden for the demo admin account.'
-        : 'Review the most recent raw application log lines, then clear the file only when you intentionally want a clean troubleshooting window.',
+        : 'Review the most recent application log lines with sensitive values redacted, then clear the file only when you intentionally want a clean troubleshooting window.',
     $logsActions
 );
 ?>
 
 <?php renderAdminCardStart(null, ['cardClass' => 'card border-0 shadow-sm', 'bodyClass' => 'card-body p-0']); ?>
         <div class="p-3 border-bottom bg-light small text-muted">
-            Showing the newest 200 log lines. Current size: <strong><?= htmlspecialchars((string)($logSizeReadable ?? '0 B')) ?></strong> / <?= htmlspecialchars((string)($logMaxReadable ?? '25 MB')) ?> cap. Use System Status and Support Center for sanitized troubleshooting when sharing diagnostics.
+            Showing the newest 200 log lines with IP addresses, emails, filesystem paths, encrypted blobs, and key-like values redacted. Current size: <strong><?= htmlspecialchars((string)($logSizeReadable ?? '0 B')) ?></strong> / <?= htmlspecialchars((string)($logMaxReadable ?? '25 MB')) ?> cap. Use System Status and Diagnostics for sanitized troubleshooting when sharing diagnostics.
         </div>
         <pre class="logs-console mb-0 p-4 bg-dark text-light"><?= htmlspecialchars((string)$logContent) ?></pre>
 <?php renderAdminCardEnd(); ?>

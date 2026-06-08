@@ -3,6 +3,7 @@
 define('BASE_PATH', realpath(__DIR__ . '/..'));
 
 require_once BASE_PATH . '/vendor/autoload.php';
+App\Core\Config::load(BASE_PATH . '/config/app.php');
 
 function postInstallRequestIsHttps(): bool
 {
@@ -15,12 +16,14 @@ function postInstallRequestHostIsLocal(): bool
 }
 
 if (!postInstallRequestIsHttps() && !postInstallRequestHostIsLocal()) {
-    $host = (string)($_SERVER['HTTP_HOST'] ?? '');
-    $uri = (string)($_SERVER['REQUEST_URI'] ?? '/post_install_check.php');
-    if ($host !== '') {
-        header('Location: https://' . $host . $uri, true, 301);
-        exit;
+    $redirectLocation = \App\Service\SecurityService::buildHttpsBootstrapRedirectLocation('/post_install_check.php');
+    if ($redirectLocation === null) {
+        http_response_code(400);
+        exit('Invalid host header.');
     }
+
+    header('Location: ' . $redirectLocation, true, 301);
+    exit;
 }
 
 $postInstallNonce = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
@@ -30,9 +33,9 @@ use App\Core\Config;
 use App\Core\Database;
 use App\Core\Auth;
 use App\Model\Setting;
+use App\Service\ConfigPointerService;
 use App\Service\Database\SchemaService;
-
-Config::load(BASE_PATH . '/config/app.php');
+use App\Service\InstallSecurityService;
 
 $configReady = file_exists(BASE_PATH . '/config/database.php');
 
@@ -41,40 +44,48 @@ if (!$configReady) {
     exit('This post-install page is only available after setup is complete.');
 }
 
-Config::load(BASE_PATH . '/config/database.php');
+try {
+    Config::loadArray(ConfigPointerService::loadLinkedConfigArray(BASE_PATH . '/config/database.php'));
+} catch (RuntimeException $e) {
+    http_response_code(503);
+    exit('The hidden config file referenced by config/database.php is missing or unreadable. Restore the hidden config file before using the post-install checker.');
+}
 $encryptionKey = (string)Config::get('security.encryption_key', '');
 if ($encryptionKey !== '') {
     \App\Service\EncryptionService::setKey($encryptionKey);
 }
 
 if (session_status() === PHP_SESSION_NONE) {
-    $localSessionPath = BASE_PATH . '/storage/sessions';
-    if (!is_writable(session_save_path() ?: sys_get_temp_dir())) {
-        if (!is_dir($localSessionPath)) {
-            mkdir($localSessionPath, 0700, true);
+    try {
+        InstallSecurityService::prepareSessionStoragePath(BASE_PATH);
+
+        ini_set('session.cookie_httponly', '1');
+        ini_set('session.use_only_cookies', '1');
+        ini_set('session.cookie_samesite', 'Lax');
+
+        if (postInstallRequestIsHttps()) {
+            ini_set('session.cookie_secure', '1');
         }
-        session_save_path($localSessionPath);
+
+        session_start();
+    } catch (RuntimeException $e) {
+        http_response_code(500);
+        exit('Session storage is unavailable for the post-install checker. Fix the PHP session path or make storage/sessions writable before continuing.');
     }
-
-    ini_set('session.cookie_httponly', '1');
-    ini_set('session.use_only_cookies', '1');
-    ini_set('session.cookie_samesite', 'Lax');
-
-    if (postInstallRequestIsHttps()) {
-        ini_set('session.cookie_secure', '1');
-    }
-
-    session_start();
 }
 
-if (!Auth::isAdmin()) {
+if (!InstallSecurityService::canAccessPostInstallCheck(
+    Auth::isSuperAdmin(),
+    Auth::hasCapability('configuration.manage')
+)) {
     http_response_code(403);
-    exit('This post-install page is only available to an admin account after setup.');
+    exit('This post-install page is only available to Super Admin or Configuration staff after setup.');
 }
 
 $dbConnected = false;
 $schemaVersion = '';
 $schemaMatches = false;
+$schemaDriftDetected = false;
 $storageWritable = is_dir(BASE_PATH . '/storage/uploads') && is_writable(BASE_PATH . '/storage/uploads');
 $gdAvailable = function_exists('imagecreatetruecolor') && function_exists('imagejpeg');
 $smtpConfigured = false;
@@ -93,8 +104,11 @@ try {
     $dbConnected = $db !== null;
     if ($dbConnected) {
         $schemaVersion = (string)Setting::get('schema_version', '');
-        $schemaMatches = $schemaVersion === SchemaService::SCHEMA_VERSION;
+        $schemaDriftDetected = Setting::get('db_drift_detected', '0') === '1';
+        $schemaMatches = $schemaVersion === SchemaService::SCHEMA_VERSION && !$schemaDriftDetected;
         $smtpConfigured = trim(Setting::get('email_smtp_host', '')) !== '' && trim(Setting::get('email_from_address', '')) !== '';
+    } else {
+        $error = 'Database connection failed. Review the hidden config database credentials and server availability before continuing.';
     }
 } catch (Throwable $e) {
     $error = 'Database check failed. Review the database connection and schema from the admin area.';
@@ -103,7 +117,7 @@ try {
 $checks = [
     'Config pointer present' => $configReady,
     'Database connection' => $dbConnected,
-    'Schema version matches' => $schemaMatches,
+    'Schema structurally current' => $schemaMatches,
     'Storage writable' => $storageWritable,
     'GD available' => $gdAvailable,
     'SMTP configured' => $smtpConfigured,
@@ -156,6 +170,10 @@ $checks = [
                         <tr>
                             <td>Schema version</td>
                             <td class="post-install-align-right"><?= htmlspecialchars($schemaVersion !== '' ? $schemaVersion : '(missing)') ?> / expected <?= htmlspecialchars(SchemaService::SCHEMA_VERSION) ?></td>
+                        </tr>
+                        <tr>
+                            <td>Schema drift flag</td>
+                            <td class="post-install-align-right <?= $schemaDriftDetected ? 'fail' : 'ok' ?>"><?= $schemaDriftDetected ? 'DRIFT DETECTED' : 'CLEAR' ?></td>
                         </tr>
                     </tbody>
                 </table>

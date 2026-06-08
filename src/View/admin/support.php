@@ -64,7 +64,7 @@ include __DIR__ . '/partials/shell_helpers.php';
     .support-muted-bottom { margin-bottom: 0; }
 </style>
 
-<?php renderAdminPageHeader('Support Center'); ?>
+<?php renderAdminPageHeader('Diagnostics'); ?>
 
 <?php renderAdminCardStart('Report a Problem', ['cardClass' => 'card mb-4', 'headerClass' => 'card-header support-card-header', 'bodyClass' => 'card-body support-card-body']); ?>
         <?php if (!empty($demoAdmin)): ?>

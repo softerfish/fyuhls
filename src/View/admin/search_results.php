@@ -27,12 +27,17 @@ renderAdminPageHeader('Search Results: "' . (string)$query . '"', '', '<a href="
                     </thead>
                     <tbody>
                         <?php foreach ($users as $u): ?>
+                        <?php
+                        $matchedUserId = (int)($u['id'] ?? 0);
+                        $matchedUserLink = \App\Service\AdminUserNavigationService::destinationForUserEdit($matchedUserId);
+                        $matchedUserLabel = \App\Service\AdminUserNavigationService::isCurrentUser($matchedUserId) ? 'my settings' : 'edit user';
+                        ?>
                         <tr>
                             <td class="ps-4 small text-muted">#<?= $u['id'] ?></td>
                             <td class="fw-bold"><?= htmlspecialchars($u['username']) ?></td>
                             <td><?= htmlspecialchars($u['email']) ?></td>
                             <td class="pe-4 text-end">
-                                <a href="/admin/users/edit/<?= $u['id'] ?>" class="btn btn-sm btn-primary px-3">Edit User</a>
+                                <a href="<?= htmlspecialchars($matchedUserLink) ?>" class="btn btn-sm btn-primary px-3"><?= htmlspecialchars($matchedUserLabel) ?></a>
                             </td>
                         </tr>
                         <?php endforeach; ?>

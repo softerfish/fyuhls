@@ -13,21 +13,36 @@ use App\Service\CloudflareSyncService;
 use App\Service\RateLimiterService;
 use App\Core\Config;
 use App\Service\EncryptionService;
+use App\Service\ConfigPointerService;
+use App\Service\InstallSecurityService;
 
 try {
+    if (getenv('FYUHLS_CRON_THROWABLE_TEST') === '1') {
+        throw new TypeError('Injected cron throwable test.');
+    }
+
     $app = new App();
-    
+
     // Environment-Agnostic Path Detection
     $rootDir = realpath(__DIR__ . '/../../');
-    
+
     Config::load($rootDir . '/config/app.php');
     $dbConfigPath = $rootDir . '/config/database.php';
-    
+
+    if (!file_exists($dbConfigPath) && InstallSecurityService::hasInstalledMarker($rootDir)) {
+        throw new RuntimeException('Cron bootstrap halted because config/database.php is missing. Restore the config pointer to the hidden config file before running scheduled tasks.');
+    }
+
     if (file_exists($dbConfigPath)) {
-        Config::load($dbConfigPath);
+        Config::loadArray(ConfigPointerService::loadLinkedConfigArray($dbConfigPath));
         // Initialize Encryption for CLI context
         $encryptionKey = Config::get('security.encryption_key', '');
         EncryptionService::setKey($encryptionKey);
+    }
+
+    if (\App\Core\Database::getInstance()->getConnection() === null) {
+        $error = \App\Core\Database::getLastConnectionError() ?? 'The database connection could not be initialized.';
+        throw new RuntimeException('Cron bootstrap halted because the database connection failed. Verify the hidden config database credentials and server availability. Details: ' . $error);
     }
 
     $manager = new CronManager();
@@ -43,7 +58,7 @@ try {
     // 2. Cloudflare Security Sync
     $manager->register('cf_sync', function() {
         $cfSync = new CloudflareSyncService();
-        return $cfSync->sync(); 
+        return $cfSync->sync();
     });
 
     // 3. Rate Limit Log Purge
@@ -74,7 +89,12 @@ try {
         return \App\Service\MailQueueService::processBatch();
     });
 
-    // 6b. Stale Pending Payment Cleanup
+    // 6b. Deferred payment gateway synchronization
+    $manager->register('payment_gateway_sync', function() {
+        return \App\Service\PaymentService::processGatewaySyncQueue(25);
+    });
+
+    // 6c. Stale Pending Payment Cleanup
     $manager->register('payment_cleanup', function() {
         $auto = new \App\Service\AutomatedTaskService();
         return $auto->cleanupStalePendingPayments(1440);
@@ -113,7 +133,7 @@ try {
     // 9. Database Schema Health Check
     $manager->register('db_health', function() {
         $schema = new \App\Service\Database\SchemaService();
-        return $schema->sync(true);
+        return $schema->sync(false);
     });
 
     // 10. Log Rotation & Pruning
@@ -144,11 +164,11 @@ try {
     $manager->register('refresh_stats', function() {
         $service = new \App\Service\DashboardService();
         $service->refreshSystemStats();
-        
+
         // Cleanup old history (default 30 days)
         $retention = (int)\App\Model\Setting::get('stats_history_retention_days', 30);
         $purged = $service->purgeOldHistory($retention);
-        
+
         return ['status' => 'updated', 'purged' => $purged];
     });
 
@@ -198,7 +218,7 @@ try {
         echo "[Cron SUCCESS] " . implode(' | ', $summary) . "\n";
     }
 
-} catch (\Exception $e) {
+} catch (\Throwable $e) {
     echo "[Cron ERROR] " . $e->getMessage() . "\n";
     exit(1);
 }

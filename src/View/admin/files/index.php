@@ -8,6 +8,8 @@ include __DIR__ . '/../partials/shell_helpers.php';
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
     }
     .files-total {
         font-weight: 400;
@@ -17,9 +19,13 @@ include __DIR__ . '/../partials/shell_helpers.php';
     .files-search-form {
         display: flex;
         gap: 0.5rem;
+        flex-wrap: wrap;
     }
     .files-search-input { width: 240px; }
     .files-card-body-flat { padding: 0; }
+    .files-table-wrap { overflow-x: auto; padding-top: 0.35rem; }
+    .files-table { width: 100%; min-width: 980px; }
+    .files-table th { white-space: nowrap; }
     .files-summary {
         display: flex;
         gap: 1rem;
@@ -81,37 +87,84 @@ include __DIR__ . '/../partials/shell_helpers.php';
     .files-date {
         font-size: 0.8125rem;
     }
-    .files-delete-form {
+    .files-actions {
         display: flex;
-        align-items: center;
+        flex-direction: column;
+        gap: 0.65rem;
+        align-items: flex-start;
+        min-width: 260px;
+    }
+    .files-investigate-links {
+        display: flex;
         gap: 0.4rem;
         flex-wrap: wrap;
     }
+    .files-delete-form {
+        display: grid;
+        gap: 0.55rem;
+        width: 100%;
+        max-width: 320px;
+    }
     .files-delete-reason {
-        width: 180px;
-        min-height: 34px;
+        width: 100%;
+        min-height: 62px;
         padding: 0.35rem 0.5rem;
         border: 1px solid var(--border-color);
         border-radius: 6px;
         font-size: 0.78rem;
         resize: vertical;
     }
+    .files-delete-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.65rem;
+    }
     .files-delete-btn {
         padding: 0.25rem 0.6rem;
         font-size: 0.8rem;
         background: #fee2e2;
         color: #b91c1c;
+        white-space: nowrap;
+    }
+    .files-delete-toggle {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.35rem;
+        font-size: 0.78rem;
+        color: #475569;
+        line-height: 1.35;
+        flex: 1 1 auto;
+    }
+    .files-delete-toggle input {
+        margin: 0.15rem 0 0;
+        flex: 0 0 auto;
+    }
+    @media (max-width: 768px) {
+        .files-search-input {
+            width: 100%;
+        }
+        .files-delete-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .files-delete-btn {
+            width: 100%;
+        }
     }
 </style>
 
-<?php renderAdminPageHeader('Stored Files'); ?>
+<?php
+$canViewInvestigations = \App\Core\Auth::hasCapability('investigations.view');
+renderAdminPageHeader('Stored Files');
+?>
 
 
 <?php ob_start(); ?>
     <div class="files-header">
         <span>all files <?php if ($total > 0): ?><span class="files-total">(<?= number_format($total) ?> total)</span><?php endif; ?></span>
         <form method="GET" class="files-search-form">
-            <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="partial filename..." class="files-search-input">
+            <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="filename, short ID, or owner..." class="files-search-input">
             <button type="submit" class="btn btn-primary">search</button>
         </form>
     </div>
@@ -127,57 +180,75 @@ include __DIR__ . '/../partials/shell_helpers.php';
         <?php if (empty($files)): ?>
             <p class="files-empty">no files found.</p>
         <?php else: ?>
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>filename</th>
-                        <th>owner</th>
-                        <th>server</th>
-                        <th>downloads</th>
-                        <th>status</th>
-                        <th>uploaded</th>
-                        <th>actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($files as $file): ?>
+            <div class="files-table-wrap">
+                <table class="table files-table">
+                    <thead>
                         <tr>
-                            <td class="files-name-cell">
-                                <a href="/file/<?= htmlspecialchars($file['short_id']) ?>" target="_blank" class="files-link">
-                                    <?= htmlspecialchars($file['filename'] ?? $file['original_name'] ?? '-') ?>
-                                </a>
-                                <?php if (!empty($file['is_duplicate_entry'])): ?>
-                                    <span class="files-dedupe-badge files-dedupe-badge--duplicate">Dup x<?= number_format((int)$file['ref_count']) ?></span>
-                                <?php else: ?>
-                                    <span class="files-dedupe-badge files-dedupe-badge--unique">Unique</span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="files-owner"><?= htmlspecialchars($file['username'] ?? 'guest') ?></td>
-                            <td class="files-server"><?= htmlspecialchars($file['server_name']) ?></td>
-                            <td><?= number_format($file['downloads'] ?? 0) ?></td>
-                            <td>
-                                <?php $s = $file['status'] ?? 'active'; ?>
-                                <span class="<?= $s === 'active' ? 'files-status-active' : ($s === 'deleted' ? 'files-status-deleted' : 'files-status-other') ?>"><?= htmlspecialchars($s) ?></span>
-                            </td>
-                            <td class="files-date"><?= date('M j, Y', strtotime($file['created_at'])) ?></td>
-                            <td>
-                                <form method="POST" action="/admin/files/delete" class="files-delete-form" data-confirm-message="permanently delete this file?">
-                                    <?= \App\Core\Csrf::field() ?>
-                                    <input type="hidden" name="file_id" value="<?= $file['id'] ?>">
-                                    <textarea
-                                        name="delete_reason"
-                                        class="files-delete-reason"
-                                        placeholder="Deletion reason"
-                                        aria-label="Deletion reason for <?= htmlspecialchars($file['filename'] ?? $file['original_name'] ?? 'file') ?>"
-                                        required
-                                    ></textarea>
-                                    <button type="submit" class="btn files-delete-btn">delete</button>
-                                </form>
-                            </td>
+                            <th>filename</th>
+                            <th>owner</th>
+                            <th>server</th>
+                            <th>downloads</th>
+                            <th>status</th>
+                            <th>uploaded</th>
+                            <th>actions</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($files as $file): ?>
+                            <tr>
+                                <td class="files-name-cell">
+                                    <a href="/file/<?= htmlspecialchars($file['short_id']) ?>" target="_blank" class="files-link">
+                                        <?= htmlspecialchars($file['filename'] ?? $file['original_name'] ?? '-') ?>
+                                    </a>
+                                    <?php if (!empty($file['is_duplicate_entry'])): ?>
+                                        <span class="files-dedupe-badge files-dedupe-badge--duplicate">Dup x<?= number_format((int)$file['ref_count']) ?></span>
+                                    <?php else: ?>
+                                        <span class="files-dedupe-badge files-dedupe-badge--unique">Unique</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="files-owner"><?= htmlspecialchars($file['username'] ?? 'guest') ?></td>
+                                <td class="files-server"><?= htmlspecialchars($file['server_name']) ?></td>
+                                <td><?= number_format($file['downloads'] ?? 0) ?></td>
+                                <td>
+                                    <?php $s = $file['status'] ?? 'active'; ?>
+                                    <span class="<?= $s === 'active' ? 'files-status-active' : ($s === 'deleted' ? 'files-status-deleted' : 'files-status-other') ?>"><?= htmlspecialchars($s) ?></span>
+                                </td>
+                                <td class="files-date"><?= date('M j, Y', strtotime($file['created_at'])) ?></td>
+                                <td>
+                                    <div class="files-actions">
+                                        <?php if ($canViewInvestigations): ?>
+                                            <div class="files-investigate-links">
+                                                <a href="/admin/investigations/file/<?= (int)$file['id'] ?>" class="btn btn-sm btn-outline-secondary">File Investigation</a>
+                                                <?php if (!empty($file['user_id'])): ?>
+                                                    <a href="/admin/investigations/uploader/<?= (int)$file['user_id'] ?>" class="btn btn-sm btn-outline-secondary">Uploader Investigation</a>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                        <form method="POST" action="/admin/files/delete" class="files-delete-form" data-confirm-message="permanently delete this file?">
+                                            <?= \App\Core\Csrf::field() ?>
+                                            <input type="hidden" name="file_id" value="<?= $file['id'] ?>">
+                                            <textarea
+                                                name="delete_reason"
+                                                class="files-delete-reason"
+                                                placeholder="Deletion reason"
+                                                aria-label="Deletion reason for <?= htmlspecialchars($file['filename'] ?? $file['original_name'] ?? 'file') ?>"
+                                                required
+                                            ></textarea>
+                                            <div class="files-delete-row">
+                                                <label class="files-delete-toggle">
+                                                    <input type="checkbox" name="delete_file_earnings" value="1">
+                                                    <span>Remove rewards earned from this file too</span>
+                                                </label>
+                                                <button type="submit" class="btn files-delete-btn">delete</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
 
             <!-- Pagination -->
             <?php if ($totalPages > 1): ?>
@@ -191,11 +262,11 @@ include __DIR__ . '/../partials/shell_helpers.php';
                                 <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
                                     <a class="page-link" href="?page=<?= $page - 1 ?>&q=<?= urlencode($search) ?>">Previous</a>
                                 </li>
-                                
-                                <?php 
+
+                                <?php
                                 $start = max(1, $page - 2);
                                 $end = min($totalPages, $page + 2);
-                                
+
                                 if ($start > 1): ?>
                                     <li class="page-item"><a class="page-link" href="?page=1&q=<?= urlencode($search) ?>">1</a></li>
                                     <?php if ($start > 2): ?><li class="page-item disabled"><span class="page-link">...</span></li><?php endif; ?>

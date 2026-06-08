@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Core\Database;
 use App\Model\File;
 use App\Model\Setting;
+use App\Service\Database\SchemaService;
 
 class NginxDownloadLogService
 {
@@ -16,21 +17,19 @@ class NginxDownloadLogService
 
     private function validateConfiguredLogPath(string $path): void
     {
-        $isUnixAbsolute = str_starts_with($path, '/');
-        $isWindowsAbsolute = preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1;
-        if (!$isUnixAbsolute && !$isWindowsAbsolute) {
+        if (!str_starts_with($path, '/')) {
             throw new \RuntimeException('Configured Nginx completion log path must be absolute.');
         }
 
-        if (preg_match('/[\x00-\x1F]/', $path) === 1) {
-            throw new \RuntimeException('Configured Nginx completion log path contains invalid characters.');
+        if (preg_match('/[\x00-\x1F\\\\]/', $path) === 1) {
+            throw new \RuntimeException('Configured Nginx completion log path must be a Linux absolute path without backslashes or control characters.');
         }
 
-        if (preg_match('/(^|[\\\\\\/])\.\.([\\\\\\/]|$)/', $path) === 1) {
+        if (preg_match('#(^|/)\.\.(/|$)#', $path) === 1) {
             throw new \RuntimeException('Configured Nginx completion log path cannot contain parent-directory traversal.');
         }
 
-        $normalized = str_replace('\\', '/', $path);
+        $normalized = preg_replace('#/+#', '/', $path) ?? $path;
         $basename = strtolower((string)pathinfo($normalized, PATHINFO_BASENAME));
         $extension = strtolower((string)pathinfo($normalized, PATHINFO_EXTENSION));
         $looksLikeLogFile = in_array($extension, ['log', 'txt'], true)
@@ -226,6 +225,15 @@ class NginxDownloadLogService
         $minPercent = (int)Setting::get('ppd_min_download_percent', '0', 'rewards');
         $isRewardEligible = !empty($file['user_id']) && !$this->isVideoFile($file);
         $outcomeRecorded = false;
+        $deliveryObserved = $this->eventShowsObservedDelivery($event, $file);
+
+        if ($activeDownload && $deliveryObserved) {
+            (new DownloadStartService())->commit(
+                $file,
+                !empty($activeDownload['user_id']) ? (int)$activeDownload['user_id'] : null,
+                !empty($activeDownload['session_id']) ? (int)$activeDownload['session_id'] : null
+            );
+        }
 
         if (!$activeDownload && empty($event['has_valid_viewer_user_id'])) {
             $reasonCode = 'missing_viewer_identity';
@@ -307,6 +315,17 @@ class NginxDownloadLogService
         }
 
         return $credited ? 'credited' : 'processed';
+    }
+
+    private function eventShowsObservedDelivery(array $event, array $file): bool
+    {
+        $status = (string)($event['status'] ?? '');
+        $bytesSent = is_numeric($event['bytes_sent'] ?? null) ? (int)$event['bytes_sent'] : 0;
+        if (in_array($status, ['200', '206'], true) && $bytesSent > 0) {
+            return true;
+        }
+
+        return in_array($status, ['200', '206'], true) && (int)($file['file_size'] ?? 0) === 0;
     }
 
     private function normalizeEvent(string $line): ?array
@@ -474,48 +493,7 @@ class NginxDownloadLogService
             return;
         }
 
-        $db = Database::getInstance()->getConnection();
-        try {
-            $db->exec("CREATE TABLE IF NOT EXISTS `download_completion_events` (
-                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `source` VARCHAR(32) NOT NULL,
-                `source_event_key` VARCHAR(64) NOT NULL,
-                `download_id` BIGINT UNSIGNED NOT NULL,
-                `file_id` BIGINT UNSIGNED NULL,
-                `status_code` VARCHAR(8) NULL,
-                `bytes_sent` BIGINT UNSIGNED NULL,
-                `remote_ip` VARCHAR(64) NULL,
-                `request_time_ms` INT UNSIGNED NULL,
-                `event_payload` LONGTEXT NULL,
-                `processing_status` VARCHAR(32) NULL,
-                `reason_code` VARCHAR(64) NULL,
-                `processed_at` DATETIME NULL,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (`id`),
-                UNIQUE KEY `download_completion_source_event` (`source_event_key`),
-                KEY `download_completion_status_reason` (`source`, `processing_status`, `reason_code`, `processed_at`),
-                KEY `download_completion_processed` (`processed_at`, `id`),
-                KEY `download_completion_download` (`download_id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        } catch (\Throwable $e) {
-        }
-
-        try {
-            $columns = $db->query("SHOW COLUMNS FROM `download_completion_events`")->fetchAll(\PDO::FETCH_COLUMN);
-            if (!in_array('processing_status', $columns, true)) {
-                $db->exec("ALTER TABLE `download_completion_events` ADD COLUMN `processing_status` VARCHAR(32) NULL AFTER `event_payload`");
-            }
-            if (!in_array('reason_code', $columns, true)) {
-                $db->exec("ALTER TABLE `download_completion_events` ADD COLUMN `reason_code` VARCHAR(64) NULL AFTER `processing_status`");
-            }
-            $indexes = $db->query("SHOW INDEX FROM `download_completion_events`")->fetchAll(\PDO::FETCH_ASSOC);
-            $indexNames = array_column($indexes, 'Key_name');
-            if (!in_array('download_completion_status_reason', $indexNames, true)) {
-                $db->exec("ALTER TABLE `download_completion_events` ADD KEY `download_completion_status_reason` (`source`, `processing_status`, `reason_code`, `processed_at`)");
-            }
-        } catch (\Throwable $e) {
-        }
-
+        SchemaService::ensureTables(['download_completion_events'], false);
         self::$schemaEnsured = true;
     }
 

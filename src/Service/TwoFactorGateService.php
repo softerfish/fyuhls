@@ -52,13 +52,34 @@ class TwoFactorGateService
             return false;
         }
 
+        $rawToken = (string)$_COOKIE[$cookieName];
+        if ($rawToken === '') {
+            return false;
+        }
+
         $db = Database::getInstance()->getConnection();
         if (!$db) {
             return false;
         }
 
-        $stmt = $db->prepare("SELECT 1 FROM user_two_factor_devices WHERE user_id = ? AND trust_token = ? AND expires_at > NOW()");
-        $stmt->execute([$userId, $_COOKIE[$cookieName]]);
-        return (bool) $stmt->fetchColumn();
+        \App\Model\User::ensureRuntimeColumns($db);
+
+        $hashedToken = hash('sha256', $rawToken);
+        $stmt = $db->prepare("SELECT id, trust_token FROM user_two_factor_devices WHERE user_id = ? AND expires_at > NOW()");
+        $stmt->execute([$userId]);
+        $rows = $stmt->fetchAll();
+
+        foreach ($rows as $row) {
+            $storedToken = (string)($row['trust_token'] ?? '');
+            if ($storedToken === '') {
+                continue;
+            }
+
+            if (hash_equals($storedToken, $hashedToken) || hash_equals($storedToken, $rawToken)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

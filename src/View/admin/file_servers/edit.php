@@ -70,11 +70,20 @@ if (!isset($tabs[$activeTab])) {
 
                     <div class="mb-4">
                         <label class="form-label fw-bold small">Status</label>
-                        <select name="status" class="form-select">
+                        <select name="status" id="storageServerStatus" class="form-select">
                             <option value="active" <?= $server['status'] === 'active' ? 'selected' : '' ?>>Active (Accepting Uploads)</option>
                             <option value="read-only" <?= $server['status'] === 'read-only' ? 'selected' : '' ?>>Read-Only (Downloads Only)</option>
                             <option value="disabled" <?= $server['status'] === 'disabled' ? 'selected' : '' ?>>Disabled</option>
                         </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="make_default" id="makeDefaultUploadTarget" value="1" <?= !empty($server['is_default']) ? 'checked' : '' ?>>
+                            <label class="form-check-label fw-bold small" for="makeDefaultUploadTarget">Use this as the default upload target</label>
+                        </div>
+                        <div class="text-muted extra-small mt-1">Fyuhls writes new uploads to whichever active storage server is marked as default.</div>
+                        <div class="text-muted extra-small mt-1 d-none" id="makeDefaultUploadTargetHint">Only active storage servers can be the default upload target.</div>
                     </div>
 
                     <?php if (in_array($activeTab, ['b2', 'r2', 'wasabi', 's3'], true)): ?>
@@ -200,7 +209,7 @@ if (!isset($tabs[$activeTab])) {
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold small">Cloudflare Account ID</label>
-                            <?php 
+                            <?php
                                 $accountId = str_replace('.r2.cloudflarestorage.com', '', $config['s3_endpoint'] ?? '');
                             ?>
                             <input type="text" name="config[s3_endpoint]" class="form-control" value="<?= htmlspecialchars($accountId) ?>" required>
@@ -251,7 +260,7 @@ if (!isset($tabs[$activeTab])) {
 
                     <div class="mb-4">
                         <label class="form-label fw-bold small">Public Download URL (Optional)</label>
-                        <?php 
+                        <?php
                         $suggestedUrl = '';
                         if ($activeTab === 'b2') $suggestedUrl = "https://f00X.backblazeb2.com/file/" . $server['storage_path'] . "/";
                         elseif ($activeTab === 'wasabi') $suggestedUrl = "https://s3." . ($config['s3_region'] ?? 'us-east-1') . ".wasabisys.com/" . $server['storage_path'] . "/";
@@ -281,8 +290,8 @@ if (!isset($tabs[$activeTab])) {
                             </ul>
                             <strong>Impact on Rewards (PPD):</strong>
                             <ul class="mb-0 ps-3">
-                                <li><strong>Direct public URL provided:</strong> PPD can still be enabled, but it usually counts when the download starts because completion is harder for Fyuhls to verify.</li>
-                                <li><strong>Best control:</strong> Leave the URL empty and let Fyuhls serve or hand off the file through the app-controlled path.</li>
+                                <li><strong>Direct public URL provided:</strong> PPD can still be enabled, but lighter redirect-style delivery becomes easier and ordinary file completion proof is usually weaker unless Fyuhls falls back to PHP or uses the Nginx completion-log path.</li>
+                                <li><strong>Best control:</strong> Leave the URL empty if you want Fyuhls to keep tighter control over how downloads are issued. That does not force every object download through PHP, but it avoids advertising a separate public base URL and leaves more of the delivery choice with Fyuhls.</li>
                             </ul>
                         </div>
                     </div>
@@ -474,11 +483,14 @@ Invoke-RestMethod -Method Post -Uri ($apiUrl + "/b2api/v3/b2_update_bucket") -He
 
                 <h6 class="fw-bold mb-3"><i class="bi bi-speedometer2 me-2"></i>Test Delivery Configuration</h6>
                 <p class="extra-small text-muted mb-3">Verify if your <strong><?= strtoupper($server['delivery_method']) ?></strong> delivery handoff is configured correctly on your web server.</p>
-                
-                <a href="<?= $demoAdminViewer ? '#' : '/admin/file-server/test-delivery/' . $server['id'] ?>" class="btn btn-outline-primary btn-sm w-100 <?= $demoAdminViewer ? 'disabled' : '' ?>" <?= $demoAdminViewer ? 'aria-disabled="true" tabindex="-1"' : 'target="_blank"' ?>>
-                    <i class="bi bi-box-arrow-up-right me-2"></i> Run Delivery Test
-                </a>
-                
+
+                <form method="POST" action="/admin/file-server/test-delivery/<?= urlencode((string)$server['id']) ?>" target="_blank">
+                    <?= \App\Core\Csrf::field() ?>
+                    <button type="submit" class="btn btn-outline-primary btn-sm w-100 <?= $demoAdminViewer ? 'disabled' : '' ?>" <?= $demoAdminViewer ? 'disabled aria-disabled="true" tabindex="-1"' : '' ?>>
+                        <i class="bi bi-box-arrow-up-right me-2"></i> Run Delivery Test
+                    </button>
+                </form>
+
                 <div class="mt-3 bg-white p-2 rounded border extra-small text-muted">
                     <strong>How to read results:</strong>
                     <ul class="mb-0 ps-3 mt-1">
@@ -508,6 +520,32 @@ Invoke-RestMethod -Method Post -Uri ($apiUrl + "/b2api/v3/b2_update_bucket") -He
 </div>
 
 <?php include dirname(__DIR__) . '/footer.php'; ?>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const statusSelect = document.getElementById('storageServerStatus');
+    const defaultCheckbox = document.getElementById('makeDefaultUploadTarget');
+    const defaultHint = document.getElementById('makeDefaultUploadTargetHint');
+
+    if (!statusSelect || !defaultCheckbox) {
+        return;
+    }
+
+    const syncDefaultTargetAvailability = () => {
+        const active = statusSelect.value === 'active';
+        defaultCheckbox.disabled = !active;
+        if (!active) {
+            defaultCheckbox.checked = false;
+        }
+        if (defaultHint) {
+            defaultHint.classList.toggle('d-none', active);
+        }
+    };
+
+    statusSelect.addEventListener('change', syncDefaultTargetAvailability);
+    syncDefaultTargetAvailability();
+});
+</script>
 
 <?php if ($activeTab === 'b2'): ?>
 <script>
@@ -632,7 +670,10 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        if (!confirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?')) {
+        if (!(await window.adminConfirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?', {
+            title: 'Apply Upload CORS',
+            confirmLabel: 'Apply CORS'
+        }))) {
             return;
         }
 
@@ -792,7 +833,10 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        if (!confirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?')) {
+        if (!(await window.adminConfirm('Apply the recommended Fyuhls upload CORS rule to "' + bucketName + '" for <?= addslashes($trustedBaseUrl !== '' ? $trustedBaseUrl : 'your trusted site URL') ?>?', {
+            title: 'Apply Upload CORS',
+            confirmLabel: 'Apply CORS'
+        }))) {
             return;
         }
 

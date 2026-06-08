@@ -79,14 +79,14 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                             <span class="<?= $strengthClass ?> fw-bold"><?= $keyStrength ?></span>
                         </div>
                         <p class="small text-muted">
-                            AES-256 requires 32 bytes of entropy. A 32-character hexadecimal key only provides 128 bits of true entropy. 
+                            AES-256 requires 32 bytes of entropy. A 32-character hexadecimal key only provides 128 bits of true entropy.
                             Enterprise sites should use a Base64-encoded binary key for maximum brute-force resistance.
                         </p>
-                        
+
                         <?php if (!$isBase64): ?>
                             <div class="config-soft-callout config-soft-callout--warning small">
-                                <i class="bi bi-exclamation-triangle me-2"></i> 
-                                <strong>Upgrade Recommended:</strong> Your current key is using a legacy format. 
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                <strong>Upgrade Recommended:</strong> Your current key is using a legacy format.
                             </div>
                         <?php endif; ?>
 
@@ -127,7 +127,9 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                         </div>
                         <ul class="config-summary-chips">
                             <li class="config-summary-chip config-summary-chip--info">Mode: <?= htmlspecialchars(ucfirst((string)($vpnProtectionMode ?? 'none'))) ?></li>
-                            <li class="config-summary-chip config-summary-chip--info">Scope: <?= htmlspecialchars(($vpnProtectionScope ?? 'all_pages') === 'download_pages' ? 'Download pages' : 'All public pages') ?></li>
+                            <?php if (($vpnProtectionMode ?? 'none') === 'enforcement'): ?>
+                                <li class="config-summary-chip config-summary-chip--info">Scope: <?= htmlspecialchars(($vpnProtectionScope ?? 'all_pages') === 'download_pages' ? 'Download pages' : 'All public pages') ?></li>
+                            <?php endif; ?>
                             <li class="config-summary-chip config-summary-chip--info">Login limit: <?= (int)$rateLimitLogin ?>/5m</li>
                             <li class="config-summary-chip config-summary-chip--info">Registration: <?= (int)$rateLimitReg ?>/10m</li>
                         </ul>
@@ -165,26 +167,27 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                         </div>
                     </div>
 
-                    <div class="card border-0 shadow-sm config-section-card mt-4">
-                        <div class="card-body">
-                            <div class="fw-bold mb-3">Enforcement Scope</div>
-                            <div class="form-check mb-3">
-                                <input class="form-check-input" type="radio" name="vpn_proxy_scope" id="vpnScopeAllPages" value="all_pages" <?= ($vpnProtectionScope ?? 'all_pages') === 'all_pages' ? 'checked' : '' ?>>
-                                <label class="form-check-label" for="vpnScopeAllPages">
-                                    <span class="fw-bold d-block">Block across all public pages</span>
-                                    <span class="small text-muted">Use this when you want VPN/proxy visitors stopped before they reach any normal public page on the site.</span>
-                                </label>
+                    <?php if (($vpnProtectionMode ?? 'none') === 'enforcement'): ?>
+                        <div class="card border-0 shadow-sm config-section-card mt-4">
+                            <div class="card-body">
+                                <div class="fw-bold mb-3">Enforcement Scope</div>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="radio" name="vpn_proxy_scope" id="vpnScopeAllPages" value="all_pages" <?= ($vpnProtectionScope ?? 'all_pages') === 'all_pages' ? 'checked' : '' ?>>
+                                    <label class="form-check-label" for="vpnScopeAllPages">
+                                        <span class="fw-bold d-block">Block across all public pages</span>
+                                        <span class="small text-muted">Use this when you want VPN/proxy visitors stopped before they reach any normal public page on the site.</span>
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="vpn_proxy_scope" id="vpnScopeDownloadPages" value="download_pages" <?= ($vpnProtectionScope ?? 'all_pages') === 'download_pages' ? 'checked' : '' ?>>
+                                    <label class="form-check-label" for="vpnScopeDownloadPages">
+                                        <span class="fw-bold d-block">Block only on download pages</span>
+                                        <span class="small text-muted">Leave normal public pages open, but still block VPN/proxy traffic on download pages and download actions when enforcement is active.</span>
+                                    </label>
+                                </div>
                             </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="vpn_proxy_scope" id="vpnScopeDownloadPages" value="download_pages" <?= ($vpnProtectionScope ?? 'all_pages') === 'download_pages' ? 'checked' : '' ?>>
-                                <label class="form-check-label" for="vpnScopeDownloadPages">
-                                    <span class="fw-bold d-block">Block only on download pages</span>
-                                    <span class="small text-muted">Leave normal public pages open, but still block VPN/proxy traffic on download pages and download actions when enforcement is active.</span>
-                                </label>
-                            </div>
-                            <small class="config-form-note d-block mt-3">This setting only applies when Protection Mode is set to Enforcement.</small>
                         </div>
-                    </div>
+                    <?php endif; ?>
 
                     <div class="mb-4">
                         <label class="form-label fw-bold">ProxyCheck.io API Key</label>
@@ -238,11 +241,65 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                             <label class="form-label fw-bold">Enforcement Start Date</label>
                             <input type="date" class="security-two-factor-date form-control" name="2fa_enforce_date" value="<?= htmlspecialchars($twoFactorEnforceDate ?? '') ?>">
                             <small class="config-form-note mt-2">Leave blank to keep 2FA optional. If set, users without 2FA will be forced to set it up after this date.</small>
+                            <div class="row mt-4">
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label fw-bold">2FA Setup Attempt Limit</label>
+                                    <input type="number" min="1" class="form-control" name="rate_limit_2fa_setup" value="<?= (int)($twoFactorSetupRateLimit ?? 5) ?>">
+                                    <small class="config-form-note">Maximum setup verification attempts per user every 10 minutes. Safe default: 5.</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label fw-bold">2FA Code Attempt Limit</label>
+                                    <input type="number" min="1" class="form-control" name="rate_limit_2fa_verify" value="<?= (int)($twoFactorVerifyRateLimit ?? 5) ?>">
+                                    <small class="config-form-note">Maximum verification code attempts per user every 10 minutes. Safe default: 5.</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label fw-bold">Recovery Code Attempt Limit</label>
+                                    <input type="number" min="1" class="form-control" name="rate_limit_2fa_recovery" value="<?= (int)($twoFactorRecoveryRateLimit ?? 5) ?>">
+                                    <small class="config-form-note">Maximum recovery code attempts per user every 10 minutes. Safe default: 5.</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card border-0 shadow-sm config-section-card mt-4">
+                        <div class="card-body">
+                            <h5 class="fw-bold mb-3">Session &amp; Login Persistence</h5>
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label fw-bold">Admin Idle Logout</label>
+                                    <select class="form-select" name="admin_idle_logout_minutes">
+                                        <?php foreach (($idleLogoutOptions ?? []) as $minutes => $label): ?>
+                                            <option value="<?= (int)$minutes ?>" <?= (int)($adminIdleLogoutMinutes ?? 240) === (int)$minutes ? 'selected' : '' ?>><?= htmlspecialchars((string)$label) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label fw-bold">Moderator Idle Logout</label>
+                                    <select class="form-select" name="moderator_idle_logout_minutes">
+                                        <?php foreach (($idleLogoutOptions ?? []) as $minutes => $label): ?>
+                                            <option value="<?= (int)$minutes ?>" <?= (int)($moderatorIdleLogoutMinutes ?? 480) === (int)$minutes ? 'selected' : '' ?>><?= htmlspecialchars((string)$label) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label fw-bold">User Idle Logout</label>
+                                    <select class="form-select" name="user_idle_logout_minutes">
+                                        <?php foreach (($idleLogoutOptions ?? []) as $minutes => $label): ?>
+                                            <option value="<?= (int)$minutes ?>" <?= (int)($userIdleLogoutMinutes ?? 43200) === (int)$minutes ? 'selected' : '' ?>><?= htmlspecialchars((string)$label) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
+                            <small class="config-form-note d-block mb-4">Automatically signs the session out after this much inactivity. Activity refreshes the timer on each request.</small>
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" name="remember_me_enabled" id="rememberMeEnabled" value="1" <?= !empty($rememberMeEnabled) ? 'checked' : '' ?>>
+                                <label class="form-check-label fw-bold" for="rememberMeEnabled">Allow Remember Me on user login</label>
+                            </div>
+                            <small class="config-form-note">Lets regular user accounts restore a new login session after their browser session expires. This does not apply to admin or moderator accounts.</small>
                         </div>
                     </div>
                     <div class="config-sticky-save">
-                        <p class="config-sticky-save__text">2FA settings are saved separately so you can adjust rollout timing without changing other protection rules.</p>
-                        <button type="submit" class="btn btn-primary px-4">Save 2FA Settings</button>
+                        <p class="config-sticky-save__text">Security feature settings are saved together so you can tune account protection, idle logout, and login persistence in one pass.</p>
+                        <button type="submit" class="btn btn-primary px-4">Save Security Feature Settings</button>
                     </div>
                 </form>
             <?php elseif ($secTab === 'cloudflare'): ?>
@@ -269,6 +326,11 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                         <label class="form-check-label fw-bold" for="trustCf">Trust Cloudflare Headers</label>
                     </div>
                     <div class="config-form-note mb-4">Enable this only when the site is actually behind Cloudflare and you are syncing trusted proxy ranges. Rewards fraud scoring, country detection, and security logs rely on the real visitor IP being restored correctly.</div>
+                    <div class="form-check form-switch mb-4">
+                        <input class="form-check-input" type="checkbox" name="trust_loopback_proxy_headers" id="trustLoopbackProxy" value="1" <?= !empty($trustLoopbackProxyHeaders) ? 'checked' : '' ?>>
+                        <label class="form-check-label fw-bold" for="trustLoopbackProxy">Trust Local Reverse Proxy Headers</label>
+                    </div>
+                    <div class="config-form-note mb-4">Leave this off unless Fyuhls sits behind a same-host reverse proxy that rewrites forwarding headers correctly. Turning it on makes loopback proxy headers authoritative for rate limits, fraud checks, and country decisions.</div>
                     <div class="config-sticky-save">
                         <p class="config-sticky-save__text">Trust settings affect request IP parsing across the app.</p>
                         <button type="submit" class="btn btn-primary">Save Settings</button>
@@ -302,7 +364,7 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                             <p>Enter your Turnstile site key and secret key, then enable the placements where you want the challenge to appear. If the keys are blank, the placement checkboxes do nothing.</p>
                         </div>
                     </details>
-                    
+
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label fw-bold">Site Key</label>
@@ -404,7 +466,7 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
 
                         <div class="config-soft-callout config-soft-callout--info small mb-3">
                             <i class="bi bi-info-circle-fill me-2"></i>
-                            Encryption uses the key defined in <code>config/app.php</code>. Ensure you have backed up your key before proceeding.
+                            Encryption uses the active key stored in the hidden config file referenced by <code>config/database.php</code>. Ensure you have backed up that hidden config before proceeding.
                         </div>
 
                         <?php if ($pendingEncryption > 0 && !empty($pendingEncryptionItems)): ?>
@@ -485,8 +547,66 @@ foreach (($captchaPlacements ?? []) as $placementValue) {
                     <summary>How this works</summary>
                     <div class="config-help-panel__body">
                         <p>Run the normal sync when you want to check for missing tables or columns. Use deep repair only when you specifically need to correct column-type or column-size drift.</p>
+                        <p><strong>Recommended order:</strong> Start with the normal schema sync. Only turn on Deep Repair if this page specifically points to column type/size drift, or if a normal sync finishes and the drift notice still does not clear.</p>
+                        <p><strong>Legacy JSON drift helper:</strong> If Deep Repair aborts on <code>reward_receipts.risk_reasons_json</code>, <code>earnings.risk_reasons_json</code>, <code>earnings.metadata</code>, <code>download_sessions.risk_reasons_json</code>, or <code>download_session_events.event_payload</code>, this install still needs a staged manual repair during a maintenance window before schema validation can pass cleanly.</p>
                     </div>
                 </details>
+                <?php if ($legacyJsonRepairAvailable): ?>
+                    <div class="config-danger-zone mb-3" id="legacy-json-repair">
+                        <div class="config-danger-zone__title">Legacy JSON Drift Repair</div>
+                        <p class="config-danger-zone__text">Your last schema error matches Fyuhls' known legacy text-to-JSON drift pattern. This staged repair will refuse invalid JSON rows, normalize blank legacy payloads to <code>NULL</code>, convert the affected columns to real <code>JSON</code> types, and then re-run the normal schema validation pass.</p>
+                        <?php if (!empty($legacyJsonRepairPlan)): ?>
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Column</th>
+                                            <th>Current Type</th>
+                                            <th>Blank Rows</th>
+                                            <th>Invalid Rows</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($legacyJsonRepairPlan as $row): ?>
+                                            <?php if (empty($row['needs_migration']) && ($row['status'] ?? '') !== 'missing'): ?>
+                                                <?php continue; ?>
+                                            <?php endif; ?>
+                                            <tr>
+                                                <td><code><?= htmlspecialchars((string)$row['table']) ?>.<?= htmlspecialchars((string)$row['column']) ?></code></td>
+                                                <td><?= htmlspecialchars((string)($row['current_column_type'] ?? $row['current_type'] ?? 'unknown')) ?></td>
+                                                <td><?= (int)($row['blank_rows'] ?? 0) ?></td>
+                                                <td><?= (int)($row['invalid_rows'] ?? 0) ?></td>
+                                                <td>
+                                                    <?php if (($row['status'] ?? '') === 'missing'): ?>
+                                                        <span class="badge bg-secondary">Missing</span>
+                                                    <?php elseif ((int)($row['invalid_rows'] ?? 0) > 0): ?>
+                                                        <span class="badge bg-danger">Needs cleanup</span>
+                                                    <?php elseif (!empty($row['needs_migration'])): ?>
+                                                        <span class="badge bg-warning text-dark">Ready to repair</span>
+                                                    <?php else: ?>
+                                                        <span class="badge bg-success">Aligned</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                            </tr>
+                                            <?php if (!empty($row['invalid_samples'])): ?>
+                                                <tr>
+                                                    <td colspan="5" class="small text-muted">
+                                                        Sample row IDs with invalid JSON: <?= htmlspecialchars(implode(', ', array_map('strval', (array)$row['invalid_samples']))) ?>
+                                                    </td>
+                                                </tr>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                        <form method="POST" action="/admin/security/repair-legacy-json" class="config-danger-zone__actions">
+                            <?= \App\Core\Csrf::field() ?>
+                            <button type="submit" class="btn btn-warning px-4">Run Staged JSON Repair</button>
+                        </form>
+                    </div>
+                <?php endif; ?>
                 <form method="POST" action="/admin/security/sync-schema">
                     <?= \App\Core\Csrf::field() ?>
                     <div class="form-check mb-3">
@@ -539,9 +659,9 @@ function copyToClipboard(inputId) {
     }
 
     navigator.clipboard.writeText(input.value || '').then(function() {
-        alert('Copied to clipboard.');
+        window.adminAlert('Copied to clipboard.');
     }).catch(function() {
-        alert('Unable to copy to clipboard.');
+        window.adminAlert('Unable to copy to clipboard.');
     });
 }
 
@@ -566,4 +686,3 @@ document.addEventListener('click', function(event) {
 <style>
 .security-two-factor-date{max-width:300px}
 </style>
-

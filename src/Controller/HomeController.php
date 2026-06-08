@@ -17,10 +17,32 @@ use App\Service\RateLimiterService;
 use App\Service\SecurityService;
 
 class HomeController {
+    private function currentUserOwnsRecord(?int $ownerUserId): bool
+    {
+        return Auth::check() && $ownerUserId !== null && $ownerUserId === (int)(Auth::id() ?? 0);
+    }
+
+    private function dashboardFolderForCurrentUser(?string $folderId, int $userId): ?array
+    {
+        if ($folderId === null || $folderId === '') {
+            return null;
+        }
+
+        $folder = \App\Model\Folder::find($folderId);
+        if (
+            !$folder ||
+            ($folder['status'] ?? 'active') !== 'active' ||
+            !$this->currentUserOwnsRecord(isset($folder['user_id']) ? (int)$folder['user_id'] : null)
+        ) {
+            return null;
+        }
+
+        return $folder;
+    }
+
     private function isHttpsRequest(): bool
     {
-        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+        return \App\Service\SecurityService::isHttpsRequest();
     }
 
     private function issueReferralCookie(int $referrerId, string $source = 'referral'): void
@@ -31,20 +53,22 @@ class HomeController {
 
         $source = in_array($source, ['referral', 'pps'], true) ? $source : 'referral';
 
-        $secret = (string)\App\Core\Config::get('app_key', '');
-        if ($secret === '') {
+        $secret = \App\Service\SecurityService::getSecureAppKey();
+        if ($secret === null) {
             return;
         }
 
         $payload = $referrerId . '|' . $source;
         $signature = hash_hmac('sha256', $payload, $secret);
-        setcookie('ref', $payload . '.' . $signature, [
+        $cookieValue = $payload . '.' . $signature;
+        setcookie('ref', $cookieValue, [
             'expires' => time() + (86400 * 30),
             'path' => '/',
             'secure' => $this->isHttpsRequest(),
             'httponly' => true,
             'samesite' => 'Lax',
         ]);
+        $_COOKIE['ref'] = $cookieValue;
     }
 
     private function resolveReferralUserId(string $ref): ?int
@@ -158,17 +182,10 @@ class HomeController {
 
         $userId = Auth::id() ?? 0;
         $folderId = $id ?: null;
-        
-        $currentFolder = null;
-        if ($folderId) {
-            $currentFolder = \App\Model\Folder::find($folderId);
-            if (
-                !$currentFolder ||
-                ($currentFolder['status'] ?? 'active') !== 'active' ||
-                ($currentFolder['user_id'] != $userId && !Auth::isAdmin())
-            ) {
-                header('Location: /'); exit;
-            }
+
+        $currentFolder = $this->dashboardFolderForCurrentUser($folderId, $userId);
+        if ($folderId && $currentFolder === null) {
+            header('Location: /'); exit;
         }
 
         $idToFetch = $currentFolder ? $currentFolder['id'] : null;
@@ -271,7 +288,7 @@ class HomeController {
     public function recent() {
         if (!Auth::check()) { header('Location: /login'); exit; }
         $userId = Auth::id() ?? 0;
-        
+
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("
             SELECT f.*, sf.file_size, sf.mime_type, sf.storage_path, sf.storage_provider, sf.file_hash,
@@ -290,6 +307,7 @@ class HomeController {
             'folders' => [],
             'currentFolder' => null,
             'pageHeading' => 'Recent Files',
+            'isRecent' => true,
             'pageTitle'   => "Recent Files - " . $this->siteName(),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
             'storageQuota' => $this->storageQuotaInfo(),
@@ -299,14 +317,14 @@ class HomeController {
     public function shared() {
         if (!Auth::check()) { header('Location: /login'); exit; }
         $userId = Auth::id() ?? 0;
-        
+
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("
             SELECT f.*, sf.file_size, sf.mime_type, sf.storage_path, sf.storage_provider, sf.file_hash,
                    sf.file_server_id, sf.provider_etag
-            FROM files f 
-            JOIN stored_files sf ON f.stored_file_id = sf.id 
-            WHERE f.user_id = ? AND f.status = 'active' AND f.is_public = 1 
+            FROM files f
+            JOIN stored_files sf ON f.stored_file_id = sf.id
+            WHERE f.user_id = ? AND f.status = 'active' AND f.is_public = 1
             ORDER BY f.created_at DESC
         ");
         $stmt->execute([$userId]);
@@ -359,12 +377,14 @@ class HomeController {
         $linksPerSecond = max(1, min(250, (int)Setting::get('link_checker_links_per_second', '25')));
         $captchaEnabled = Setting::get('captcha_link_checker', '0') === '1';
         $captchaSiteKey = Setting::get('captcha_site_key', '');
-        $captchaActive = $captchaEnabled && $captchaSiteKey !== '';
+        $captchaActive = $captchaEnabled;
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $linkCheckerAction = (string)($_POST['link_checker_action'] ?? 'check');
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
                 $error = "Security Token Expired. Please refresh.";
+            } elseif ($linkCheckerAction === 'check' && $captchaActive && $captchaSiteKey === '') {
+                $error = "Link checking is temporarily unavailable because CAPTCHA is enabled but not fully configured.";
             } elseif ($linkCheckerAction === 'check' && $captchaActive && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                 $error = "Captcha verification failed. Please try again.";
             } else {
@@ -419,11 +439,7 @@ class HomeController {
     public function notifications() {
         if (!Auth::check()) { header('Location: /login'); exit; }
         $userId = Auth::id();
-        $db = Database::getInstance()->getConnection();
-        
-        $stmt = $db->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50");
-        $stmt->execute([$userId]);
-        $notifications = $stmt->fetchAll();
+        $notifications = \App\Service\NotificationService::getRecent((int)($userId ?? 0), 50);
 
         View::render('home/notifications.php', [
             'notifications' => $notifications,
@@ -439,7 +455,36 @@ class HomeController {
             die("CSRF mismatch");
         }
         \App\Service\NotificationService::markAllRead(Auth::id() ?? 0);
-        echo json_encode(['status' => 'success']);
+        if (isset($_SERVER['HTTP_X_CSRF_TOKEN'])) {
+            header('Content-Type: application/json');
+            echo json_encode(['status' => 'success']);
+            return;
+        }
+
+        header('Location: /notifications');
+        exit;
+    }
+
+    public function markNotificationRead(string $id): void
+    {
+        if (!Auth::check()) {
+            die("Login required");
+        }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !Csrf::verify($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die("CSRF mismatch");
+        }
+
+        \App\Service\NotificationService::markRead((int)(Auth::id() ?? 0), $id);
+
+        if (isset($_SERVER['HTTP_X_CSRF_TOKEN'])) {
+            header('Content-Type: application/json');
+            echo json_encode(['status' => 'success']);
+            return;
+        }
+
+        header('Location: /notifications');
+        exit;
     }
 
     public function contact() {
@@ -447,11 +492,13 @@ class HomeController {
         $success = '';
         $captchaEnabled = Setting::get('captcha_contact', '0') === '1';
         $captchaSiteKey = Setting::get('captcha_site_key', '');
-        $captchaActive = $captchaEnabled && $captchaSiteKey !== '';
+        $captchaActive = $captchaEnabled;
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
                 $error = "Security Token Expired. Please refresh.";
+            } elseif ($captchaActive && $captchaSiteKey === '') {
+                $error = "Contact form submissions are temporarily unavailable because CAPTCHA is enabled but not fully configured.";
             } elseif ($captchaActive && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                 $error = "Captcha verification failed. Please try again.";
             } else {
@@ -507,11 +554,28 @@ class HomeController {
         $success = '';
         $captchaEnabled = Setting::get('captcha_dmca', '0') === '1';
         $captchaSiteKey = Setting::get('captcha_site_key', '');
-        $captchaActive = $captchaEnabled && $captchaSiteKey !== '';
+        $captchaActive = $captchaEnabled;
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $name = trim($_POST['name'] ?? '');
+            $email = trim($_POST['email'] ?? '');
+            $url = trim($_POST['url'] ?? '');
+            $description = trim($_POST['description'] ?? '');
+            $signature = trim($_POST['signature'] ?? '');
+            $confirmationAccepted = isset($_POST['dmca_confirmation']) && (string)$_POST['dmca_confirmation'] === '1';
+            $normalizedUrlList = $this->normalizeDmcaUrls($url);
+            $normalizedUrlValue = implode("\n", $normalizedUrlList);
+
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
                 $error = "Security Token Expired. Please refresh.";
+            } elseif (empty($name) || empty($email) || empty($normalizedUrlList) || empty($description) || empty($signature)) {
+                $error = "All fields are required for a valid DMCA notice.";
+            } elseif (!$confirmationAccepted) {
+                $error = "You must confirm the DMCA statements before submitting a notice.";
+            } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $error = "Invalid email address.";
+            } elseif ($captchaActive && $captchaSiteKey === '') {
+                $error = "DMCA submissions are temporarily unavailable because CAPTCHA is enabled but not fully configured.";
             } elseif ($captchaActive && !$this->verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                 $error = "Captcha verification failed. Please try again.";
             } else {
@@ -521,41 +585,27 @@ class HomeController {
                 }
             }
             if ($_SERVER['REQUEST_METHOD'] === 'POST' && $error === '') {
-                $name = trim($_POST['name'] ?? '');
-                $email = trim($_POST['email'] ?? '');
-                $url = trim($_POST['url'] ?? '');
-                $description = trim($_POST['description'] ?? '');
-                $signature = trim($_POST['signature'] ?? '');
-                $normalizedUrlList = $this->normalizeDmcaUrls($url);
-                $normalizedUrlValue = implode("\n", $normalizedUrlList);
+                try {
+                    \App\Service\TicketService::createExternalTicket('dmca', [
+                        'subject' => 'DMCA Notice from ' . $name,
+                        'body' => $description,
+                        'name' => $name,
+                        'email' => $email,
+                        'ip_address' => \App\Service\SecurityService::getClientIp(),
+                        'source' => 'dmca_form',
+                        'metadata' => [
+                            'infringing_url' => $normalizedUrlValue,
+                            'signature' => $signature,
+                        ],
+                    ]);
+                    $success = "Your message has been submitted. Our legal team will review it within 48 hours.";
 
-                if (empty($name) || empty($email) || empty($normalizedUrlList) || empty($description) || empty($signature)) {
-                    $error = "All fields are required for a valid DMCA notice.";
-                } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    $error = "Invalid email address.";
-                } else {
-                    try {
-                        \App\Service\TicketService::createExternalTicket('dmca', [
-                            'subject' => 'DMCA Notice from ' . $name,
-                            'body' => $description,
-                            'name' => $name,
-                            'email' => $email,
-                            'ip_address' => \App\Service\SecurityService::getClientIp(),
-                            'source' => 'dmca_form',
-                            'metadata' => [
-                                'infringing_url' => $normalizedUrlValue,
-                                'signature' => $signature,
-                            ],
-                        ]);
-                        $success = "Your message has been submitted. Our legal team will review it within 48 hours.";
-
-                        \App\Service\MailService::sendTemplate($email, 'dmca_form_responder', [
-                            '{username}' => $name,
-                            '{subject}' => 'DMCA Notice',
-                        ]);
-                    } catch (\Throwable $e) {
-                        $error = "Failed to submit report. Please try again later.";
-                    }
+                    \App\Service\MailService::sendTemplate($email, 'dmca_form_responder', [
+                        '{username}' => $name,
+                        '{subject}' => 'DMCA Notice',
+                    ]);
+                } catch (\Throwable $e) {
+                    $error = "Failed to submit report. Please try again later.";
                 }
             }
         }
@@ -735,7 +785,7 @@ class HomeController {
 
         $folderUserId = (int)($folder['user_id'] ?? 0);
         $viewerId = (int)(Auth::id() ?? 0);
-        $canAccess = Auth::check() && ($folderUserId === $viewerId || Auth::isAdmin());
+        $canAccess = Auth::check() && $folderUserId === $viewerId;
         if (!$canAccess) {
             $result['status'] = 'Unavailable';
             $result['status_class'] = 'deleted';
@@ -810,6 +860,7 @@ class HomeController {
         $skipped = 0;
         $userId = (int)(Auth::id() ?? 0);
         $maxStorage = (int)($package['max_storage_bytes'] ?? 0);
+        $dedupeEnabled = \App\Model\Setting::get('upload_detect_duplicates', '1') === '1';
 
         foreach ($requested as $shortId) {
             if (!$this->isLikelyLinkCheckerShortId($shortId)) {
@@ -823,7 +874,7 @@ class HomeController {
                 continue;
             }
 
-            if (File::userHasStoredFile($userId, (int)$file['stored_file_id'])) {
+            if ($dedupeEnabled && File::userHasStoredFile($userId, (int)$file['stored_file_id'])) {
                 $alreadySaved++;
                 continue;
             }
@@ -837,7 +888,7 @@ class HomeController {
             }
         }
 
-        if ($copied === 0 && $alreadySaved > 0 && $skipped === 0) {
+        if ($dedupeEnabled && $copied === 0 && $alreadySaved > 0 && $skipped === 0) {
             return ['All selected files were already in your account.', ''];
         }
 
@@ -846,7 +897,7 @@ class HomeController {
         }
 
         $message = "Added {$copied} file(s) to your account.";
-        if ($alreadySaved > 0) {
+        if ($dedupeEnabled && $alreadySaved > 0) {
             $message .= " {$alreadySaved} were already saved.";
         }
         if ($skipped > 0) {

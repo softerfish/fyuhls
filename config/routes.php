@@ -47,6 +47,7 @@ $router->get('/verify-email/{token}', [AuthController::class, 'verifyEmail']);
 $router->get('/confirm-email-change/{token}', [AuthController::class, 'confirmEmailChange']);
 $router->post('/logout', [AuthController::class, 'logout']);
 $router->get('/affiliate', [RewardsController::class, 'affiliate']);
+$router->get('/promotions', [RewardsController::class, 'promotions']);
 $router->get('/rewards', [RewardsController::class, 'rewards']);
 $router->get('/rewards/export.csv', [RewardsController::class, 'exportCsv']);
 $router->get('/tickets', [TicketController::class, 'index']);
@@ -67,16 +68,20 @@ $router->post('/settings', [AuthController::class, 'settings']);
 $router->post('/settings/update-monetization', [AuthController::class, 'updateMonetization']);
 $router->get('/notifications', [HomeController::class, 'notifications']);
 $router->post('/notifications/read', [HomeController::class, 'markNotificationsRead']);
+$router->post('/notifications/read/{id}', [HomeController::class, 'markNotificationRead']);
 
 // Checkout & Payments
 $router->get('/plans', [CheckoutController::class, 'plans']);
 $router->get('/payments', [CheckoutController::class, 'history']);
 $router->get('/checkout/{id}', [CheckoutController::class, 'index']);
+$router->post('/checkout/preview', [CheckoutController::class, 'preview']);
 $router->post('/checkout/process', [CheckoutController::class, 'process']);
+$router->post('/subscription/auto-renew/{id}', [CheckoutController::class, 'updateAutoRenew']);
 $router->post('/payment/callback/{gateway}', [CheckoutController::class, 'callback']);
 $router->get('/payment/stripe/success', [CheckoutController::class, 'stripeSuccess']);
 $router->get('/payment/paypal/return', [CheckoutController::class, 'paypalReturn']);
 $router->get('/payment/cancel', [CheckoutController::class, 'cancel']);
+$router->post('/payment/cancel', [CheckoutController::class, 'cancel']);
 
 // File & Folder Routes
 $router->post('/upload', [FileController::class, 'upload']);
@@ -119,7 +124,7 @@ $router->post('/admin/site-content/preview', [SiteContentController::class, 'pre
 $router->post('/admin/site-content/restore', [SiteContentController::class, 'restore']);
 $router->get('/admin/site-content/export', [SiteContentController::class, 'export']);
 $router->post('/admin/site-content/import', [SiteContentController::class, 'import']);
-$router->get('/admin/diagnostics/export', [ConfigurationController::class, 'exportDiagnostics']);
+$router->post('/admin/diagnostics/export', [ConfigurationController::class, 'exportDiagnostics']);
 $router->post('/admin/cron/trigger', [ConfigurationController::class, 'triggerCron']);
 $router->post('/admin/email/test-connection', [ConfigurationController::class, 'testSmtpConnection']);
 $router->post('/admin/email/test-send', [ConfigurationController::class, 'sendTestEmail']);
@@ -136,23 +141,38 @@ $router->post('/admin/users/disable-2fa', [AdminTwoFactorController::class, 'dis
 
 $router->get('/admin/files', [AdminFileController::class, 'index']);
 $router->post('/admin/files/delete', [AdminFileController::class, 'delete']);
+$router->get('/admin/investigations/uploader/{id}', [AdminController::class, 'investigateUploader']);
+$router->get('/admin/investigations/file/{id}', [AdminController::class, 'investigateFile']);
+$router->get('/admin/staff-activity', [AdminController::class, 'staffActivity']);
 
 $router->get('/admin/withdrawals', [AdminController::class, 'withdrawals']);
 $router->post('/admin/withdrawal/update', [AdminController::class, 'updateWithdrawal']);
 $router->get('/admin/rewards-fraud', [AdminController::class, 'rewardsFraud']);
 $router->post('/admin/rewards-fraud/save', [AdminController::class, 'saveRewardsFraud']);
 $router->post('/admin/rewards-fraud/review', [AdminController::class, 'reviewRewardsFraud']);
+$router->post('/admin/rewards-fraud/trust', [AdminController::class, 'saveRewardsFraudTrust']);
 $router->get('/admin/requests', [AdminController::class, 'requests']);
 $router->post('/admin/requests/reply', [AdminController::class, 'replyToRequest']);
 $router->post('/admin/requests/note', [AdminController::class, 'addRequestNote']);
 $router->post('/admin/requests/status', [AdminController::class, 'updateRequestStatus']);
+$router->post('/admin/requests/assign', [AdminController::class, 'assignRequest']);
+$router->post('/admin/requests/visibility', [AdminController::class, 'updateRequestVisibility']);
 $router->post('/admin/requests/dmca-process', [AdminController::class, 'processDmcaFiles']);
 $router->get('/admin/abuse-reports', [AdminController::class, 'abuseReports']);
 $router->post('/admin/abuse-reports/action', [AdminController::class, 'handleAbuseReport']);
 $router->get('/admin/downloads/current', [AdminController::class, 'currentDownloadsView']);
 $router->get('/admin/downloads/current/json', [AdminController::class, 'currentDownloadsData']);
 $router->get('/admin/subscriptions', [AdminController::class, 'subscriptions']);
+$router->get('/admin/subscription/create', [AdminController::class, 'createSubscription']);
+$router->post('/admin/subscription/create', [AdminController::class, 'createSubscription']);
+$router->post('/admin/subscription/update-status', [AdminController::class, 'updateManualSubscriptionStatus']);
+$router->get('/admin/coupons', [AdminController::class, 'coupons']);
+$router->get('/admin/coupon/create', [AdminController::class, 'createCoupon']);
+$router->post('/admin/coupon/create', [AdminController::class, 'createCoupon']);
+$router->get('/admin/coupon/edit/{id}', [AdminController::class, 'editCoupon']);
+$router->post('/admin/coupon/edit/{id}', [AdminController::class, 'editCoupon']);
 $router->get('/admin/resources', [AdminController::class, 'resources']);
+$router->get('/admin/scaling', [AdminController::class, 'scalingGuide']);
 $router->get('/admin/server-monitoring', [AdminController::class, 'serverMonitoringHistory']);
 $router->get('/admin/file-server/migrate', [AdminController::class, 'migrateFiles']);
 $router->post('/admin/file-server/migrate', [AdminController::class, 'migrateFiles']);
@@ -161,6 +181,7 @@ $router->post('/admin/file-server/add', [AdminController::class, 'addFileServer'
 $router->get('/admin/file-server/edit/{id}', [AdminController::class, 'editFileServer']);
 $router->post('/admin/file-server/edit/{id}', [AdminController::class, 'editFileServer']);
 $router->get('/admin/file-server/test-delivery/{id}', [AdminController::class, 'testFileServerDelivery']);
+$router->post('/admin/file-server/test-delivery/{id}', [AdminController::class, 'testFileServerDelivery']);
 $router->post('/admin/file-servers/delete', [AdminController::class, 'deleteFileServer']);
 $router->post('/admin/file-server/set-default', [AdminController::class, 'setDefaultFileServer']);
 $router->post('/admin/file-server/test', [AdminController::class, 'testFileServerConnection']);
@@ -171,9 +192,12 @@ $router->post('/admin/file-server/wasabi/apply-cors', [AdminController::class, '
 $router->get('/admin/contacts', [AdminController::class, 'contacts']);
 $router->get('/admin/dmca', [AdminController::class, 'dmcaReports']);
 $router->get('/admin/packages', [AdminController::class, 'packages']);
+$router->get('/admin/package/create', [AdminController::class, 'createPackage']);
+$router->post('/admin/package/create', [AdminController::class, 'createPackage']);
 $router->get('/admin/package/edit/{id}', [AdminController::class, 'editPackage']);
 $router->post('/admin/package/edit/{id}', [AdminController::class, 'editPackage']);
 $router->post('/admin/package/clone/{id}', [AdminController::class, 'clonePackage']);
+$router->post('/admin/package/delete/{id}', [AdminController::class, 'deletePackage']);
 $router->get('/admin/status', [AdminController::class, 'status']);
 $router->post('/admin/update/apply', [AdminController::class, 'applyUpdate']);
 $router->post('/admin/uploads/session/abort', [AdminController::class, 'abortUploadSession']);
@@ -189,6 +213,7 @@ $router->get('/admin/support', [AdminController::class, 'supportUs']);
 $router->post('/admin/security/sync', [SecurityController::class, 'syncCloudflare']);
 $router->post('/admin/security/migrate', [SecurityController::class, 'migrateEncryption']);
 $router->post('/admin/security/sync-schema', [SecurityController::class, 'syncSchema']);
+$router->post('/admin/security/repair-legacy-json', [SecurityController::class, 'repairLegacyJsonDrift']);
 $router->post('/admin/security/update', [SecurityController::class, 'updateSettings']);
 
 // --- Plugins ---

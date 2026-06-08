@@ -15,6 +15,13 @@
         <li><strong>Nginx completion-log support:</strong> Matters when you want accelerated delivery while still preserving standard-file payout accuracy.</li>
     </ul>
 
+    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Operational Habits</h6>
+    <ul class="extra-small text-muted mb-4">
+        <li class="mb-2"><strong>Drain before migration:</strong> Switch a node to read-only before a risky move if you do not want fresh uploads landing there.</li>
+        <li class="mb-2"><strong>Test after provider edits:</strong> Re-check delivery and browser-upload assumptions after endpoint, bucket, or credential changes.</li>
+        <li><strong>Treat CORS as part of upload health:</strong> A valid key pair alone does not prove browser multipart uploads will work.</li>
+    </ul>
+
     <div class="alert alert-light border-0 shadow-sm small mb-0">
         <strong>Related pages:</strong> <a href="/admin/configuration?tab=downloads" class="guide-action-link">Config Hub &gt; Downloads</a> for Nginx completion-log settings and CDN redirects, <a href="/admin/server-monitoring" class="guide-action-link">Server Monitoring</a> for node health, and <a href="/admin/docs#storage-workflows" class="guide-action-link">Storage Node Workflows</a> for add, edit, and migration references.
     </div>

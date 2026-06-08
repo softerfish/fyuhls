@@ -1,44 +1,71 @@
 <?php
 include __DIR__ . '/../header.php';
 include __DIR__ . '/../partials/shell_helpers.php';
+$bonusReviewOnly = !empty($bonusReviewOnly);
 ob_start();
 ?>
     <div class="quick-actions">
-        <button type="button" class="btn btn-sm btn-outline-dark shadow-sm me-2" data-bs-toggle="modal" data-bs-target="#pageGuideModal">
-            <i class="bi bi-question-circle me-1"></i> Page Guide
-        </button>
-        <a href="/admin/configuration?tab=security&sec_tab=health" class="btn btn-sm btn-outline-danger shadow-sm me-2">
-            <i class="bi bi-heart-pulse me-1"></i> System Health
-        </a>
-        <?php if (empty($demoAdmin)): ?>
-            <a href="/admin/diagnostics/export" class="btn btn-sm btn-outline-dark shadow-sm">
-                <i class="bi bi-file-earmark-arrow-down me-1"></i> Export Diagnostics
+        <?php if ($bonusReviewOnly): ?>
+            <?php if (\App\Service\FeatureService::rewardsEnabled()): ?>
+                <a href="/admin/rewards-fraud" class="btn btn-sm btn-outline-dark shadow-sm me-2">
+                    <i class="bi bi-shield-exclamation me-1"></i> Rewards Fraud
+                </a>
+            <?php else: ?>
+                <a href="/admin/configuration?tab=monetization" class="btn btn-sm btn-outline-dark shadow-sm me-2">
+                    <i class="bi bi-cash-stack me-1"></i> Monetization
+                </a>
+            <?php endif; ?>
+            <a href="/admin/docs#configuration" class="btn btn-sm btn-outline-secondary shadow-sm">
+                <i class="bi bi-journal-text me-1"></i> Admin Docs
             </a>
+        <?php else: ?>
+            <button type="button" class="btn btn-sm btn-outline-dark shadow-sm me-2" data-bs-toggle="modal" data-bs-target="#pageGuideModal">
+                <i class="bi bi-question-circle me-1"></i> Page Guide
+            </button>
+            <a href="/admin/configuration?tab=security&sec_tab=health" class="btn btn-sm btn-outline-danger shadow-sm me-2">
+                <i class="bi bi-heart-pulse me-1"></i> System Health
+            </a>
+            <?php if (empty($demoAdmin)): ?>
+                <form method="POST" action="/admin/diagnostics/export" class="d-inline">
+                    <?= \App\Core\Csrf::field() ?>
+                    <button type="submit" class="btn btn-sm btn-outline-dark shadow-sm">
+                        <i class="bi bi-file-earmark-arrow-down me-1"></i> Export Diagnostics
+                    </button>
+                </form>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
 <?php
 $configurationActions = ob_get_clean();
-renderAdminPageHeader('System Configuration', 'Manage site-wide infrastructure and enterprise settings.', $configurationActions);
+renderAdminPageHeader(
+    $bonusReviewOnly ? 'Bonus Award Queue' : 'System Configuration',
+    $bonusReviewOnly
+        ? 'Review pending and recent bonus-award decisions in the Monetization area.'
+        : 'Manage site-wide infrastructure and enterprise settings.',
+    $configurationActions
+);
 ?>
 
-<!-- Page Guide Modal -->
-<div class="modal fade" id="pageGuideModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header border-bottom-0">
-                <h5 class="modal-title fw-bold"><i class="bi bi-cpu me-2 text-primary"></i> Configuration Hub Guide</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-4 pt-0">
-                <?php include __DIR__ . '/../help/configuration.php'; ?>
-            </div>
-            <div class="modal-footer border-top-0">
-                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Close Guide</button>
-                <a href="/admin/docs#configuration" class="btn btn-primary px-4">View Full System Docs</a>
+<?php if (!$bonusReviewOnly): ?>
+    <!-- Page Guide Modal -->
+    <div class="modal fade" id="pageGuideModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header border-bottom-0">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-cpu me-2 text-primary"></i> Configuration Hub Guide</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4 pt-0">
+                    <?php include __DIR__ . '/../help/configuration.php'; ?>
+                </div>
+                <div class="modal-footer border-top-0">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Close Guide</button>
+                    <a href="/admin/docs#configuration" class="btn btn-primary px-4">View Full System Docs</a>
+                </div>
             </div>
         </div>
     </div>
-</div>
+<?php endif; ?>
 
 <?php if (!empty($saved)): ?>
     <div class="config-soft-callout config-soft-callout--success shadow-sm mb-4">
@@ -46,11 +73,45 @@ renderAdminPageHeader('System Configuration', 'Manage site-wide infrastructure a
     </div>
 <?php endif; ?>
 
-<?php if (!empty($errors)): ?>
+<?php
+$securityHealthLegacyRepairPriority =
+    !$bonusReviewOnly
+    && ($activeTab ?? '') === 'security'
+    && (($_GET['sec_tab'] ?? 'identity') === 'health')
+    && !empty($legacyJsonRepairAvailable);
+$filteredErrors = [];
+foreach (($errors ?? []) as $error) {
+    $errorText = (string)$error;
+    if (
+        $securityHealthLegacyRepairPriority
+        && str_contains($errorText, 'Deep Repair aborted before making changes because the remaining drift needs non-atomic rebuild work:')
+    ) {
+        continue;
+    }
+    $filteredErrors[] = $errorText;
+}
+?>
+
+<?php if ($securityHealthLegacyRepairPriority): ?>
+    <div class="config-soft-callout config-soft-callout--warning shadow-sm mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+                <h6 class="fw-bold mb-2"><i class="bi bi-tools me-2"></i>Known Repair Path Available</h6>
+                <p class="mb-2">Deep Repair stopped because this install matches Fyuhls' legacy JSON drift pattern. Use the staged repair section on this page instead of retrying Deep Repair.</p>
+                <?php if (!empty($dbDriftError)): ?>
+                    <div class="small text-muted">Latest schema message: <?= htmlspecialchars($dbDriftError) ?></div>
+                <?php endif; ?>
+            </div>
+            <a href="#legacy-json-repair" class="btn btn-warning fw-bold">Jump To Repair</a>
+        </div>
+    </div>
+<?php endif; ?>
+
+<?php if (!empty($filteredErrors)): ?>
     <div class="config-soft-callout config-soft-callout--danger shadow-sm mb-4">
         <h6 class="fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i> Configuration Error</h6>
         <ul class="mb-0 small">
-            <?php foreach ($errors as $error): ?>
+            <?php foreach ($filteredErrors as $error): ?>
                 <li><?= htmlspecialchars($error) ?></li>
             <?php endforeach; ?>
         </ul>
@@ -70,6 +131,22 @@ $cronOffline = !($lastCronTimestamp > 0 && (time() - $lastCronTimestamp) < 1860)
 
 <?php
 ob_start();
+if ($bonusReviewOnly):
+?>
+    <div class="config-tab-groups px-3 py-3" id="configTabs">
+        <div class="config-tab-group">
+            <div class="config-tab-group__label">Review Queue</div>
+            <ul class="nav nav-tabs card-header-tabs m-0 border-0 config-tab-group__nav">
+                <li class="nav-item">
+                    <a class="nav-link active fw-bold border-0 py-3 px-4 border-bottom border-primary border-3" href="/admin/configuration?tab=monetization&monetization_pane=bonus-offers">
+                        <i class="bi bi-stars me-2"></i> Bonus Awards
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+<?php
+else:
 ?>
     <div class="config-tab-groups px-3 py-3" id="configTabs">
         <div class="config-tab-group">
@@ -136,6 +213,12 @@ ob_start();
                         <i class="bi bi-megaphone me-2"></i> Monetization
                     </a>
                 </li>
+            </ul>
+        </div>
+
+        <div class="config-tab-group">
+            <div class="config-tab-group__label">Communication</div>
+            <ul class="nav nav-tabs card-header-tabs m-0 border-0 config-tab-group__nav">
                 <li class="nav-item">
                     <a class="nav-link border-0 py-3 px-4 <?= $activeTab === 'email' ? 'active fw-bold border-bottom border-primary border-3' : 'text-muted' ?>" href="?tab=email">
                         <i class="bi bi-envelope-paper me-2"></i> Email
@@ -166,10 +249,11 @@ ob_start();
         </div>
     </div>
 <?php
+endif;
 $configTabsHeader = ob_get_clean();
 renderAdminCardStart(null, ['headerHtml' => $configTabsHeader, 'bodyClass' => 'card-body p-4']);
 ?>
-        <?php 
+        <?php
         $activeTab = $activeTab ?? 'general';
         $tabFile = __DIR__ . "/tabs/{$activeTab}.php";
         if (file_exists($tabFile)) {

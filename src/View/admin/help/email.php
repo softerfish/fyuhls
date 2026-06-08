@@ -5,7 +5,7 @@
     <ul class="extra-small text-muted mb-4">
         <li class="mb-2"><strong>Use it when:</strong> You need to change SMTP settings, test connection or sending, adjust queue rate, or edit email templates.</li>
         <li class="mb-2"><strong>Use another page when:</strong> You want to change which ticket events send email. That lives in <strong>Config Hub &gt; Tickets</strong>.</li>
-        <li><strong>What it does not do:</strong> It does not replace the queue cron, Support Center diagnostics, or page-specific settings that trigger the emails.</li>
+        <li><strong>What it does not do:</strong> It does not replace the queue cron, Diagnostics, or page-specific settings that trigger the emails.</li>
     </ul>
 
     <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">What Is On The Page</h6>
@@ -38,6 +38,6 @@
     </div>
 
     <div class="alert alert-light border-0 shadow-sm small mb-0">
-        <strong>Related pages:</strong> <a href="/admin/configuration?tab=tickets" class="guide-action-link">Config Hub &gt; Tickets</a> for ticket-event toggles and support inbox settings, <a href="/admin/status" class="guide-action-link">System Status</a> for queue or cron health, and <a href="/admin/support" class="guide-action-link">Support Center</a> for sanitized escalation bundles.
+        <strong>Related pages:</strong> <a href="/admin/configuration?tab=tickets" class="guide-action-link">Config Hub &gt; Tickets</a> for ticket-event toggles and support inbox settings, <a href="/admin/status" class="guide-action-link">System Status</a> for queue or cron health, and <a href="/admin/support" class="guide-action-link">Diagnostics</a> for sanitized escalation bundles.
     </div>
 </div>

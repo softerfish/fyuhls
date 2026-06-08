@@ -13,10 +13,21 @@ use App\Model\Setting;
 use App\Service\FeatureService;
 use App\Service\PackageAllowanceService;
 use App\Service\LoginDeviceService;
+use App\Service\MonetizationModelService;
+use App\Service\PayoutProcessorService;
+use App\Service\RememberMeService;
+use PDO;
 
 class AuthController {
     private const MAX_PAYMENT_DETAILS_LENGTH = 500;
     private const MAX_API_TOKEN_NAME_LENGTH = 100;
+    private const TOKEN_HASH_PREFIX = 'sha256:';
+    private const EMAIL_VERIFICATION_TTL_SECONDS = 86400;
+    private const STEP_UP_RATE_LIMIT = 5;
+    private const STEP_UP_RATE_WINDOW = 600;
+    private static $beforeEmailVerificationConsumeHandler = null;
+    private static $welcomeEmailSenderForTests = null;
+    private static $emailVerificationBonusTouchHandler = null;
 
     private function storageQuotaInfo(int $userId): array
     {
@@ -63,6 +74,89 @@ class AuthController {
         return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
     }
 
+    private static function storeOneTimeToken(string $token): string
+    {
+        return self::TOKEN_HASH_PREFIX . hash('sha256', $token);
+    }
+
+    private static function lookupUserByOneTimeToken(\PDO $db, string $tokenColumn, string $token, string $select = '*', string $extraWhere = '', array $extraParams = []): array|false
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return false;
+        }
+
+        \App\Model\User::ensureRuntimeColumns($db);
+
+        $hashedToken = self::storeOneTimeToken($token);
+        $whereSuffix = $extraWhere !== '' ? ' AND ' . $extraWhere : '';
+
+        $stmt = $db->prepare("SELECT {$select} FROM users WHERE ({$tokenColumn} = ? OR {$tokenColumn} = ?){$whereSuffix} LIMIT 1");
+        $stmt->execute(array_merge([$hashedToken, $token], $extraParams));
+        return $stmt->fetch();
+    }
+
+    public static function setBeforeEmailVerificationConsumeHandlerForTests(?callable $handler): void
+    {
+        self::$beforeEmailVerificationConsumeHandler = $handler;
+    }
+
+    public static function setWelcomeEmailSenderForTests(?callable $handler): void
+    {
+        self::$welcomeEmailSenderForTests = $handler;
+    }
+
+    public static function setEmailVerificationBonusTouchHandlerForTests(?callable $handler): void
+    {
+        self::$emailVerificationBonusTouchHandler = $handler;
+    }
+
+    private static function fireBeforeEmailVerificationConsumeForTests(array $context = []): void
+    {
+        if (!is_callable(self::$beforeEmailVerificationConsumeHandler)) {
+            return;
+        }
+
+        (self::$beforeEmailVerificationConsumeHandler)($context);
+    }
+
+    private static function appendForUpdateClause(PDO $db, string $sql): string
+    {
+        return Database::appendForUpdateClause($db, $sql);
+    }
+
+    private function sendWelcomeEmailAfterVerification(string $email, string $username): void
+    {
+        if (is_callable(self::$welcomeEmailSenderForTests)) {
+            (self::$welcomeEmailSenderForTests)([
+                'email' => $email,
+                'username' => $username,
+            ]);
+            return;
+        }
+
+        \App\Service\MailService::sendTemplate($email, 'welcome_email', [
+            '{username}' => $username,
+            '{site_name}' => Setting::get('app.name', 'Fyuhls')
+        ]);
+    }
+
+    private function touchEmailVerificationBonuses(int $userId): void
+    {
+        if (is_callable(self::$emailVerificationBonusTouchHandler)) {
+            (self::$emailVerificationBonusTouchHandler)([
+                'workflow' => 'verify_email',
+                'user_id' => $userId,
+            ]);
+            return;
+        }
+
+        \App\Service\BonusOfferService::touchUserFailSoft($userId, true, [
+            'workflow' => 'verify_email',
+            'user_id' => $userId,
+        ]);
+    }
+
     private function normalizePaymentMethod(?string $method): ?string
     {
         $method = trim((string)$method);
@@ -70,22 +164,13 @@ class AuthController {
             return null;
         }
 
-        $supportedMethods = array_filter(array_map('trim', explode(',', Setting::get('supported_withdrawal_methods', 'paypal,bitcoin', 'rewards'))));
+        $supportedMethods = PayoutProcessorService::activeKeys();
         return in_array($method, $supportedMethods, true) ? $method : null;
     }
 
-    private function normalizeMonetizationModel(?string $model): string
+    private function normalizeMonetizationModel(?string $model, ?array $package = null, ?string $currentModel = null): string
     {
-        $enabledModels = FeatureService::rewardsEnabled()
-            ? array_filter(array_map('trim', explode(',', Setting::get('enabled_models', 'ppd,pps,mixed', 'rewards'))))
-            : [];
-
-        $model = trim((string)$model);
-        if (in_array($model, $enabledModels, true)) {
-            return $model;
-        }
-
-        return in_array('ppd', $enabledModels, true) ? 'ppd' : ($enabledModels[0] ?? 'ppd');
+        return MonetizationModelService::normalizeRequestedModel($model, $package, $currentModel);
     }
 
     private function normalizePaymentDetails(?string $details): string
@@ -104,6 +189,104 @@ class AuthController {
         return mb_substr($name, 0, self::MAX_API_TOKEN_NAME_LENGTH);
     }
 
+    private function allowedApiTokenScopes(): array
+    {
+        $scopes = ['files.upload', 'files.read', 'files.write', 'remote.upload'];
+        if (FeatureService::rewardsEnabled()) {
+            $scopes[] = 'stats.read';
+        }
+
+        return $scopes;
+    }
+
+    private function verifyCurrentPassword(int $userId, ?string $password): bool
+    {
+        $password = (string)$password;
+        if ($userId <= 0 || $password === '') {
+            return false;
+        }
+
+        $stmt = Database::getInstance()->getConnection()->prepare("SELECT password FROM users WHERE id = ? LIMIT 1");
+        $stmt->execute([$userId]);
+        $hash = (string)($stmt->fetchColumn() ?: '');
+        if ($hash === '') {
+            return false;
+        }
+
+        return password_verify($password, $hash);
+    }
+
+    private function checkSensitivePasswordRateLimit(int $userId, string $actionKey): bool
+    {
+        if ($userId <= 0) {
+            return false;
+        }
+
+        $ip = \App\Service\SecurityService::getClientIp();
+        $ipLimit = max(self::STEP_UP_RATE_LIMIT * 2, 10);
+
+        if (!\App\Service\RateLimiterService::canAttempt($actionKey . '_ip', $ip, $ipLimit, self::STEP_UP_RATE_WINDOW)) {
+            return false;
+        }
+
+        return \App\Service\RateLimiterService::canAttempt($actionKey . '_user', (string)$userId, self::STEP_UP_RATE_LIMIT, self::STEP_UP_RATE_WINDOW);
+    }
+
+    private function verifySensitivePasswordStepUp(int $userId, string $actionKey, ?string $password): array
+    {
+        if ($userId <= 0) {
+            return ['allowed' => false, 'verified' => false];
+        }
+
+        $ip = \App\Service\SecurityService::getClientIp();
+        $ipLimit = max(self::STEP_UP_RATE_LIMIT * 2, 10);
+        $result = \App\Service\RateLimiterService::guardAttempt([
+            [
+                'action' => $actionKey . '_ip',
+                'key' => $ip,
+                'limit' => $ipLimit,
+                'window' => self::STEP_UP_RATE_WINDOW,
+            ],
+            [
+                'action' => $actionKey . '_user',
+                'key' => (string)$userId,
+                'limit' => self::STEP_UP_RATE_LIMIT,
+                'window' => self::STEP_UP_RATE_WINDOW,
+            ],
+        ], fn() => $this->verifyCurrentPassword($userId, $password));
+
+        return [
+            'allowed' => !empty($result['allowed']),
+            'verified' => !empty($result['result']),
+        ];
+    }
+
+    private function revokeTrustedTwoFactorDevicesWithConnection(PDO $db, int $userId): void
+    {
+        if ($userId <= 0) {
+            return;
+        }
+
+        $stmt = $db->prepare("DELETE FROM user_two_factor_devices WHERE user_id = ?");
+        $stmt->execute([$userId]);
+    }
+
+    private function userHasActiveTwoFactor(int $userId): bool
+    {
+        if ($userId <= 0 || !FeatureService::twoFactorEnabled()) {
+            return false;
+        }
+
+        try {
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare("SELECT is_enabled FROM user_two_factor WHERE user_id = ? LIMIT 1");
+            $stmt->execute([$userId]);
+            return (int)$stmt->fetchColumn() === 1;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
     private function parseSignedReferralCookie(): ?array
     {
         if (!FeatureService::affiliateEnabled()) {
@@ -120,8 +303,8 @@ class AuthController {
             return null;
         }
 
-        $secret = (string)Config::get('app_key', '');
-        if ($secret === '') {
+        $secret = \App\Service\SecurityService::getSecureAppKey();
+        if ($secret === null) {
             return null;
         }
 
@@ -162,7 +345,7 @@ class AuthController {
             || Setting::get('captcha_admin_login', '0') === '1';
         $captchaAdminLogin = false;
         $captchaSiteKey    = Setting::get('captcha_site_key', '');
-        $needCaptcha       = $captchaUserLogin && $captchaSiteKey;
+        $needCaptcha       = $captchaUserLogin;
         $allowRegistrations = Setting::get('allow_registrations', '1') === '1';
         $requireVerification = Setting::get('require_email_verification', '0') === '1';
 
@@ -184,7 +367,9 @@ class AuthController {
                 $error = "Security Token Expired. Please refresh.";
             } else {
                 // verify captcha if enabled
-                if ($needCaptcha && !self::verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
+                if ($needCaptcha && $captchaSiteKey === '') {
+                    $error = 'Login is temporarily unavailable because CAPTCHA is enabled but not fully configured.';
+                } elseif ($needCaptcha && !self::verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                     $error = 'Please complete the captcha.';
                 } else {
                     $username = $_POST['username'] ?? '';
@@ -193,7 +378,7 @@ class AuthController {
                     $rlLimit = (int)Setting::get('rate_limit_login', 5);
                     $rlWindow = 300; // 5 minutes
                     $ip = \App\Service\SecurityService::getClientIp();
-                    $rateKey = md5($ip . '|' . $username);
+                    $rateKey = md5($ip . '|' . mb_strtolower(trim($username)));
 
                     $loginSprayLimit = max($rlLimit * 4, 20);
                     if (!\App\Service\RateLimiterService::check('login_ip', $ip, $loginSprayLimit, $rlWindow)) {
@@ -208,13 +393,23 @@ class AuthController {
                         $user = \App\Model\User::findByCredentials($username);
 
                         if ($user && password_verify($password, $user['password'])) {
+                            if (($user['status'] ?? 'active') !== 'active') {
+                                $error = "Invalid credentials.";
+                                Logger::warning('login blocked: inactive account', ['user_id' => $user['id'], 'ip' => $ip]);
                             // Check for email verification if enabled
-                            if ($requireVerification && $user['role'] !== 'admin' && (int)$user['email_verified'] === 0) {
+                            } elseif ($requireVerification && $user['role'] !== 'admin' && (int)$user['email_verified'] === 0) {
                                 $error = "Please verify your email address before logging in.";
                                 Logger::warning('login blocked: email not verified', ['user_id' => $user['id'], 'ip' => $ip]);
                             } else {
                                 Auth::login($user['id'], $user['role']);
-                                LoginDeviceService::handleSuccessfulLogin($user, $ip);
+                                if (RememberMeService::enabled() && isset($_POST['remember_me'])) {
+                                    RememberMeService::issueForUser((int)$user['id'], (string)$user['role']);
+                                } else {
+                                    RememberMeService::clearCookie();
+                                }
+                                if (!$this->userHasActiveTwoFactor((int)$user['id'])) {
+                                    LoginDeviceService::handleSuccessfulLogin($user, $ip);
+                                }
                                 Auth::logActivity('login', "User logged in via " . ($username === $user['email'] ? 'email' : 'username'));
                                 Logger::info('login success', ['user_id' => $user['id'], 'role' => $user['role'], 'ip' => $ip]);
                                 if ($user['role'] === 'admin') {
@@ -241,6 +436,7 @@ class AuthController {
             'captchaSiteKey'    => $captchaSiteKey,
             'allowRegistrations' => $allowRegistrations,
             'requireVerification' => $requireVerification,
+            'rememberMeEnabled' => RememberMeService::enabled(),
         ]);
     }
 
@@ -266,13 +462,15 @@ class AuthController {
 
         $captchaRegister = Setting::get('captcha_register', '0') === '1';
         $captchaSiteKey  = Setting::get('captcha_site_key', '');
-        $needCaptcha     = $captchaRegister && $captchaSiteKey;
+        $needCaptcha     = $captchaRegister;
 
         $error = '';
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!Csrf::verify($_POST['csrf_token'] ?? '')) {
                 $error = "Security Token Expired. Please refresh.";
+            } elseif ($needCaptcha && $captchaSiteKey === '') {
+                $error = 'Registration is temporarily unavailable because CAPTCHA is enabled but not fully configured.';
             } elseif ($needCaptcha && !self::verifyTurnstile($_POST['cf-turnstile-response'] ?? '')) {
                 $error = 'Please complete the captcha.';
             } else {
@@ -309,59 +507,77 @@ class AuthController {
                     $error = "Passwords do not match.";
                     } else {
                         // Check if exists
-                        if (\App\Model\User::findByCredentials($username) || \App\Model\User::findByCredentials($email)) {
+                        if (\App\Model\User::findByCredentials($username) || \App\Model\User::findByEmailOrPendingEmail($email)) {
                             $error = "Username or email already taken.";
                         } else {
                         // validate referral cookie strictly - must be a positive integer
                         $referrer = $this->parseSignedReferralCookie();
-                        
-                        $userId = \App\Model\User::create([
-                            'username' => $username,
-                            'email' => $email,
-                            'password' => password_hash($password, PASSWORD_DEFAULT, ['cost' => 12]),
-                            'role' => 'user',
-                            'referrer_id' => $referrer['id'] ?? null,
-                            'referrer_source' => $referrer['source'] ?? null,
-                        ]);
 
-                            if ($userId) {
-                                setcookie('ref', '', [
-                                    'expires' => time() - 3600,
-                                    'path' => '/',
-                                    'secure' => $this->isHttpsRequest(),
-                                    'httponly' => true,
-                                    'samesite' => 'Lax',
-                                ]);
-                                
-                                if ($requireVerification) {
-                                    // Generate token
-                                    $token = bin2hex(random_bytes(32));
-                                    $stmt = $db->prepare("UPDATE users SET verification_token = ? WHERE id = ?");
-                                    $stmt->execute([$token, $userId]);
-                                    
-                                    // Send Confirm Email
-                                    $confirmLink = \App\Service\SeoService::trustedBaseUrl() . "/verify-email/$token";
-                                    \App\Service\MailService::sendTemplate($email, 'confirm_email', [
-                                        '{username}' => $username,
-                                        '{confirm_link}' => $confirmLink
-                                    ], 'high');
-                                    
-                                    Logger::info('user registered: verification required', ['user_id' => $userId]);
-                                    header('Location: /login?registered=pending');
-                                } else {
-                                    // Send Welcome Email
-                                    \App\Service\MailService::sendTemplate($email, 'welcome_email', [
-                                        '{username}' => $username,
-                                        '{site_name}' => Setting::get('app.name', 'Fyuhls')
-                                    ]);
+                        $credentialLockKeys = [];
+                        try {
+                            $db->beginTransaction();
+                            $credentialLockKeys = \App\Model\User::lockCredentialValues($db, [$username, $email]);
+                            \App\Model\User::assertCredentialsAvailable($db, $username, $email);
+                            $userId = \App\Model\User::create([
+                                'username' => $username,
+                                'email' => $email,
+                                'password' => password_hash($password, PASSWORD_DEFAULT, ['cost' => 12]),
+                                'role' => 'user',
+                                'referrer_id' => $referrer['id'] ?? null,
+                                'referrer_source' => $referrer['source'] ?? null,
+                            ]);
 
-                                    Auth::login($userId, 'user');
-                                    Auth::logActivity('register', "New user registered");
-                                    header('Location: /');
-                                }
-                                exit;
+                            if (!$userId) {
+                                throw new \RuntimeException('Failed to create account. Please try again.');
+                            }
+
+                            $token = null;
+                            if ($requireVerification) {
+                                $token = bin2hex(random_bytes(32));
+                                $verificationExpiry = date('Y-m-d H:i:s', time() + self::EMAIL_VERIFICATION_TTL_SECONDS);
+                                $stmt = $db->prepare("UPDATE users SET verification_token = ?, verification_expires = ? WHERE id = ?");
+                                $stmt->execute([self::storeOneTimeToken($token), $verificationExpiry, $userId]);
                             } else {
-                            $error = "Failed to create account. Please try again.";
+                                $token = null;
+                            }
+
+                            $db->commit();
+
+                            setcookie('ref', '', [
+                                'expires' => time() - 3600,
+                                'path' => '/',
+                                'secure' => $this->isHttpsRequest(),
+                                'httponly' => true,
+                                'samesite' => 'Lax',
+                            ]);
+
+                            if ($requireVerification && $token !== null) {
+                                $confirmLink = \App\Service\SeoService::trustedBaseUrl() . "/verify-email/$token";
+                                \App\Service\MailService::sendTemplate($email, 'confirm_email', [
+                                    '{username}' => $username,
+                                    '{confirm_link}' => $confirmLink
+                                ], 'high');
+
+                                Logger::info('user registered: verification required', ['user_id' => $userId]);
+                                header('Location: /login?registered=pending');
+                            } else {
+                                \App\Service\MailService::sendTemplate($email, 'welcome_email', [
+                                    '{username}' => $username,
+                                    '{site_name}' => Setting::get('app.name', 'Fyuhls')
+                                ]);
+
+                                Auth::login($userId, 'user');
+                                Auth::logActivity('register', "New user registered");
+                                header('Location: /');
+                            }
+                            exit;
+                        } catch (\Throwable $e) {
+                            if ($db->inTransaction()) {
+                                $db->rollBack();
+                            }
+                            $error = $e instanceof \RuntimeException ? $e->getMessage() : "Failed to create account. Please try again.";
+                        } finally {
+                            \App\Model\User::releaseCredentialLocks($db, $credentialLockKeys);
                         }
                     }
                 }
@@ -410,9 +626,9 @@ class AuthController {
         }
 
         $model = $_POST['model'] ?? 'ppd';
-        $enabledModels = explode(',', \App\Model\Setting::get('enabled_models', 'ppd,pps,mixed', 'rewards'));
-        $valid = array_values(array_intersect(['ppd', 'pps', 'mixed'], $enabledModels));
-        if (in_array($model, $valid)) {
+        $package = \App\Model\Package::getUserPackage((int)(Auth::id() ?? 0));
+        $valid = MonetizationModelService::allowedModelsForPackage($package);
+        if (in_array($model, $valid, true)) {
             $db = Database::getInstance()->getConnection();
             $stmt = $db->prepare("UPDATE users SET monetization_model = ? WHERE id = ?");
             $stmt->execute([$model, Auth::id()]);
@@ -439,7 +655,7 @@ class AuthController {
 
     public function settings() {
         if (!Auth::check()) { header('Location: /login'); exit; }
-        
+
         $userId = Auth::id();
         $db = Database::getInstance()->getConnection();
         \App\Model\User::ensureRuntimeColumns($db);
@@ -471,6 +687,7 @@ class AuthController {
                 'stripe_pending' => ['error', 'Stripe payment is still pending confirmation. If you were charged, please refresh in a moment or contact support.'],
                 'stripe_missing_session' => ['error', 'Stripe return was missing the checkout session.'],
                 'paypal_success' => ['success', 'PayPal payment completed and your account has been upgraded.'],
+                'paypal_pending' => ['error', 'Your PayPal subscription is active, but Fyuhls is still waiting for the first settled payment before granting premium access. Please refresh in a moment or contact support if this does not clear shortly.'],
                 'paypal_missing_order' => ['error', 'PayPal return was missing the order details needed to finalize the upgrade.'],
                 'paypal_failed' => ['error', $_SESSION['payment_error'] ?? 'We could not finalize your PayPal checkout. Please contact support if the payment completed on PayPal.'],
                 'paypal_cancelled' => ['error', 'The PayPal checkout was cancelled. You can try again whenever you are ready.'],
@@ -507,13 +724,50 @@ class AuthController {
 
                     if ($error === '') {
                         if (FeatureService::rewardsEnabled()) {
-                            $updateData['payment_method'] = $this->normalizePaymentMethod($_POST['payment_method'] ?? null);
-                            $updateData['payment_details'] = \App\Service\EncryptionService::encrypt($this->normalizePaymentDetails($_POST['payment_details'] ?? ''));
-                            $updateData['monetization_model'] = $this->normalizeMonetizationModel($_POST['monetization_model'] ?? 'ppd');
+                            $newPaymentMethod = $this->normalizePaymentMethod($_POST['payment_method'] ?? null);
+                            $newPaymentDetails = $this->normalizePaymentDetails($_POST['payment_details'] ?? '');
+                            $currentPaymentMethod = trim((string)($currentUser['payment_method'] ?? ''));
+                            $currentPaymentDetails = '';
+                            if (!empty($currentUser['payment_details'])) {
+                                $currentPaymentDetails = $this->normalizePaymentDetails(
+                                    \App\Service\EncryptionService::decrypt((string)$currentUser['payment_details']) ?: ''
+                                );
+                            }
+
+                            $payoutSettingsChanged = $newPaymentMethod !== $currentPaymentMethod
+                                || $newPaymentDetails !== $currentPaymentDetails;
+
+                            if ($payoutSettingsChanged) {
+                                $stepUp = $this->verifySensitivePasswordStepUp((int)$userId, 'stepup_payout_settings', $_POST['payout_current_password'] ?? '');
+                                if (!$stepUp['allowed']) {
+                                    $error = "Current password confirmation is temporarily locked. Please wait 10 minutes and try again.";
+                                } elseif (!$stepUp['verified']) {
+                                    $error = "Current password required to change payout details.";
+                                }
+                            }
+
+                            $updateData['payment_method'] = $newPaymentMethod;
+                            $updateData['payment_details'] = \App\Service\EncryptionService::encrypt($newPaymentDetails);
+                            $updateData['monetization_model'] = $this->normalizeMonetizationModel(
+                                $_POST['monetization_model'] ?? 'ppd',
+                                \App\Model\Package::getUserPackage((int)$userId),
+                                (string)($currentUser['monetization_model'] ?? 'ppd')
+                            );
                         }
 
                         $currentEmail = $this->normalizeEmailAddress($currentUser['email'] ?? '');
                         $emailChangeRequested = false;
+                        $emailChangeMailContext = null;
+                        $emailChanged = $requestedEmail !== '' && $requestedEmail !== $currentEmail;
+
+                        if ($error === '' && $emailChanged) {
+                            $stepUp = $this->verifySensitivePasswordStepUp((int)$userId, 'stepup_email_change', $_POST['profile_current_password'] ?? '');
+                            if (!$stepUp['allowed']) {
+                                $error = "Current password confirmation is temporarily locked. Please wait 10 minutes and try again.";
+                            } elseif (!$stepUp['verified']) {
+                                $error = "Current password required to change your email address.";
+                            }
+                        }
 
                         if ($requestedEmail !== '' && $requestedEmail !== $currentEmail) {
                             $emailOwner = \App\Model\User::findByEmailOrPendingEmail($requestedEmail, (int)$userId);
@@ -523,22 +777,15 @@ class AuthController {
                             } else {
                                 $token = bin2hex(random_bytes(32));
                                 $expiresAt = date('Y-m-d H:i:s', time() + 86400);
-                                $confirmLink = \App\Service\SeoService::trustedBaseUrl() . "/confirm-email-change/{$token}";
-                                $mailQueued = \App\Service\MailService::sendTemplate($requestedEmail, 'confirm_email_change', [
-                                    '{username}' => (string)($currentUser['username'] ?? ''),
-                                    '{confirm_link}' => $confirmLink,
-                                    '{new_email}' => $requestedEmail,
-                                ], 'high');
-
-                                if (!$mailQueued) {
-                                    $error = "We could not queue the confirmation email right now. Please try again in a moment.";
-                                } else {
-                                    $updateData['pending_email'] = \App\Service\EncryptionService::encrypt($requestedEmail);
-                                    $updateData['pending_email_lookup'] = \App\Model\User::credentialLookupHash($requestedEmail);
-                                    $updateData['email_change_token'] = $token;
-                                    $updateData['email_change_expires'] = $expiresAt;
-                                    $emailChangeRequested = true;
-                                }
+                                $updateData['pending_email'] = \App\Service\EncryptionService::encrypt($requestedEmail);
+                                $updateData['pending_email_lookup'] = \App\Model\User::credentialLookupHash($requestedEmail);
+                                $updateData['email_change_token'] = self::storeOneTimeToken($token);
+                                $updateData['email_change_expires'] = $expiresAt;
+                                $emailChangeRequested = true;
+                                $emailChangeMailContext = [
+                                    'requested_email' => $requestedEmail,
+                                    'token' => $token,
+                                ];
                             }
                         }
                     }
@@ -551,10 +798,62 @@ class AuthController {
                             $values[] = $v;
                         }
                         $values[] = $userId;
+                        $credentialLockKeys = [];
+                        try {
+                            $db->beginTransaction();
+                            if ($emailChangeRequested && !empty($requestedEmail)) {
+                                $credentialLockKeys = \App\Model\User::lockCredentialValues($db, [$requestedEmail]);
+                                \App\Model\User::assertCredentialsAvailable($db, null, $requestedEmail, (int)$userId);
+                            }
 
-                        $stmt = $db->prepare("UPDATE users SET " . implode(', ', $fields) . " WHERE id = ?");
-                        $stmt->execute($values);
+                            $stmt = $db->prepare("UPDATE users SET " . implode(', ', $fields) . " WHERE id = ?");
+                            $stmt->execute($values);
+                            $db->commit();
+                        } catch (\Throwable $e) {
+                            if ($db->inTransaction()) {
+                                $db->rollBack();
+                            }
+                            $error = $e instanceof \RuntimeException
+                                ? $e->getMessage()
+                                : "We couldn't save your profile changes right now. Nothing was applied.";
+                        } finally {
+                            \App\Model\User::releaseCredentialLocks($db, $credentialLockKeys);
+                        }
+                    }
 
+                    if ($error === '') {
+                        if ($emailChangeRequested && is_array($emailChangeMailContext)) {
+                            $confirmLink = \App\Service\SeoService::trustedBaseUrl() . "/confirm-email-change/" . (string)$emailChangeMailContext['token'];
+                            $mailQueued = \App\Service\MailService::sendTemplate((string)$emailChangeMailContext['requested_email'], 'confirm_email_change', [
+                                '{username}' => (string)($currentUser['username'] ?? ''),
+                                '{confirm_link}' => $confirmLink,
+                                '{new_email}' => (string)$emailChangeMailContext['requested_email'],
+                            ], 'high');
+
+                            if (!$mailQueued) {
+                                try {
+                                    $revert = $db->prepare("
+                                        UPDATE users
+                                        SET pending_email = NULL,
+                                            pending_email_lookup = NULL,
+                                            email_change_token = NULL,
+                                            email_change_expires = NULL
+                                        WHERE id = ?
+                                    ");
+                                    $revert->execute([$userId]);
+                                } catch (\Throwable $revertError) {
+                                    \App\Core\Logger::warning('email change confirmation rollback failed', [
+                                        'user_id' => $userId,
+                                        'error' => $revertError->getMessage(),
+                                    ]);
+                                }
+                                $error = "We could not queue the confirmation email right now. Please try again in a moment.";
+                                $emailChangeRequested = false;
+                            }
+                        }
+                    }
+
+                    if ($error === '') {
                         Auth::logActivity(
                             $emailChangeRequested ? 'email_change_requested' : 'settings_update',
                             $emailChangeRequested
@@ -569,7 +868,7 @@ class AuthController {
                     $tokenName = $this->normalizeApiTokenName($_POST['token_name'] ?? 'Desktop API Token');
                     $expiryDays = max(0, (int)($_POST['token_expiry_days'] ?? 0));
                     $requestedScopes = array_values(array_intersect(
-                        ['files.upload', 'files.read', 'files.write', 'stats.read', 'remote.upload'],
+                        $this->allowedApiTokenScopes(),
                         array_map('strval', $_POST['token_scopes'] ?? [])
                     ));
 
@@ -578,36 +877,52 @@ class AuthController {
                     } elseif (empty($requestedScopes)) {
                         $error = "Select at least one API token scope.";
                     } else {
+                        $stepUp = $this->verifySensitivePasswordStepUp((int)$userId, 'stepup_api_token_create', $_POST['token_current_password'] ?? '');
+                        if (!$stepUp['allowed']) {
+                            $error = "Current password confirmation is temporarily locked. Please wait 10 minutes and try again.";
+                        } elseif (!$stepUp['verified']) {
+                            $error = "Current password required to create an API token.";
+                        }
+                    }
+
+                    if ($error === '') {
                         $expiresAt = $expiryDays > 0 ? date('Y-m-d H:i:s', strtotime("+{$expiryDays} days")) : null;
-                        $created = ApiToken::create([
-                            'user_id' => $userId,
-                            'name' => $tokenName,
-                            'scopes' => $requestedScopes,
-                            'expires_at' => $expiresAt,
-                        ]);
-                        $newApiToken = $created['token'];
-                        $success = "API token created. Copy it now. You will not be able to see it again.";
-                        Auth::logActivity('api_token_create', "Created API token {$created['public_id']}");
+                        try {
+                            $created = ApiToken::create([
+                                'user_id' => $userId,
+                                'name' => $tokenName,
+                                'scopes' => $requestedScopes,
+                                'expires_at' => $expiresAt,
+                            ]);
+                            $newApiToken = $created['token'];
+                            $success = "API token created. Copy it now. You will not be able to see it again.";
+                            Auth::logActivity('api_token_create', "Created API token {$created['public_id']}");
+                        } catch (\RuntimeException $e) {
+                            $error = $e->getMessage();
+                        }
                     }
                 } elseif ($action === 'api_token_revoke') {
                     $tokenId = (int)($_POST['token_id'] ?? 0);
                     if ($tokenId <= 0) {
                         $error = "Invalid API token.";
                     } else {
-                        ApiToken::revoke($tokenId, $userId);
-                        $success = "API token revoked.";
-                        Auth::logActivity('api_token_revoke', "Revoked API token ID {$tokenId}");
+                        try {
+                            ApiToken::revoke($tokenId, $userId);
+                            $success = "API token revoked.";
+                            Auth::logActivity('api_token_revoke', "Revoked API token ID {$tokenId}");
+                        } catch (\RuntimeException $e) {
+                            $error = $e->getMessage();
+                        }
                     }
                 } elseif ($action === 'password') {
                     $current = $_POST['current_password'] ?? '';
                     $new = $_POST['new_password'] ?? '';
                     $confirm = $_POST['confirm_password'] ?? '';
 
-                    $stmt = $db->prepare("SELECT password FROM users WHERE id = ?");
-                    $stmt->execute([$userId]);
-                    $user = $stmt->fetch();
-
-                    if (!password_verify($current, $user['password'])) {
+                    $stepUp = $this->verifySensitivePasswordStepUp((int)$userId, 'stepup_password_change', $current);
+                    if (!$stepUp['allowed']) {
+                        $error = "Current password confirmation is temporarily locked. Please wait 10 minutes and try again.";
+                    } elseif (!$stepUp['verified']) {
                         $error = "Current password incorrect.";
                     } elseif (strlen($new) < 10) {
                         $error = "New password must be at least 10 characters.";
@@ -615,8 +930,26 @@ class AuthController {
                         $error = "Passwords do not match.";
                     } else {
                         $hash = password_hash($new, PASSWORD_DEFAULT, ['cost' => 12]);
-                        $stmt = $db->prepare("UPDATE users SET password = ? WHERE id = ?");
-                        $stmt->execute([$hash, $userId]);
+                        try {
+                            $db->beginTransaction();
+                            $stmt = $db->prepare("UPDATE users SET password = ?, session_version = session_version + 1 WHERE id = ?");
+                            $stmt->execute([$hash, $userId]);
+                            ApiToken::revokeAllForUserWithConnection($db, (int)$userId);
+                            RememberMeService::revokeAllForUserWithConnection($db, (int)$userId);
+                            $this->revokeTrustedTwoFactorDevicesWithConnection($db, (int)$userId);
+                            $db->commit();
+                        } catch (\Throwable $e) {
+                            if ($db->inTransaction()) {
+                                $db->rollBack();
+                            }
+                            $error = $e instanceof \RuntimeException
+                                ? $e->getMessage()
+                                : "We couldn't update your password safely right now. Nothing was applied.";
+                        }
+                    }
+
+                    if ($error === '') {
+                        $_SESSION['session_version'] = (int)($_SESSION['session_version'] ?? 1) + 1;
                         Auth::logActivity('password_change', "User updated their password.");
                         header('Location: /settings?updated=2#securitySection');
                         exit;
@@ -634,13 +967,13 @@ class AuthController {
         }
 
         $enabledModels = FeatureService::rewardsEnabled()
-            ? explode(',', \App\Model\Setting::get('enabled_models', 'ppd,pps,mixed', 'rewards'))
+            ? MonetizationModelService::allowedModelsForPackage(\App\Model\Package::getUserPackage((int)$userId))
             : [];
         $apiTokens = ApiToken::getByUser((int)$userId);
 
         View::render('home/settings.php', [
-            'user' => $user, 
-            'error' => $error, 
+            'user' => $user,
+            'error' => $error,
             'success' => $success,
             'enabledModels' => $enabledModels,
             'apiTokens' => $apiTokens,
@@ -652,27 +985,93 @@ class AuthController {
 
     public function verifyEmail($token) {
         if (empty($token)) { header('Location: /login'); exit; }
-        
+
         $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT id, username, email FROM users WHERE verification_token = ? LIMIT 1");
-        $stmt->execute([$token]);
-        $user = $stmt->fetch();
+        \App\Model\User::ensureRuntimeColumns($db);
+        $hashedToken = self::storeOneTimeToken((string)$token);
+        $user = self::lookupUserByOneTimeToken(
+            $db,
+            'verification_token',
+            (string)$token,
+            'id, username, email',
+            "status = 'active' AND (verification_expires IS NULL OR verification_expires > NOW())"
+        );
 
         if ($user) {
-            $stmt = $db->prepare("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?");
-            $stmt->execute([$user['id']]);
-            
-            $username = \App\Service\EncryptionService::decrypt($user['username']);
-            $email = \App\Service\EncryptionService::decrypt($user['email']);
+            $committed = false;
+            try {
+                $db->beginTransaction();
+                $lockStmt = $db->prepare(self::appendForUpdateClause($db, "
+                    SELECT id, username, email, status, verification_token, verification_expires
+                    FROM users
+                    WHERE id = ?
+                    LIMIT 1
+                "));
+                $lockStmt->execute([(int)$user['id']]);
+                $lockedUser = $lockStmt->fetch(\PDO::FETCH_ASSOC);
+                $tokenStillValid = is_array($lockedUser)
+                    && (string)($lockedUser['status'] ?? '') === 'active'
+                    && in_array((string)($lockedUser['verification_token'] ?? ''), [$hashedToken, (string)$token], true)
+                    && (
+                        empty($lockedUser['verification_expires'])
+                        || strtotime((string)$lockedUser['verification_expires']) > time()
+                    );
+                if (!$tokenStillValid) {
+                    throw new \RuntimeException('Invalid token.');
+                }
 
-            // Send Welcome Email now that they are verified
-            \App\Service\MailService::sendTemplate($email, 'welcome_email', [
-                '{username}' => $username,
-                '{site_name}' => Setting::get('app.name', 'Fyuhls')
-            ]);
+                self::fireBeforeEmailVerificationConsumeForTests([
+                    'user_id' => (int)$user['id'],
+                    'token' => (string)$token,
+                    'hashed_token' => $hashedToken,
+                ]);
 
-            Logger::info('email verified', ['user_id' => $user['id']]);
-            header('Location: /login?verified=1');
+                $stmt = $db->prepare("
+                    UPDATE users
+                    SET email_verified = 1,
+                        verification_token = NULL,
+                        verification_expires = NULL
+                    WHERE id = ?
+                      AND (verification_token = ? OR verification_token = ?)
+                      AND status = 'active'
+                      AND (verification_expires IS NULL OR verification_expires > NOW())
+                ");
+                $stmt->execute([(int)$user['id'], $hashedToken, (string)$token]);
+                if ($stmt->rowCount() !== 1) {
+                    throw new \RuntimeException('Invalid token.');
+                }
+
+                $db->commit();
+                $committed = true;
+
+                $username = \App\Service\EncryptionService::decrypt((string)($lockedUser['username'] ?? $user['username']));
+                $email = \App\Service\EncryptionService::decrypt((string)($lockedUser['email'] ?? $user['email']));
+
+                try {
+                    $this->sendWelcomeEmailAfterVerification($email, $username);
+                } catch (\Throwable $sideEffectError) {
+                    Logger::warning('welcome email send failed after email verification commit', [
+                        'user_id' => (int)$user['id'],
+                        'error' => $sideEffectError->getMessage(),
+                    ]);
+                }
+
+                Logger::info('email verified', ['user_id' => $user['id']]);
+                try {
+                    $this->touchEmailVerificationBonuses((int)$user['id']);
+                } catch (\Throwable $sideEffectError) {
+                    Logger::warning('email verification bonus touch failed after verification commit', [
+                        'user_id' => (int)$user['id'],
+                        'error' => $sideEffectError->getMessage(),
+                    ]);
+                }
+                header('Location: /login?verified=1');
+            } catch (\Throwable $e) {
+                if (!$committed && $db->inTransaction()) {
+                    $db->rollBack();
+                }
+                header('Location: /login?error=invalid_token');
+            }
         } else {
             header('Location: /login?error=invalid_token');
         }
@@ -684,9 +1083,14 @@ class AuthController {
 
         $db = Database::getInstance()->getConnection();
         \App\Model\User::ensureRuntimeColumns($db);
-        $stmt = $db->prepare("SELECT * FROM users WHERE email_change_token = ? AND (email_change_expires IS NULL OR email_change_expires > NOW()) LIMIT 1");
-        $stmt->execute([$token]);
-        $user = $stmt->fetch();
+        $hashedToken = self::storeOneTimeToken((string)$token);
+        $user = self::lookupUserByOneTimeToken(
+            $db,
+            'email_change_token',
+            (string)$token,
+            '*',
+            "status = 'active' AND (email_change_expires IS NULL OR email_change_expires > NOW())"
+        );
 
         if (!$user) {
             header('Location: /login?error=invalid_token');
@@ -700,31 +1104,76 @@ class AuthController {
             exit;
         }
 
-        $existingOwner = \App\Model\User::findByEmailOrPendingEmail($pendingEmail, (int)$user['id']);
-        if ($existingOwner) {
+        $credentialLockKeys = [];
+        try {
+            $db->beginTransaction();
+            $credentialLockKeys = \App\Model\User::lockCredentialValues($db, [$pendingEmail]);
+            \App\Model\User::assertCredentialsAvailable($db, null, $pendingEmail, (int)$user['id']);
+
+            $lockStmt = $db->prepare(self::appendForUpdateClause($db, "SELECT id FROM users WHERE id = ? LIMIT 1"));
+            $lockStmt->execute([(int)$user['id']]);
+            if ((int)($lockStmt->fetchColumn() ?: 0) !== (int)$user['id']) {
+                throw new \RuntimeException('Invalid token.');
+            }
+
+            $lookupHash = \App\Model\User::credentialLookupHash($pendingEmail);
+            $stateStmt = $db->prepare(self::appendForUpdateClause($db, "
+                SELECT status, pending_email_lookup, email_change_token, email_change_expires
+                FROM users
+                WHERE id = ?
+                LIMIT 1
+            "));
+            $stateStmt->execute([(int)$user['id']]);
+            $lockedState = $stateStmt->fetch(\PDO::FETCH_ASSOC);
+            $tokenMatches = is_array($lockedState)
+                && in_array((string)($lockedState['email_change_token'] ?? ''), [$hashedToken, (string)$token], true)
+                && (string)($lockedState['pending_email_lookup'] ?? '') === $lookupHash
+                && (string)($lockedState['status'] ?? '') === 'active'
+                && (
+                    empty($lockedState['email_change_expires'])
+                    || strtotime((string)$lockedState['email_change_expires']) > time()
+                );
+            if (!$tokenMatches) {
+                throw new \RuntimeException('Invalid token.');
+            }
+
+            $stmt = $db->prepare("
+                UPDATE users
+                SET email = ?,
+                    email_lookup = ?,
+                    email_verified = 1,
+                    pending_email = NULL,
+                    pending_email_lookup = NULL,
+                    email_change_token = NULL,
+                    email_change_expires = NULL
+                WHERE id = ?
+                  AND (email_change_token = ? OR email_change_token = ?)
+                  AND pending_email_lookup = ?
+                  AND status = 'active'
+                  AND (email_change_expires IS NULL OR email_change_expires > NOW())
+            ");
+            $stmt->execute([
+                \App\Service\EncryptionService::encrypt($pendingEmail),
+                $lookupHash,
+                (int)$user['id'],
+                $hashedToken,
+                (string)$token,
+                $lookupHash,
+            ]);
+            if ($stmt->rowCount() !== 1) {
+                throw new \RuntimeException('Invalid token.');
+            }
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
             Logger::warning('email change confirmation blocked: target email already claimed', ['user_id' => (int)$user['id']]);
             header('Location: /login?error=invalid_token');
             exit;
+        } finally {
+            \App\Model\User::releaseCredentialLocks($db, $credentialLockKeys);
         }
-
-        $lookupHash = \App\Model\User::credentialLookupHash($pendingEmail);
-
-        $stmt = $db->prepare("
-            UPDATE users
-            SET email = ?,
-                email_lookup = ?,
-                email_verified = 1,
-                pending_email = NULL,
-                pending_email_lookup = NULL,
-                email_change_token = NULL,
-                email_change_expires = NULL
-            WHERE id = ?
-        ");
-        $stmt->execute([
-            \App\Service\EncryptionService::encrypt($pendingEmail),
-            $lookupHash,
-            (int)$user['id'],
-        ]);
 
         Auth::logActivity('email_change_confirmed', 'User confirmed a new email address.');
         Logger::info('email change confirmed', ['user_id' => (int)$user['id']]);
@@ -739,7 +1188,7 @@ class AuthController {
 
     public function forgotPassword() {
         if (Auth::check()) { header('Location: /'); exit; }
-        
+
         $error = '';
         $success = '';
         $db = Database::getInstance()->getConnection();
@@ -757,22 +1206,22 @@ class AuthController {
                 }
                 $user = \App\Model\User::findByCredentials($email);
 
-                if ($user) {
+                if ($user && ($user['status'] ?? 'active') === 'active') {
                     $token = bin2hex(random_bytes(32));
                     $expiry = date('Y-m-d H:i:s', time() + 3600); // 1 hour
-                    
+
                     $stmt = $db->prepare("UPDATE users SET reset_token = ?, reset_expires = ? WHERE id = ?");
-                    $stmt->execute([$token, $expiry, $user['id']]);
-                    
+                    $stmt->execute([self::storeOneTimeToken($token), $expiry, $user['id']]);
+
                     $resetLink = \App\Service\SeoService::trustedBaseUrl() . "/reset-password/$token";
                     \App\Service\MailService::sendTemplate($email, 'forgot_password', [
                         '{username}' => $user['username'],
                         '{reset_link}' => $resetLink
                     ], 'high');
-                    
+
                     Logger::info('password reset requested', ['user_id' => $user['id']]);
                 }
-                
+
                 // Always show success to prevent user enumeration
                 $success = "If an account exists with that email, a reset link has been sent.";
             }
@@ -783,11 +1232,16 @@ class AuthController {
 
     public function resetPassword($token) {
         if (empty($token)) { header('Location: /login'); exit; }
-        
+
         $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT id FROM users WHERE reset_token = ? AND reset_expires > NOW() LIMIT 1");
-        $stmt->execute([$token]);
-        $user = $stmt->fetch();
+        $hashedToken = self::storeOneTimeToken((string)$token);
+        $user = self::lookupUserByOneTimeToken(
+            $db,
+            'reset_token',
+            (string)$token,
+            'id',
+            "status = 'active' AND reset_expires > NOW()"
+        );
 
         if (!$user) {
             header('Location: /forgot-password?error=invalid_token');
@@ -808,9 +1262,52 @@ class AuthController {
                     $error = "Passwords do not match.";
                 } else {
                     $hash = password_hash($password, PASSWORD_DEFAULT, ['cost' => 12]);
-                    $stmt = $db->prepare("UPDATE users SET password = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?");
-                    $stmt->execute([$hash, $user['id']]);
-                    
+                    try {
+                        $db->beginTransaction();
+                        $lockStmt = $db->prepare(self::appendForUpdateClause($db, "
+                            SELECT id, status, reset_token, reset_expires
+                            FROM users
+                            WHERE id = ?
+                            LIMIT 1
+                        "));
+                        $lockStmt->execute([(int)$user['id']]);
+                        $lockedUser = $lockStmt->fetch(\PDO::FETCH_ASSOC);
+                        $tokenStillValid = is_array($lockedUser)
+                            && (string)($lockedUser['status'] ?? '') === 'active'
+                            && in_array((string)($lockedUser['reset_token'] ?? ''), [$hashedToken, (string)$token], true)
+                            && !empty($lockedUser['reset_expires'])
+                            && strtotime((string)$lockedUser['reset_expires']) > time();
+                        if (!$tokenStillValid) {
+                            throw new \RuntimeException('Invalid token.');
+                        }
+
+                        $stmt = $db->prepare("
+                            UPDATE users
+                            SET password = ?, session_version = session_version + 1, reset_token = NULL, reset_expires = NULL
+                            WHERE id = ?
+                              AND (reset_token = ? OR reset_token = ?)
+                              AND status = 'active'
+                              AND reset_expires > NOW()
+                        ");
+                        $stmt->execute([$hash, $user['id'], $hashedToken, (string)$token]);
+                        if ($stmt->rowCount() !== 1) {
+                            throw new \RuntimeException('Invalid token.');
+                        }
+                        ApiToken::revokeAllForUserWithConnection($db, (int)$user['id']);
+                        RememberMeService::revokeAllForUserWithConnection($db, (int)$user['id']);
+                        $this->revokeTrustedTwoFactorDevicesWithConnection($db, (int)$user['id']);
+                        $db->commit();
+                    } catch (\Throwable $e) {
+                        if ($db->inTransaction()) {
+                            $db->rollBack();
+                        }
+                        $error = $e instanceof \RuntimeException
+                            ? $e->getMessage()
+                            : "We couldn't reset that password safely right now. Nothing was applied.";
+                    }
+                }
+
+                if ($error === '') {
                     Auth::logActivity('password_reset', "User reset their password via token");
                     header('Location: /login?reset=1');
                     exit;

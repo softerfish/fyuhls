@@ -39,15 +39,7 @@ $modelLabelMap = [
 ];
 $currentModelLabel = $user && !empty($user['monetization_model']) ? ($modelLabelMap[(string)$user['monetization_model']] ?? ucfirst((string)$user['monetization_model'])) : null;
 $paymentMethodRaw = strtolower(trim((string)($user['payment_method'] ?? '')));
-$paymentMethodLabelMap = [
-    'paypal' => 'PayPal',
-    'bank' => 'Bank Transfer',
-    'wire' => 'Wire Transfer',
-    'crypto' => 'Crypto',
-    'skrill' => 'Skrill',
-    'payoneer' => 'Payoneer',
-];
-$paymentMethodLabel = $paymentMethodRaw !== '' ? ($paymentMethodLabelMap[$paymentMethodRaw] ?? ucwords(str_replace(['_', '-'], ' ', $paymentMethodRaw))) : 'Not set';
+$paymentMethodLabel = $paymentMethodRaw !== '' ? \App\Service\PayoutProcessorService::label($paymentMethodRaw) : 'Not set';
 ?>
 
 <style>

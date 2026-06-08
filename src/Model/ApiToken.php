@@ -3,13 +3,18 @@
 namespace App\Model;
 
 use App\Core\Database;
+use App\Core\Logger;
+use App\Service\Database\SchemaService;
 use App\Service\EncryptionService;
+use PDO;
 
 class ApiToken
 {
     public static function create(array $data): array
     {
-        self::ensureSchema();
+        if (!self::schemaAvailable()) {
+            throw new \RuntimeException('API token management is temporarily unavailable until an administrator repairs the database schema.');
+        }
         $db = Database::getInstance()->getConnection();
 
         $publicId = 'atk_' . bin2hex(random_bytes(8));
@@ -48,15 +53,19 @@ class ApiToken
 
     public static function findActiveByRawToken(string $rawToken): ?array
     {
-        self::ensureSchema();
+        if (!self::schemaAvailable()) {
+            return null;
+        }
         $db = Database::getInstance()->getConnection();
         $tokenHash = hash('sha256', trim($rawToken));
         $stmt = $db->prepare("
-            SELECT *
-            FROM api_tokens
-            WHERE token_hash = ?
-              AND status = 'active'
-              AND (expires_at IS NULL OR expires_at > NOW())
+            SELECT t.*
+            FROM api_tokens t
+            INNER JOIN users u ON u.id = t.user_id
+            WHERE t.token_hash = ?
+              AND t.status = 'active'
+              AND u.status = 'active'
+              AND (t.expires_at IS NULL OR t.expires_at > NOW())
             LIMIT 1
         ");
         $stmt->execute([$tokenHash]);
@@ -66,7 +75,9 @@ class ApiToken
 
     public static function getByUser(int $userId): array
     {
-        self::ensureSchema();
+        if (!self::schemaAvailable()) {
+            return [];
+        }
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("
             SELECT *
@@ -80,7 +91,9 @@ class ApiToken
 
     public static function revoke(int $id, int $userId): void
     {
-        self::ensureSchema();
+        if (!self::schemaAvailable()) {
+            throw new \RuntimeException('API token management is temporarily unavailable until an administrator repairs the database schema.');
+        }
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("
             UPDATE api_tokens
@@ -90,9 +103,34 @@ class ApiToken
         $stmt->execute([$id, $userId]);
     }
 
+    public static function revokeAllForUser(int $userId): void
+    {
+        self::requireSecurityStorage();
+        self::revokeAllForUserWithConnection(Database::getInstance()->getConnection(), $userId);
+    }
+
+    public static function revokeAllForUserWithConnection(PDO $db, int $userId): void
+    {
+        self::requireSecurityStorage();
+        if ($userId <= 0) {
+            return;
+        }
+
+        $stmt = $db->prepare("
+            UPDATE api_tokens
+            SET status = 'revoked',
+                revoked_at = COALESCE(revoked_at, NOW())
+            WHERE user_id = ?
+              AND status = 'active'
+        ");
+        $stmt->execute([$userId]);
+    }
+
     public static function touchUsage(int $id, ?string $ip = null): void
     {
-        self::ensureSchema();
+        if (!self::schemaAvailable()) {
+            return;
+        }
         $db = Database::getInstance()->getConnection();
         $encryptedIp = $ip !== null && $ip !== '' ? EncryptionService::encrypt($ip) : null;
         $stmt = $db->prepare("
@@ -124,35 +162,26 @@ class ApiToken
 
     private static function ensureSchema(): void
     {
-        $db = Database::getInstance()->getConnection();
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS `api_tokens` (
-                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `public_id` VARCHAR(24) NOT NULL,
-                `user_id` BIGINT UNSIGNED NOT NULL,
-                `name` VARCHAR(100) NOT NULL,
-                `token_prefix` VARCHAR(16) NOT NULL,
-                `token_last_four` VARCHAR(4) NOT NULL,
-                `token_hash` CHAR(64) NOT NULL,
-                `scopes_json` LONGTEXT NOT NULL,
-                `status` ENUM('active', 'revoked') NOT NULL DEFAULT 'active',
-                `expires_at` DATETIME NULL,
-                `last_used_at` DATETIME NULL,
-                `last_used_ip` VARCHAR(255) NULL,
-                `revoked_at` DATETIME NULL,
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (`id`),
-                UNIQUE KEY `api_tokens_public_id` (`public_id`),
-                UNIQUE KEY `api_tokens_hash` (`token_hash`),
-                KEY `api_tokens_user_status` (`user_id`, `status`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
+        SchemaService::ensureTables(['api_tokens'], false);
+    }
 
+    private static function schemaAvailable(): bool
+    {
         try {
-            $db->exec("ALTER TABLE `api_tokens` MODIFY COLUMN `last_used_ip` VARCHAR(255) NULL");
+            self::ensureSchema();
+            return true;
         } catch (\Throwable $e) {
-            // Leave schema repair to the main sync path if this runtime heal cannot apply cleanly.
+            Logger::warning('api token runtime schema unavailable', [
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    private static function requireSecurityStorage(): void
+    {
+        if (!self::schemaAvailable()) {
+            throw new \RuntimeException('API token revocation is temporarily unavailable until an administrator repairs the database schema.');
         }
     }
 }

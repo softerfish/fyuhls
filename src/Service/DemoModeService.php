@@ -7,6 +7,8 @@ use App\Model\Setting;
 
 class DemoModeService
 {
+    public const READ_ONLY_MESSAGE = 'This demo admin account is read-only while demo mode is enabled.';
+
     public static function isEnabled(): bool
     {
         return Setting::get('demo_mode', '0') === '1';
@@ -26,6 +28,15 @@ class DemoModeService
 
         $userId = (int)(Auth::id() ?? 0);
         return $userId > 0 && $userId === self::demoAdminUserId();
+    }
+
+    public static function assertCurrentViewerCanMutate(?string $message = null): void
+    {
+        if (!self::currentViewerIsDemoAdmin()) {
+            return;
+        }
+
+        throw new \RuntimeException($message ?? self::READ_ONLY_MESSAGE);
     }
 
     public static function hiddenLabel(string $label = 'Hidden for demo admin'): string

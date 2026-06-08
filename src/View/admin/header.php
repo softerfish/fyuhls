@@ -1,5 +1,5 @@
-<?php 
-$siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls')); 
+<?php
+$siteName = \App\Model\Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
 $appVersion = '0.1';
 $versionPath = defined('BASE_PATH') ? BASE_PATH . '/config/version.php' : realpath(__DIR__ . '/../../../config/version.php');
 if ($versionPath && file_exists($versionPath)) {
@@ -8,14 +8,23 @@ if ($versionPath && file_exists($versionPath)) {
         $appVersion = (string)$versionConfig['version'];
     }
 }
+$adminCssVersion = $appVersion;
+$adminCssPath = defined('BASE_PATH') ? BASE_PATH . '/public/assets/css/admin.css' : realpath(__DIR__ . '/../../../public/assets/css/admin.css');
+if ($adminCssPath && is_file($adminCssPath)) {
+    $adminCssVersion .= '-' . (string)filemtime($adminCssPath);
+}
 
 // Fetch Alert Counts for Sidebar
 $db = \App\Core\Database::getInstance()->getConnection();
+$viewerIsStaff = \App\Core\Auth::isStaff();
+$viewerCan = static function (string $capability): bool {
+    return \App\Core\Auth::hasCapability($capability);
+};
 $badgeCounts = [
-    'contacts' => (int)$db->query("SELECT COUNT(*) FROM contact_messages WHERE status = 'new'")->fetchColumn(),
-    'abuse'    => (int)$db->query("SELECT COUNT(*) FROM abuse_reports WHERE status = 'pending'")->fetchColumn(),
-    'dmca'     => (int)$db->query("SELECT COUNT(*) FROM dmca_reports WHERE status = 'pending'")->fetchColumn(),
-    'withdrawals' => \App\Service\FeatureService::rewardsEnabled() ? (int)$db->query("SELECT COUNT(*) FROM withdrawals WHERE status = 'pending'")->fetchColumn() : 0,
+    'contacts' => $viewerCan('requests.manage') ? (int)$db->query("SELECT COUNT(*) FROM contact_messages WHERE status = 'new'")->fetchColumn() : 0,
+    'abuse'    => $viewerCan('abuse.manage') ? (int)$db->query("SELECT COUNT(*) FROM abuse_reports WHERE status = 'pending'")->fetchColumn() : 0,
+    'dmca'     => $viewerCan('dmca.manage') ? (int)$db->query("SELECT COUNT(*) FROM dmca_reports WHERE status = 'pending'")->fetchColumn() : 0,
+    'withdrawals' => (\App\Service\FeatureService::rewardsEnabled() && $viewerCan('withdrawals.manage')) ? (int)$db->query("SELECT COUNT(*) FROM withdrawals WHERE status = 'pending'")->fetchColumn() : 0,
 ];
 $badgeCounts['requests'] = $badgeCounts['contacts'] + $badgeCounts['abuse'] + $badgeCounts['dmca'];
 
@@ -38,8 +47,13 @@ try {
 
 $updateAvailable = false;
 try {
-    $updateStatus = (new \App\Service\UpdateService())->getStatus(false);
-    $updateAvailable = !empty($updateStatus['update_available']);
+    $updateServicePath = defined('BASE_PATH')
+        ? BASE_PATH . '/src/Service/UpdateService.php'
+        : realpath(__DIR__ . '/../../Service/UpdateService.php');
+    if ($updateServicePath && file_exists($updateServicePath)) {
+        $updateStatus = (new \App\Service\UpdateService())->getStatus(false);
+        $updateAvailable = !empty($updateStatus['update_available']);
+    }
 } catch (\Throwable $e) {
     $updateAvailable = false;
 }
@@ -55,13 +69,14 @@ $ppdMinDownloadPercent = max(0, (int)\App\Model\Setting::get('ppd_min_download_p
 $showApacheLikePpdFallbackBanner = false;
 $apacheLikeDeliveryCount = 0;
 $showNginxHealthBanner = false;
+$canViewDashboardInfraBanners = $viewerCan('configuration.manage') || $viewerCan('file_servers.manage') || $viewerCan('docs.view');
 $nginxHealthSummary = [
     'skipped_total' => 0,
     'missing_viewer_identity' => 0,
     'missing_client_ip' => 0,
     'last_issue_at' => null,
 ];
-if ($uriPath === '/admin' && $ppdMinDownloadPercent > 0) {
+if ($uriPath === '/admin' && $canViewDashboardInfraBanners && $ppdMinDownloadPercent > 0) {
     try {
         $apacheFallbackStmt = $db->query("SELECT COUNT(*) FROM file_servers WHERE delivery_method IN ('apache', 'litespeed') AND status IN ('active', 'read-only')");
         $apacheLikeDeliveryCount = (int)$apacheFallbackStmt->fetchColumn();
@@ -71,7 +86,7 @@ if ($uriPath === '/admin' && $ppdMinDownloadPercent > 0) {
         $apacheLikeDeliveryCount = 0;
     }
 }
-if ($uriPath === '/admin') {
+if ($uriPath === '/admin' && $canViewDashboardInfraBanners) {
     try {
         $nginxHealthSummary = (new \App\Service\NginxDownloadLogService())->getHealthSummary(24);
         $showNginxHealthBanner = !empty($nginxHealthSummary['has_warning']);
@@ -81,6 +96,8 @@ if ($uriPath === '/admin') {
 }
 
 if ($uriPath === '/admin') $helpFile = 'dashboard';
+elseif (str_contains($uriPath, '/admin/investigations/uploader/')) $helpFile = 'uploader_investigation';
+elseif (str_contains($uriPath, '/admin/investigations/file/')) $helpFile = 'file_investigation';
 elseif (str_contains($uriPath, '/admin/packages') || str_contains($uriPath, '/admin/package/edit')) $helpFile = 'packages';
 elseif (str_contains($uriPath, '/admin/users')) $helpFile = 'users';
 elseif (str_contains($uriPath, '/admin/files')) $helpFile = 'files';
@@ -89,6 +106,7 @@ elseif (str_contains($uriPath, '/admin/rewards-fraud') && \App\Service\FeatureSe
 elseif (str_contains($uriPath, '/admin/plugins')) $helpFile = 'plugins';
 elseif (str_contains($uriPath, '/admin/resources')) $helpFile = 'resources';
 elseif (str_contains($uriPath, '/admin/search')) $helpFile = 'search';
+elseif (str_contains($uriPath, '/admin/staff-activity')) $helpFile = 'staff_activity';
 elseif (str_contains($uriPath, '/admin/site-content')) $helpFile = 'site_content';
 elseif (str_contains($uriPath, '/admin/file-server/migrate')) $helpFile = 'file_server_migrate';
 elseif (str_contains($uriPath, '/admin/file-server/add')) $helpFile = 'file_server_add';
@@ -100,12 +118,19 @@ elseif (str_contains($uriPath, '/admin/dmca')) $helpFile = 'dmca';
 elseif (str_contains($uriPath, '/admin/downloads/current')) $helpFile = 'live_downloads';
 elseif (str_contains($uriPath, '/admin/docs')) $helpFile = 'docs';
 elseif (str_contains($uriPath, '/admin/server-monitoring')) $helpFile = 'monitoring';
+elseif (str_contains($uriPath, '/admin/scaling')) $helpFile = 'scaling';
 elseif (str_contains($uriPath, '/admin/subscriptions')) $helpFile = 'subscriptions';
+elseif (str_contains($uriPath, '/admin/subscription/create')) $helpFile = 'subscription_create';
+elseif (str_contains($uriPath, '/admin/coupon') || str_contains($uriPath, '/admin/coupons')) $helpFile = 'coupons';
 elseif (str_contains($uriPath, '/admin/support')) $helpFile = 'support';
 elseif (str_contains($uriPath, '/admin/status')) $helpFile = 'status';
-elseif (str_contains($uriPath, '/admin/logs')) $helpFile = 'status';
+elseif (str_contains($uriPath, '/admin/logs')) $helpFile = 'logs';
 elseif (str_contains($uriPath, '/admin/configuration')) {
     $tab = $_GET['tab'] ?? 'general';
+    $monetizationPane = trim((string)($_GET['monetization_pane'] ?? ''));
+    if ($tab === 'monetization' && $monetizationPane === 'bonus-offers' && !$viewerCan('configuration.manage')) {
+        $helpFile = 'bonus_reviews';
+    } else {
     $tabMap = [
         'general' => 'settings',
         'security' => 'security',
@@ -115,31 +140,40 @@ elseif (str_contains($uriPath, '/admin/configuration')) {
         'seo' => 'seo',
         'cron' => 'cron',
         'downloads' => 'settings',
-        'uploads' => 'settings'
+        'uploads' => 'settings',
+        'link_checker' => 'link_checker',
+        'tickets' => 'ticket_settings',
     ];
     $helpFile = $tabMap[$tab] ?? 'configuration';
+    }
 }
 
 $activeSectionMap = [
-    'overview' => ['dashboard', 'support', 'docs', 'search', 'resources'],
-    'moderation' => ['requests', 'contacts', 'abuse', 'dmca'],
-    'revenue' => ['users', 'packages', 'withdrawals', 'subscriptions', 'rewards_fraud'],
-    'content' => ['files', 'live_downloads'],
-    'infrastructure' => ['configuration', 'site_content', 'plugins', 'status', 'monitoring', 'file-servers'],
+    'overview' => ['dashboard', 'docs', 'search', 'resources', 'staff_activity', 'scaling', 'logs'],
+    'moderation' => ['support', 'requests', 'contacts', 'abuse', 'dmca', 'rewards_fraud', 'bonus_reviews'],
+    'revenue' => ['users', 'packages', 'withdrawals', 'subscriptions', 'subscription_create', 'coupons'],
+    'content' => ['files', 'uploader_investigation', 'file_investigation'],
+    'infrastructure' => ['configuration', 'site_content', 'plugins', 'status', 'monitoring', 'file-servers', 'live_downloads'],
 ];
 
 $currentNavKey = match (true) {
+    str_contains($currentUri, '/admin/configuration') && str_contains($currentUri, 'monetization_pane=bonus-offers') && !$viewerCan('configuration.manage') => 'bonus_reviews',
     str_contains($currentUri, '/admin/downloads/current') => 'live_downloads',
     str_contains($currentUri, '/admin/configuration') => 'configuration',
     str_contains($currentUri, '/admin/site-content') => 'site_content',
     str_contains($currentUri, '/admin/resources') => 'resources',
+    str_contains($currentUri, '/admin/staff-activity') => 'staff_activity',
+    str_contains($currentUri, '/admin/investigations/uploader/') => 'uploader_investigation',
+    str_contains($currentUri, '/admin/investigations/file/') => 'file_investigation',
     str_contains($currentUri, '/admin/status'),
     str_contains($currentUri, '/admin/logs') => 'status',
     str_contains($currentUri, '/admin/plugins') => 'plugins',
     str_contains($currentUri, '/admin/requests') => 'requests',
     str_contains($currentUri, '/admin/support') => 'support',
     str_contains($currentUri, '/admin/docs') => 'docs',
+    str_contains($currentUri, '/admin/subscription/create') => 'subscription_create',
     str_contains($currentUri, '/admin/subscriptions') => 'subscriptions',
+    str_contains($currentUri, '/admin/coupon') || str_contains($currentUri, '/admin/coupons') => 'coupons',
     str_contains($currentUri, '/admin/files') => 'files',
     str_contains($currentUri, '/admin/users') => 'users',
     str_contains($currentUri, '/admin/packages') || str_contains($currentUri, '/admin/package/edit') => 'packages',
@@ -147,6 +181,7 @@ $currentNavKey = match (true) {
     str_contains($currentUri, '/admin/rewards-fraud') => 'rewards_fraud',
     str_contains($currentUri, '/admin/search') => 'search',
     str_contains($currentUri, '/admin/file-server') => 'file-servers',
+    str_contains($currentUri, '/admin/scaling') => 'scaling',
     $uriPath === '/admin' => 'dashboard',
     default => $helpFile,
 };
@@ -155,6 +190,7 @@ $sectionStates = [];
 foreach ($activeSectionMap as $sectionKey => $navKeys) {
     $sectionStates[$sectionKey] = in_array($currentNavKey, $navKeys, true);
 }
+$sectionStates['overview'] = true;
 
 if (!function_exists('renderAdminSidebarLink')) {
     function renderAdminSidebarLink(string $href, string $label, string $icon, bool $isActive = false, string $badgeHtml = '', bool $external = false): void
@@ -205,6 +241,12 @@ if (!function_exists('renderAdminSidebarSectionEnd')) {
 
 $helpTitleMap = [
     'requests' => 'Tickets',
+    'bonus_reviews' => 'Bonus Reviews',
+    'ticket_settings' => 'Ticket Settings',
+    'uploader_investigation' => 'Uploader Investigation',
+    'file_investigation' => 'File Investigation',
+    'subscription_create' => 'Create Manual Subscription',
+    'logs' => 'Application Logs',
 ];
 ?>
 <!DOCTYPE html>
@@ -217,7 +259,7 @@ $helpTitleMap = [
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <!-- Keep custom CSS for component overrides (cards, etc) -->
-    <link rel="stylesheet" href="/assets/css/admin.css">
+    <link rel="stylesheet" href="/assets/css/admin.css?v=<?= rawurlencode($adminCssVersion) ?>">
     <style>
     .admin-search-input{font-size:.75rem;height:32px}
     .admin-coffee-button{height:45px !important;width:170px !important}
@@ -245,50 +287,74 @@ $helpTitleMap = [
         <!-- Sidebar -->
         <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-body-tertiary sidebar collapse vh-100 sticky-top">
             <div class="position-sticky pt-3 sidebar-sticky text-center">
-                <a href="/admin/support" class="text-decoration-none text-dark">
-                    <h3 class="mb-4 mt-2 fw-bold">fyuhls</h3>
-                </a>
+                <h3 class="mb-4 mt-2 fw-bold">
+                    <a href="/admin" class="text-decoration-none text-reset" aria-label="Go to admin dashboard">fyuhls</a>
+                </h3>
                 <div class="small text-muted mb-3">Version <?= htmlspecialchars($appVersion) ?></div>
 
                 <!-- Global Search Widget -->
-                <div class="px-3 mb-4">
-                    <form action="/admin/search" method="GET">
-                        <input type="text" name="q" class="admin-search-input form-control form-control-sm bg-white border shadow-sm rounded" placeholder="Partial ID, email, username, file...">
-                    </form>
-                </div>
+                <?php if ($viewerCan('users.manage') || $viewerCan('files.moderate')): ?>
+                    <div class="px-3 mb-4">
+                        <form action="/admin/search" method="GET">
+                            <input type="text" name="q" class="admin-search-input form-control form-control-sm bg-white border shadow-sm rounded" placeholder="Partial ID, email, username, file...">
+                        </form>
+                    </div>
+                <?php endif; ?>
 
                 <div class="px-3 mb-4 text-center">
                     <a href="https://www.buymeacoffee.com/softerfish" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" class="admin-coffee-button"></a>
                 </div>
                 <div class="text-start">
                     <?php
-                    renderAdminSidebarSectionStart('adminSidebarOverview', 'Overview', $sectionStates['overview']);
-                    renderAdminSidebarLink('/admin', 'Dashboard', 'bi bi-speedometer2', $currentNavKey === 'dashboard');
-                    renderAdminSidebarLink('/admin/support', 'Support Center', 'bi bi-bug', $currentNavKey === 'support');
-                    renderAdminSidebarLink('/admin/docs', 'In-App Docs', 'bi bi-book', $currentNavKey === 'docs');
-                    renderAdminSidebarLink('/admin/resources', 'Resources', 'bi bi-stars', $currentNavKey === 'resources');
-                    renderAdminSidebarSectionEnd();
+                    if ($viewerCan('dashboard.view') || $viewerCan('docs.view') || $viewerCan('resources.view') || $viewerCan('staff.activity.view') || $viewerCan('status.view')) {
+                        renderAdminSidebarSectionStart('adminSidebarOverview', 'Overview', $sectionStates['overview']);
+                        if ($viewerCan('dashboard.view')) renderAdminSidebarLink('/admin', 'Dashboard', 'bi bi-speedometer2', $currentNavKey === 'dashboard');
+                        if ($viewerCan('docs.view')) renderAdminSidebarLink('/admin/docs', 'In-App Docs', 'bi bi-book', $currentNavKey === 'docs');
+                        if ($viewerCan('resources.view')) renderAdminSidebarLink('/admin/resources', 'Resources', 'bi bi-stars', $currentNavKey === 'resources');
+                        if ($viewerCan('status.view') && ($viewerCan('configuration.manage') || $viewerCan('file_servers.manage'))) renderAdminSidebarLink('/admin/scaling', 'Scaling Guide', 'bi bi-lightning-charge', $currentNavKey === 'scaling');
+                        if ($viewerCan('staff.activity.view')) renderAdminSidebarLink('/admin/staff-activity', 'Staff Activity', 'bi bi-clock-history', $currentNavKey === 'staff_activity');
+                        renderAdminSidebarSectionEnd();
+                    }
 
                     $moderationBadge = $badgeCounts['requests'] > 0 ? '<span class="badge bg-danger rounded-pill">' . $badgeCounts['requests'] . '</span>' : '';
-                    renderAdminSidebarSectionStart('adminSidebarModeration', 'Moderation', $sectionStates['moderation'], $moderationBadge);
-                    renderAdminSidebarLink('/admin/requests', 'Tickets', 'bi bi-inboxes', $currentNavKey === 'requests' || $currentNavKey === 'contacts' || $currentNavKey === 'abuse' || $currentNavKey === 'dmca', $moderationBadge);
-                    renderAdminSidebarSectionEnd();
-
-                    renderAdminSidebarSectionStart('adminSidebarRevenue', 'Users & Revenue', $sectionStates['revenue']);
-                    renderAdminSidebarLink('/admin/users', 'Users', 'bi bi-people', $currentNavKey === 'users');
-                    renderAdminSidebarLink('/admin/packages', 'Packages', 'bi bi-box', $currentNavKey === 'packages');
-                    renderAdminSidebarLink('/admin/subscriptions', 'Subscriptions', 'bi bi-repeat', $currentNavKey === 'subscriptions');
-                    if (\App\Service\FeatureService::rewardsEnabled()) {
-                        $withdrawalBadge = $badgeCounts['withdrawals'] > 0 ? '<span class="badge bg-danger rounded-pill">' . $badgeCounts['withdrawals'] . '</span>' : '';
-                        renderAdminSidebarLink('/admin/withdrawals', 'Withdrawals', 'bi bi-cash', $currentNavKey === 'withdrawals', $withdrawalBadge);
-                        renderAdminSidebarLink('/admin/rewards-fraud', 'Rewards Fraud', 'bi bi-shield-exclamation', $currentNavKey === 'rewards_fraud');
+                    $ticketBadge = $badgeCounts['contacts'] > 0 ? '<span class="badge bg-danger rounded-pill">' . $badgeCounts['contacts'] . '</span>' : '';
+                    $abuseBadge = $badgeCounts['abuse'] > 0 ? '<span class="badge bg-danger rounded-pill">' . $badgeCounts['abuse'] . '</span>' : '';
+                    $dmcaBadge = $badgeCounts['dmca'] > 0 ? '<span class="badge bg-danger rounded-pill">' . $badgeCounts['dmca'] . '</span>' : '';
+                    if ($viewerCan('requests.manage') || $viewerCan('abuse.manage') || $viewerCan('dmca.manage') || (\App\Service\FeatureService::rewardsEnabled() && $viewerCan('rewards_fraud.manage'))) {
+                        renderAdminSidebarSectionStart('adminSidebarModeration', 'Moderation', $sectionStates['moderation'], $moderationBadge);
+                        if ($viewerCan('requests.manage')) {
+                            renderAdminSidebarLink('/admin/requests', 'Tickets', 'bi bi-inboxes', $currentNavKey === 'requests' || $currentNavKey === 'contacts', $ticketBadge);
+                        }
+                        if ($viewerCan('abuse.manage')) {
+                            renderAdminSidebarLink('/admin/abuse-reports', 'Abuse Reports', 'bi bi-flag', $currentNavKey === 'abuse', $abuseBadge);
+                        }
+                        if ($viewerCan('dmca.manage')) {
+                            renderAdminSidebarLink('/admin/dmca', 'DMCA Reports', 'bi bi-file-earmark-x', $currentNavKey === 'dmca', $dmcaBadge);
+                        }
+                        if (\App\Service\FeatureService::rewardsEnabled() && $viewerCan('rewards_fraud.manage')) {
+                            renderAdminSidebarLink('/admin/rewards-fraud', 'Rewards Fraud', 'bi bi-shield-exclamation', $currentNavKey === 'rewards_fraud');
+                        }
+                        renderAdminSidebarSectionEnd();
                     }
-                    renderAdminSidebarSectionEnd();
 
-                    renderAdminSidebarSectionStart('adminSidebarContent', 'Content & Files', $sectionStates['content']);
-                    renderAdminSidebarLink('/admin/files', 'Files', 'bi bi-file-earmark', $currentNavKey === 'files');
-                    renderAdminSidebarLink('/admin/downloads/current', 'Live Downloads', 'bi bi-cloud-download', $currentNavKey === 'live_downloads');
-                    renderAdminSidebarSectionEnd();
+                    if ($viewerCan('users.manage') || $viewerCan('packages.manage') || $viewerCan('subscriptions.manage') || $viewerCan('coupons.manage') || (\App\Service\FeatureService::rewardsEnabled() && $viewerCan('withdrawals.manage'))) {
+                        renderAdminSidebarSectionStart('adminSidebarRevenue', 'Users & Revenue', $sectionStates['revenue']);
+                        if ($viewerCan('users.manage')) renderAdminSidebarLink('/admin/users', 'Users', 'bi bi-people', $currentNavKey === 'users');
+                        if ($viewerCan('packages.manage')) renderAdminSidebarLink('/admin/packages', 'Packages', 'bi bi-box', $currentNavKey === 'packages');
+                        if ($viewerCan('subscriptions.manage')) renderAdminSidebarLink('/admin/subscriptions', 'Subscriptions', 'bi bi-repeat', $currentNavKey === 'subscriptions');
+                        if ($viewerCan('coupons.manage')) renderAdminSidebarLink('/admin/coupons', 'Coupons', 'bi bi-ticket-perforated', $currentNavKey === 'coupons');
+                        if (\App\Service\FeatureService::rewardsEnabled()) {
+                            $withdrawalBadge = $badgeCounts['withdrawals'] > 0 ? '<span class="badge bg-danger rounded-pill">' . $badgeCounts['withdrawals'] . '</span>' : '';
+                            if ($viewerCan('withdrawals.manage')) renderAdminSidebarLink('/admin/withdrawals', 'Withdrawals', 'bi bi-cash', $currentNavKey === 'withdrawals', $withdrawalBadge);
+                        }
+                        renderAdminSidebarSectionEnd();
+                    }
+
+                    if ($viewerCan('files.moderate') || $viewerCan('investigations.view')) {
+                        renderAdminSidebarSectionStart('adminSidebarContent', 'Content & Files', $sectionStates['content']);
+                        if ($viewerCan('files.moderate')) renderAdminSidebarLink('/admin/files', 'Files', 'bi bi-file-earmark', $currentNavKey === 'files' || $currentNavKey === 'uploader_investigation' || $currentNavKey === 'file_investigation');
+                        renderAdminSidebarSectionEnd();
+                    }
 
                     $configHubBadge = '';
                     if ($configHubNoticeCount > 0) {
@@ -305,20 +371,24 @@ $helpTitleMap = [
                         $infraSectionBadge .= ($infraSectionBadge !== '' ? ' ' : '') . $updateBadge;
                     }
 
-                    renderAdminSidebarSectionStart('adminSidebarInfrastructure', 'Infrastructure', $sectionStates['infrastructure'], $infraSectionBadge);
-                    renderAdminSidebarLink('/admin/configuration', 'Config Hub', 'bi bi-cpu', $currentNavKey === 'configuration', $configHubBadge);
-                    renderAdminSidebarLink('/admin/site-content', 'Site Content', 'bi bi-pencil-square', $currentNavKey === 'site_content');
-                    renderAdminSidebarLink('/admin/plugins', 'Plugins', 'bi bi-puzzle', $currentNavKey === 'plugins');
-                    $statusBadge = ($updateAvailable && $sectionStates['infrastructure']) ? $updateBadge : '';
-                    renderAdminSidebarLink('/admin/status', 'System Status', 'admin-status-icon bi bi-activity p-1 bg-danger text-white rounded', $currentNavKey === 'status', $statusBadge);
-                    renderAdminSidebarSectionEnd();
+                    if ($viewerCan('configuration.manage') || $viewerCan('site_content.manage') || $viewerCan('plugins.manage') || $viewerCan('status.view') || $viewerCan('file_servers.manage') || $viewerCan('downloads.live')) {
+                        renderAdminSidebarSectionStart('adminSidebarInfrastructure', 'Infrastructure', $sectionStates['infrastructure'], $infraSectionBadge);
+                        if ($viewerCan('configuration.manage')) renderAdminSidebarLink('/admin/configuration', 'Config Hub', 'bi bi-cpu', $currentNavKey === 'configuration', $configHubBadge);
+                        if ($viewerCan('site_content.manage')) renderAdminSidebarLink('/admin/site-content', 'Site Content', 'bi bi-pencil-square', $currentNavKey === 'site_content');
+                        if ($viewerCan('downloads.live')) renderAdminSidebarLink('/admin/downloads/current', 'Live Downloads', 'bi bi-cloud-download', $currentNavKey === 'live_downloads');
+                        if ($viewerCan('plugins.manage')) renderAdminSidebarLink('/admin/plugins', 'Plugins', 'bi bi-puzzle', $currentNavKey === 'plugins');
+                        $statusBadge = ($updateAvailable && $sectionStates['infrastructure']) ? $updateBadge : '';
+                        if ($viewerCan('status.view')) renderAdminSidebarLink('/admin/status', 'System Status', 'admin-status-icon bi bi-activity p-1 bg-danger text-white rounded', $currentNavKey === 'status', $statusBadge);
+                        renderAdminSidebarSectionEnd();
+                    }
                 ?>
                 </div>
 
                 <div class="admin-sidebar-meta mt-4">
-                    <div class="small text-uppercase text-muted fw-semibold mb-2">References</div>
+                    <div class="small text-uppercase text-muted fw-semibold mb-2">Support</div>
                     <ul class="nav flex-column admin-sidebar-footer-links mb-3 text-start">
                         <?php renderAdminSidebarLink('https://github.com/softerfish/fyuhls/wiki/', 'GitHub Wiki', 'bi bi-journal-text', false, '', true); ?>
+                        <?php if ($viewerCan('support.manage')) renderAdminSidebarLink('/admin/support', 'Diagnostics', 'bi bi-bug', $currentNavKey === 'support'); ?>
                     </ul>
                 </div>
 
@@ -343,7 +413,7 @@ $helpTitleMap = [
 
         <!-- Main content -->
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4 main-content">
-            
+
             <?php foreach (['success' => 'success', 'error' => 'danger', 'info' => 'info', 'warning' => 'warning'] as $key => $class): ?>
                 <?php if (isset($_SESSION[$key])): ?>
                     <div class="alert alert-<?= $class ?> alert-dismissible fade show" role="alert">
@@ -354,30 +424,39 @@ $helpTitleMap = [
                 <?php endif; ?>
             <?php endforeach; ?>
 
-            <?php 
+            <?php
             $dbDrift = \App\Model\Setting::get('db_drift_detected', '0');
-            if ($dbDrift === '1'): 
+            if ($dbDrift === '1'):
             ?>
                 <div class="alert alert-danger d-flex align-items-center justify-content-between mb-4 shadow-sm" role="alert">
                     <div class="d-flex align-items-center">
                         <div>
                             <h6 class="alert-heading fw-bold mb-1">Database Schema Drift Detected!</h6>
-                            Your database schema is out of sync with the application code. This can lead to system errors or data loss.
-                            <br><small class="opacity-75">Last Error: <?= htmlspecialchars(\App\Model\Setting::get('db_drift_error', 'Unknown Error')) ?></small>
+                            <?php if ($viewerCan('configuration.manage')): ?>
+                                Your database schema is out of sync with the application code. This can lead to system errors or data loss.
+                                <br><small class="opacity-75">Start with the normal schema sync. Use Deep Repair only if the health page specifically mentions column type/size drift, or if a normal sync does not clear the notice.</small>
+                                <br><small class="opacity-75">Last Error: <?= htmlspecialchars(\App\Model\Setting::get('db_drift_error', 'Unknown Error')) ?></small>
+                            <?php else: ?>
+                                The application detected a database schema mismatch that needs Configuration-level repair. Contact a staff member with full Configuration access instead of continuing with data-changing admin work.
+                            <?php endif; ?>
                         </div>
                     </div>
-                    <a href="/admin/configuration?tab=security&sec_tab=health" class="btn btn-dark btn-sm px-3 fw-bold">
-                        <i class="bi bi-tools me-1"></i> Repair Schema
-                    </a>
+                    <?php if ($viewerCan('configuration.manage')): ?>
+                        <a href="/admin/configuration?tab=security&sec_tab=health" class="btn btn-dark btn-sm px-3 fw-bold">
+                            <i class="bi bi-tools me-1"></i> Repair Schema
+                        </a>
+                    <?php else: ?>
+                        <div class="small text-muted ms-3">Schema repair requires full Configuration access.</div>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
-            
-            <?php 
+
+            <?php
             clearstatcache();
             $root = defined('BASE_PATH') ? BASE_PATH : realpath(__DIR__ . '/../../..');
-            
+
             $installPath = $root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'install.php';
-            if (file_exists($installPath)): 
+            if (file_exists($installPath)):
             ?>
                 <div class="alert alert-danger d-flex align-items-center justify-content-between mb-2" role="alert">
                     <div class="d-flex align-items-center">
@@ -385,19 +464,23 @@ $helpTitleMap = [
                             <strong>Security Warning:</strong> The <code>install.php</code> file is still present on your server. Delete it immediately to prevent unauthorized re-installation.
                         </div>
                     </div>
-                    <form action="/admin/delete-setup-file" method="POST" class="m-0" data-confirm-message="Permanently delete install.php?">
-                        <?= \App\Core\Csrf::field() ?>
-                        <input type="hidden" name="type" value="install">
-                        <button type="submit" class="btn btn-dark btn-sm px-3 fw-bold">
-                            <i class="bi bi-trash-fill me-1"></i> Delete Now
-                        </button>
-                    </form>
+                    <?php if ($viewerCan('configuration.manage')): ?>
+                        <form action="/admin/delete-setup-file" method="POST" class="m-0" data-confirm-message="Permanently delete install.php?">
+                            <?= \App\Core\Csrf::field() ?>
+                            <input type="hidden" name="type" value="install">
+                            <button type="submit" class="btn btn-dark btn-sm px-3 fw-bold">
+                                <i class="bi bi-trash-fill me-1"></i> Delete Now
+                            </button>
+                        </form>
+                    <?php else: ?>
+                        <div class="small text-muted ms-3">Only Configuration staff can remove setup files from the server.</div>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 
-            <?php 
+            <?php
             $postInstallCheckPath = $root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'post_install_check.php';
-            if (file_exists($postInstallCheckPath)): 
+            if (file_exists($postInstallCheckPath)):
             ?>
                 <div class="alert alert-warning d-flex align-items-center justify-content-between mb-2" role="alert">
                     <div class="d-flex align-items-center">
@@ -405,44 +488,32 @@ $helpTitleMap = [
                             <strong>Security Suggestion:</strong> The <code>post_install_check.php</code> file is still present. Delete it once you are done verifying the installation.
                         </div>
                     </div>
-                    <form action="/admin/delete-setup-file" method="POST" class="m-0" data-confirm-message="Permanently delete post_install_check.php?">
-                        <?= \App\Core\Csrf::field() ?>
-                        <input type="hidden" name="type" value="post_install_check">
-                        <button type="submit" class="btn btn-dark btn-sm px-3 fw-bold">
-                            <i class="bi bi-trash-fill me-1"></i> Delete Now
-                        </button>
-                    </form>
+                    <?php if ($viewerCan('configuration.manage')): ?>
+                        <form action="/admin/delete-setup-file" method="POST" class="m-0" data-confirm-message="Permanently delete post_install_check.php?">
+                            <?= \App\Core\Csrf::field() ?>
+                            <input type="hidden" name="type" value="post_install_check">
+                            <button type="submit" class="btn btn-dark btn-sm px-3 fw-bold">
+                                <i class="bi bi-trash-fill me-1"></i> Delete Now
+                            </button>
+                        </form>
+                    <?php else: ?>
+                        <div class="small text-muted ms-3">Only Configuration staff can remove setup files from the server.</div>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 
-            <?php 
-            $schemaPath = $root . DIRECTORY_SEPARATOR . 'database';
-            if (is_dir($schemaPath)):
-            ?>
-                <div class="alert alert-warning d-flex align-items-center justify-content-between mb-4" role="alert">
-                    <div class="d-flex align-items-center">
-                        <div>
-                            <strong>Security Suggestion:</strong> The <code>database/</code> setup folder is still present. It contains the installer schema file and should be removed after installation.
-                        </div>
-                    </div>
-                    <form action="/admin/delete-setup-file" method="POST" class="m-0" data-confirm-message="Permanently delete the database setup folder?">
-                        <?= \App\Core\Csrf::field() ?>
-                        <input type="hidden" name="type" value="schema">
-                        <button type="submit" class="btn btn-dark btn-sm px-3 fw-bold">
-                            <i class="bi bi-trash-fill me-1"></i> Delete Now
-                        </button>
-                    </form>
-                </div>
-            <?php endif; ?>
-
-            <?php 
+            <?php
             $cfLastSync = \App\Model\Setting::get('cloudflare_last_sync', '0');
-            if (empty($cfLastSync) || $cfLastSync === '0'): 
+            if (empty($cfLastSync) || $cfLastSync === '0'):
             ?>
                 <div class="alert alert-warning d-flex align-items-center mb-4" role="alert">
                     <div>
-                        <strong>Security Action Required:</strong> Cloudflare IP ranges have not been synced yet. Your site is currently vulnerable to IP spoofing. 
-                        Please sync your <a href="/admin/configuration?tab=security&sec_tab=cloudflare" class="alert-link">Security Settings</a> to protect your server.
+                        <strong>Security Action Required:</strong> Cloudflare IP ranges have not been synced yet. Your site is currently vulnerable to IP spoofing.
+                        <?php if ($viewerCan('configuration.manage')): ?>
+                            Please sync your <a href="/admin/configuration?tab=security&sec_tab=cloudflare" class="alert-link">Security Settings</a> to protect your server.
+                        <?php else: ?>
+                            Contact a staff member with full Configuration access to sync the trusted proxy list.
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endif; ?>
@@ -456,12 +527,16 @@ $helpTitleMap = [
                         will automatically fall back to <strong>App-Controlled (PHP)</strong> so users are only credited after the configured threshold is actually reached.
                     </div>
                     <div class="d-flex gap-2 flex-shrink-0">
-                        <a href="/admin/configuration?tab=storage" class="btn btn-dark btn-sm px-3 fw-bold">
-                            <i class="bi bi-hdd-network me-1"></i> Review Storage
-                        </a>
-                        <a href="/admin/docs#storage" class="btn btn-outline-dark btn-sm px-3 fw-bold">
-                            <i class="bi bi-book me-1"></i> Read Guide
-                        </a>
+                        <?php if ($viewerCan('configuration.manage')): ?>
+                            <a href="/admin/configuration?tab=storage" class="btn btn-dark btn-sm px-3 fw-bold">
+                                <i class="bi bi-hdd-network me-1"></i> Review Storage
+                            </a>
+                        <?php endif; ?>
+                        <?php if ($viewerCan('docs.view')): ?>
+                            <a href="/admin/docs#storage" class="btn btn-outline-dark btn-sm px-3 fw-bold">
+                                <i class="bi bi-book me-1"></i> Read Guide
+                            </a>
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endif; ?>
@@ -483,12 +558,16 @@ $helpTitleMap = [
                         <?php endif; ?>
                     </div>
                     <div class="d-flex gap-2 flex-shrink-0">
-                        <a href="/admin/docs#storage" class="btn btn-dark btn-sm px-3 fw-bold">
-                            <i class="bi bi-shield-check me-1"></i> Fix Nginx Setup
-                        </a>
-                        <a href="/admin/configuration?tab=downloads" class="btn btn-outline-dark btn-sm px-3 fw-bold">
-                            <i class="bi bi-sliders me-1"></i> Review Downloads
-                        </a>
+                        <?php if ($viewerCan('docs.view')): ?>
+                            <a href="/admin/docs#storage" class="btn btn-dark btn-sm px-3 fw-bold">
+                                <i class="bi bi-shield-check me-1"></i> Fix Nginx Setup
+                            </a>
+                        <?php endif; ?>
+                        <?php if ($viewerCan('configuration.manage')): ?>
+                            <a href="/admin/configuration?tab=downloads" class="btn btn-outline-dark btn-sm px-3 fw-bold">
+                                <i class="bi bi-sliders me-1"></i> Review Downloads
+                            </a>
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endif; ?>
@@ -501,13 +580,21 @@ $helpTitleMap = [
                             <div class="d-flex align-items-center">
                                 <span class="fw-bold small text-uppercase">Page Guide: <?= htmlspecialchars($helpTitleMap[$helpFile] ?? ucwords(str_replace(['-', '_'], ' ', $helpFile))) ?></span>
                             </div>
-                            <button class="btn btn-sm btn-outline-primary py-0" type="button" data-bs-toggle="collapse" data-bs-target="#pageGuideContent">
-                                View Guide
-                            </button>
+                            <div class="d-flex gap-2">
+                                <?php $pageWikiUrl = function_exists('adminWikiPageUrl') ? adminWikiPageUrl($helpFile) : null; ?>
+                                <?php if ($pageWikiUrl !== null): ?>
+                                    <a href="<?= htmlspecialchars($pageWikiUrl) ?>" class="btn btn-sm btn-outline-secondary py-0" target="_blank" rel="noopener noreferrer">
+                                        Full Wiki Guide
+                                    </a>
+                                <?php endif; ?>
+                                <button class="btn btn-sm btn-outline-primary py-0" type="button" data-bs-toggle="collapse" data-bs-target="#pageGuideContent">
+                                    View Guide
+                                </button>
+                            </div>
                         </div>
                         <div class="collapse mt-3" id="pageGuideContent">
                             <hr class="opacity-10">
-                            <?php 
+                            <?php
                             $guidePath = __DIR__ . "/help/{$helpFile}.php";
                             if (file_exists($guidePath)) {
                                 include $guidePath;
@@ -515,6 +602,13 @@ $helpTitleMap = [
                                 echo "<p class='small text-muted text-center py-3'>Full documentation for this page is coming soon. <br>Technical Key: <code>{$helpFile}</code></p>";
                             }
                             ?>
+                            <?php if ($pageWikiUrl !== null): ?>
+                                <div class="mt-3 pt-3 border-top">
+                                    <a href="<?= htmlspecialchars($pageWikiUrl) ?>" class="guide-action-link" target="_blank" rel="noopener noreferrer">
+                                        Open the full GitHub wiki guide for this admin page
+                                    </a>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

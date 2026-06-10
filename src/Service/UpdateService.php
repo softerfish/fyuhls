@@ -861,13 +861,16 @@ class UpdateService
             if (is_link($targetPath)) {
                 throw new \RuntimeException('An update target is a symbolic link and cannot be previewed safely.');
             }
-            $filesToCopy[] = $path;
-            $requiredWritablePaths[] = $this->nearestExistingParent($targetPath);
-            if (!is_file($targetPath)) {
+
+            if (!file_exists($targetPath)) {
+                $filesToCopy[] = $path;
+                $requiredWritablePaths[] = $this->nearestExistingParent($targetPath);
                 continue;
             }
+            if (!is_file($targetPath)) {
+                throw new \RuntimeException('An update target is not a regular file.');
+            }
 
-            $overwriteBytes += max(0, (int)filesize($targetPath));
             $stream = $zip->getStream($entry['archive_name']);
             if ($stream === false) {
                 throw new \RuntimeException('The update archive contains a file that could not be read.');
@@ -880,6 +883,9 @@ class UpdateService
                 throw new \RuntimeException('An existing update target could not be read safely.');
             }
             if (!hash_equals($localHash, hash_final($releaseHash))) {
+                $filesToCopy[] = $path;
+                $requiredWritablePaths[] = $this->nearestExistingParent($targetPath);
+                $overwriteBytes += max(0, (int)filesize($targetPath));
                 $localModifiedFiles[] = $path;
             }
         }

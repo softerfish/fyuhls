@@ -688,6 +688,9 @@ class UpdateService
 
                 $relativePath = implode('/', $parts);
                 $directory = str_ends_with($normalized, '/');
+                if ($this->shouldSkipReleaseMetadataPath($relativePath)) {
+                    continue;
+                }
                 $this->assertSafeHiddenPath($relativePath);
                 $this->assertSafeArchiveEntryType($zip, $index, $directory);
 
@@ -783,15 +786,24 @@ class UpdateService
 
     private function assertSafeHiddenPath(string $relativePath): void
     {
-        $allowed = ['.htaccess', '.gitignore', '.well-known'];
-        foreach (explode('/', $relativePath) as $segment) {
+        $allowed = ['.htaccess', '.gitignore', '.gitkeep', '.well-known'];
+        $vendorAllowed = ['.php-cs-fixer.dist.php', '.psalm'];
+        $segments = explode('/', $relativePath);
+        $underVendor = ($segments[0] ?? '') === 'vendor';
+        foreach ($segments as $segment) {
             if (!str_starts_with($segment, '.')) {
                 continue;
             }
-            if (!in_array($segment, $allowed, true)) {
+            if (!in_array($segment, $allowed, true) && !($underVendor && in_array($segment, $vendorAllowed, true))) {
                 throw new \RuntimeException('The update archive contains an unsafe hidden entry.');
             }
         }
+    }
+
+    private function shouldSkipReleaseMetadataPath(string $relativePath): bool
+    {
+        $firstSegment = explode('/', trim($relativePath, '/'))[0] ?? '';
+        return $firstSegment === '.github';
     }
 
     private function assertSafeArchiveEntryType(ZipArchive $zip, int $index, bool $directory): void

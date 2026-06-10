@@ -802,8 +802,7 @@ class UpdateService
 
     private function shouldSkipReleaseMetadataPath(string $relativePath): bool
     {
-        $firstSegment = explode('/', trim($relativePath, '/'))[0] ?? '';
-        return $firstSegment === '.github';
+        return in_array('.github', explode('/', trim($relativePath, '/')), true);
     }
 
     private function assertSafeArchiveEntryType(ZipArchive $zip, int $index, bool $directory): void

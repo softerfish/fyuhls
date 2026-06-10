@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.1
+
+- Fixed an upgrade recovery lockout where `packages` schema drift could fatal public/package pages before staff could log in and run Database Health schema repair.
+
 ## v1.0.0
 
 ### Staff Permissions and Moderation Foundation

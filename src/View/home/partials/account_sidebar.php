@@ -3,6 +3,14 @@ $requestUri = $requestUri ?? ($_SERVER['REQUEST_URI'] ?? '/');
 $currentUserId = \App\Core\Auth::id() ?? 0;
 $storageQuota = is_array($storageQuota ?? null) ? $storageQuota : ['used' => 0, 'limit' => 0];
 $dailyDownloadLimitSummary = is_array($dailyDownloadLimitSummary ?? null) ? $dailyDownloadLimitSummary : [];
+$packageSchemaUnavailable = !empty($packageSchemaUnavailable);
+$packageSchemaRecoveryMessage = trim((string)($packageSchemaRecoveryMessage ?? 'Package plan data is temporarily unavailable while database maintenance is completed.'));
+$isPackageSchemaRecoveryError = static function (\Throwable $e): bool {
+    $message = $e->getMessage();
+
+    return str_starts_with($message, 'Database schema drift detected for required tables (packages)')
+        || str_starts_with($message, 'Schema validation failed for required tables (packages)');
+};
 $isSettingsArea = str_contains($requestUri, '/settings') || str_contains($requestUri, '/2fa/');
 $isRewardsArea = str_contains($requestUri, '/rewards');
 $isAffiliateArea = str_contains($requestUri, '/affiliate');
@@ -37,7 +45,17 @@ if ($currentUserId) {
         $expiryStr = 'Administrator account';
         $isPaidPlan = true;
     } else {
-        $userPkg = \App\Model\Package::getUserPackage((int)$currentUserId);
+        $userPkg = is_array($package ?? null) ? $package : null;
+        if ($userPkg === null && !$packageSchemaUnavailable) {
+            try {
+                $userPkg = \App\Model\Package::getUserPackage((int)$currentUserId);
+            } catch (\Throwable $e) {
+                if (!$isPackageSchemaRecoveryError($e)) {
+                    throw $e;
+                }
+                $packageSchemaUnavailable = true;
+            }
+        }
         if ($userPkg) {
             $pkgNameStr = $userPkg['name'] ?? 'Free Plan';
             $isPaidPlan = strtolower((string)($userPkg['level_type'] ?? 'free')) === 'paid';
@@ -59,12 +77,28 @@ if ($currentUserId) {
     }
 }
 
-$allPackages = \App\Model\Package::getAll();
+$allPackages = [];
+if (!$packageSchemaUnavailable) {
+    try {
+        $allPackages = \App\Model\Package::getAll();
+    } catch (\Throwable $e) {
+        if (!$isPackageSchemaRecoveryError($e)) {
+            throw $e;
+        }
+        $packageSchemaUnavailable = true;
+    }
+}
 foreach ($allPackages as $sidebarPkg) {
     if (($sidebarPkg['level_type'] ?? '') === 'paid') {
         $planLink = '/plans';
         break;
     }
+}
+
+if ($packageSchemaUnavailable) {
+    $pkgNameStr = 'Plan maintenance';
+    $expiryStr = 'Database repair required';
+    $planLink = null;
 }
 
 $unreadNotificationCount = 0;
@@ -110,6 +144,11 @@ $showPromotionsLink = $currentUserId > 0
             <div class="dashboard-plan-expiry <?= $isPaidPlan ? 'dashboard-plan-expiry--tight' : 'dashboard-plan-expiry--wide' ?>">
                 <?= htmlspecialchars($expiryStr) ?>
             </div>
+            <?php if ($packageSchemaUnavailable): ?>
+                <div class="dashboard-plan-expiry dashboard-plan-expiry--wide">
+                    <?= htmlspecialchars($packageSchemaRecoveryMessage) ?>
+                </div>
+            <?php endif; ?>
 
             <?php if (!$isPaidPlan && $planLink !== null): ?>
                 <a class="btn btn-warning dashboard-plan-button" href="<?= htmlspecialchars($planLink) ?>">View Plans</a>
@@ -149,6 +188,16 @@ $showPromotionsLink = $currentUserId > 0
             </div>
             <div class="storage-bar <?= $bwClass ?>">
                 <div class="storage-bar-fill" style="width:<?= $bwPct ?>%"></div>
+            </div>
+        </div>
+        <?php elseif (!empty($dailyDownloadLimitSummary['unavailable'])): ?>
+        <div class="storage-bar-wrap" style="margin-top: 15px;">
+            <div class="storage-bar-label">
+                <span>Bandwidth (Daily)</span>
+                <span>Maintenance</span>
+            </div>
+            <div class="storage-bar">
+                <div class="storage-bar-fill" style="width:0%"></div>
             </div>
         </div>
         <?php elseif (!$bwHasLimit): ?>

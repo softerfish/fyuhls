@@ -315,7 +315,9 @@ include __DIR__ . '/partials/account_sidebar_styles.php';
 
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
 $currentUserId = \App\Core\Auth::id() ?? 0;
-$package = $currentUserId ? \App\Model\Package::getUserPackage($currentUserId) : \App\Model\Package::getGuestPackage();
+$package = is_array($package ?? null) ? $package : [];
+$packageSchemaUnavailable = !empty($packageSchemaUnavailable);
+$packageSchemaRecoveryMessage = trim((string)($packageSchemaRecoveryMessage ?? 'Package limits are temporarily unavailable while database maintenance is completed.'));
 $guestMode = !empty($guestMode);
 
 $packageMaxUpload = !empty($package['max_upload_size']) ? (int) $package['max_upload_size'] : 0;
@@ -356,13 +358,17 @@ if ($currentUserId > 0 && !$guestMode) {
 }
 $recentUploadLabel = $recentUploadTimestamp ? date('M j, Y', $recentUploadTimestamp) : 'No uploads yet';
 $workspaceModeLabel = !empty($isTrash) ? 'Trash' : ($guestMode ? 'Guest Upload' : '');
-$guestUploadIntroCopy = \App\Service\FeatureService::rewardsEnabled()
-    ? 'Your files will be uploaded using the current guest package limits. Create an account later if you want a personal dashboard, folders, or reward features.'
-    : 'Your files will be uploaded using the current guest package limits. Create an account later if you want a personal dashboard, folders, and saved account tools.';
+$guestUploadIntroCopy = $packageSchemaUnavailable
+    ? 'Guest uploads are paused until a staff member completes database maintenance, because current package limits cannot be trusted yet.'
+    : (\App\Service\FeatureService::rewardsEnabled()
+        ? 'Your files will be uploaded using the current guest package limits. Create an account later if you want a personal dashboard, folders, or reward features.'
+        : 'Your files will be uploaded using the current guest package limits. Create an account later if you want a personal dashboard, folders, and saved account tools.');
 
-$uploadLimitText = $effectiveUploadLimit > 0
+$uploadLimitText = $packageSchemaUnavailable
+    ? 'Upload limits unavailable during maintenance'
+    : ($effectiveUploadLimit > 0
     ? 'Maximum upload size: ' . formatBytes($effectiveUploadLimit, 1)
-    : 'Maximum upload size: Unlimited for this plan';
+    : 'Maximum upload size: Unlimited for this plan');
 ?>
 
 <div class="fm-container dashboard-shell<?= $guestMode ? ' guest-upload-shell' : '' ?>">
@@ -447,9 +453,13 @@ $uploadLimitText = $effectiveUploadLimit > 0
         <div class="dashboard-main-actions<?= $guestMode ? ' dashboard-hidden' : '' ?>">
             <div class="dashboard-main-actions-left">
                 <?php if (!isset($isTrash)): ?>
-                    <button class="btn btn-primary dashboard-primary-upload" id="uploadBtn">Upload Files</button>
-                    <?php if (\App\Core\Auth::isAdmin() || !empty($package['allow_remote_upload'])): ?>
-                        <button class="btn btn-white" id="remoteUploadBtn">Remote URL</button>
+                    <?php if ($packageSchemaUnavailable): ?>
+                        <span class="dashboard-upload-hint"><?= htmlspecialchars($packageSchemaRecoveryMessage) ?></span>
+                    <?php else: ?>
+                        <button class="btn btn-primary dashboard-primary-upload" id="uploadBtn">Upload Files</button>
+                        <?php if (\App\Core\Auth::isAdmin() || !empty($package['allow_remote_upload'])): ?>
+                            <button class="btn btn-white" id="remoteUploadBtn">Remote URL</button>
+                        <?php endif; ?>
                     <?php endif; ?>
                     <button class="btn btn-white" id="newFolderBtn">New Folder</button>
                 <?php elseif (\App\Model\Setting::get('user_can_empty_trash', '1') === '1'): ?>
@@ -467,22 +477,26 @@ $uploadLimitText = $effectiveUploadLimit > 0
         <section class="dashboard-upload-card<?= $shouldCompactUploadArea ? ' is-collapsed' : '' ?>" id="dashboardUploadCard">
             <div class="dashboard-upload-card-head">
                 <div>
-                    <h3 class="dashboard-upload-card-title">Upload area</h3>
-                    <p class="dashboard-upload-card-copy">Use the main upload button for everyday work, or keep the drop area open when you want a larger target.</p>
+                    <h3 class="dashboard-upload-card-title"><?= $packageSchemaUnavailable ? 'Uploads paused for maintenance' : 'Upload area' ?></h3>
+                    <p class="dashboard-upload-card-copy"><?= htmlspecialchars($packageSchemaUnavailable ? $packageSchemaRecoveryMessage : 'Use the main upload button for everyday work, or keep the drop area open when you want a larger target.') ?></p>
                 </div>
                 <div class="dashboard-upload-head-tools">
                     <span class="dashboard-upload-hint"><?= htmlspecialchars($uploadLimitText) ?></span>
-                    <button type="button" class="dashboard-upload-toggle" id="toggleUploadAreaBtn" aria-expanded="<?= $shouldCompactUploadArea ? 'false' : 'true' ?>"><?= $shouldCompactUploadArea ? 'Show drag and drop area' : 'Hide drag and drop area' ?></button>
+                    <?php if (!$packageSchemaUnavailable): ?>
+                        <button type="button" class="dashboard-upload-toggle" id="toggleUploadAreaBtn" aria-expanded="<?= $shouldCompactUploadArea ? 'false' : 'true' ?>"><?= $shouldCompactUploadArea ? 'Show drag and drop area' : 'Hide drag and drop area' ?></button>
+                    <?php endif; ?>
                 </div>
             </div>
-        <div class="drop-zone dashboard-drop-zone" id="dropZone">
-            <div class="dz-message">
-                <div class="dz-icon" aria-hidden="true">&#128228;</div>
-                <p>Drag and drop files here or <span>browse</span></p>
-                <small>Quick drop target for adding files without leaving the workspace.</small>
+        <?php if (!$packageSchemaUnavailable): ?>
+            <div class="drop-zone dashboard-drop-zone" id="dropZone">
+                <div class="dz-message">
+                    <div class="dz-icon" aria-hidden="true">&#128228;</div>
+                    <p>Drag and drop files here or <span>browse</span></p>
+                    <small>Quick drop target for adding files without leaving the workspace.</small>
+                </div>
+                <input type="file" id="fileInput" multiple class="dashboard-hidden">
             </div>
-            <input type="file" id="fileInput" multiple class="dashboard-hidden">
-        </div>
+        <?php endif; ?>
         </section>
         <?php endif; ?>
 

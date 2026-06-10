@@ -256,6 +256,47 @@ class App {
         exit;
     }
 
+    private function isSchemaRecoveryException(\Throwable $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_starts_with($message, 'Database schema drift detected for required tables (')
+            || str_starts_with($message, 'Schema validation failed for required tables (')
+            || str_starts_with($message, 'Schema repair for required tables aborted before making changes');
+    }
+
+    private function abortSchemaRecovery(\Throwable $e): void
+    {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        http_response_code(503);
+        header('Content-Type: text/html; charset=UTF-8');
+        header('Retry-After: 300');
+
+        $viewerIsStaff = false;
+        try {
+            $viewerIsStaff = Auth::isStaff();
+        } catch (\Throwable $ignored) {
+            $viewerIsStaff = false;
+        }
+
+        $primaryHref = $viewerIsStaff ? '/admin/configuration?tab=security&sec_tab=health' : '/login';
+        $primaryLabel = $viewerIsStaff ? 'Open Database Health' : 'Staff Login';
+        $secondaryCopy = $viewerIsStaff
+            ? 'Run Schema Sync first, then use Deep Repair if the health panel still reports drift.'
+            : 'After signing in with a staff account, open Admin > Configuration > Security > Database Health.';
+        $secondaryAction = $viewerIsStaff
+            ? '<a href="/admin/configuration?tab=security&sec_tab=health" style="display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:#eff6ff;color:#1d4ed8;text-decoration:none;font-weight:800;padding:.8rem 1.15rem;">Database Health</a>'
+            : '';
+
+        error_log('Schema recovery page shown: ' . $e->getMessage());
+
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Database Maintenance Required</title></head><body style="margin:0;font-family:Segoe UI,Arial,sans-serif;background:linear-gradient(135deg,#eef2ff,#f8fafc 42%,#fff7ed);color:#111827;"><main style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem;"><section style="max-width:780px;background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:2rem;box-shadow:0 24px 70px rgba(15,23,42,.14);"><div style="display:inline-flex;align-items:center;border-radius:999px;background:#fff7ed;color:#9a3412;font-weight:700;font-size:.8rem;padding:.38rem .78rem;margin-bottom:1rem;">Database health check paused this request</div><h1 style="font-size:clamp(2rem,4vw,3rem);line-height:1.05;margin:.25rem 0 1rem;">Database maintenance is required before this area can open.</h1><p style="font-size:1.05rem;line-height:1.7;color:#4b5563;margin:0 0 1rem;">Fyuhls detected schema drift and stopped this request instead of continuing with partial or unsafe package, upload, billing, or account behavior.</p><p style="font-size:1rem;line-height:1.65;color:#4b5563;margin:0 0 1.35rem;">' . htmlspecialchars($secondaryCopy, ENT_QUOTES, 'UTF-8') . '</p><div style="display:flex;flex-wrap:wrap;gap:.75rem;"><a href="' . htmlspecialchars($primaryHref, ENT_QUOTES, 'UTF-8') . '" style="display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:800;padding:.8rem 1.15rem;">' . htmlspecialchars($primaryLabel, ENT_QUOTES, 'UTF-8') . '</a>' . $secondaryAction . '</div><p style="margin:1.35rem 0 0;color:#6b7280;font-size:.9rem;">This page does not repair the database or bypass staff permissions. It only replaces the raw PHP fatal with a controlled recovery path.</p></section></main></body></html>';
+        exit;
+    }
+
     private function ensureBootstrapDatabaseReady(): void
     {
         $db = Database::getInstance()->getConnection();
@@ -509,7 +550,15 @@ class App {
         PluginManager::doAction('app_boot');
 
         // Dispatch
-        $this->router->dispatch($requestUri, $_SERVER['REQUEST_METHOD']);
+        try {
+            $this->router->dispatch($requestUri, $_SERVER['REQUEST_METHOD']);
+        } catch (\Throwable $e) {
+            if ($this->isSchemaRecoveryException($e)) {
+                $this->abortSchemaRecovery($e);
+            }
+
+            throw $e;
+        }
         if (ob_get_level() > 0) {
             ob_end_flush();
         }

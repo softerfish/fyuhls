@@ -17,6 +17,8 @@ use App\Service\RateLimiterService;
 use App\Service\SecurityService;
 
 class HomeController {
+    private bool $packageSchemaUnavailable = false;
+
     private function currentUserOwnsRecord(?int $ownerUserId): bool
     {
         return Auth::check() && $ownerUserId !== null && $ownerUserId === (int)(Auth::id() ?? 0);
@@ -134,10 +136,84 @@ class HomeController {
         return Setting::getOrConfig('app.name', \App\Core\Config::get('app_name', 'Fyuhls'));
     }
 
+    private function packageSchemaRecoveryMessage(): string
+    {
+        return 'Package plans are temporarily unavailable while a staff member completes database maintenance.';
+    }
+
+    private function isPackageSchemaRecoveryError(\Throwable $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_starts_with($message, 'Database schema drift detected for required tables (packages)')
+            || str_starts_with($message, 'Schema validation failed for required tables (packages)');
+    }
+
+    private function markPackageSchemaUnavailable(\Throwable $e): void
+    {
+        if (!$this->isPackageSchemaRecoveryError($e)) {
+            throw $e;
+        }
+
+        $this->packageSchemaUnavailable = true;
+    }
+
+    private function packageSchemaViewData(): array
+    {
+        return [
+            'packageSchemaUnavailable' => $this->packageSchemaUnavailable,
+            'packageSchemaRecoveryMessage' => $this->packageSchemaUnavailable ? $this->packageSchemaRecoveryMessage() : '',
+        ];
+    }
+
+    private function currentOrGuestPackage(?int $userId = null): ?array
+    {
+        if ($this->packageSchemaUnavailable) {
+            return null;
+        }
+
+        try {
+            return $userId !== null && $userId > 0
+                ? Package::getUserPackage($userId)
+                : Package::getGuestPackage();
+        } catch (\Throwable $e) {
+            $this->markPackageSchemaUnavailable($e);
+            return null;
+        }
+    }
+
+    private function publicPackagesForDisplay(): array
+    {
+        if ($this->packageSchemaUnavailable) {
+            return [];
+        }
+
+        try {
+            return array_values(array_filter(Package::getAll(), static function (array $pkg): bool {
+                return ($pkg['level_type'] ?? '') !== 'admin';
+            }));
+        } catch (\Throwable $e) {
+            $this->markPackageSchemaUnavailable($e);
+            return [];
+        }
+    }
+
     private function dailyDownloadLimitSummary(): array
     {
         $userId = Auth::id() ? (int)Auth::id() : null;
-        $package = $userId ? Package::getUserPackage($userId) : Package::getGuestPackage();
+        $package = $this->currentOrGuestPackage($userId);
+        if ($this->packageSchemaUnavailable) {
+            return [
+                'label' => 'Daily limit left',
+                'value' => 'Maintenance',
+                'used_bytes' => 0,
+                'remaining_bytes' => 0,
+                'limit_bytes' => 0,
+                'has_limit' => false,
+                'unavailable' => true,
+            ];
+        }
+
         return PackageAllowanceService::dailyDownloadLimitSummary($userId, $package ?: []);
     }
 
@@ -153,7 +229,11 @@ class HomeController {
         $stmt->execute([$userId]);
         $used = (int)($stmt->fetchColumn() ?: 0);
 
-        $package = Package::getUserPackage($userId);
+        $package = $this->currentOrGuestPackage($userId);
+        if ($this->packageSchemaUnavailable) {
+            return ['used' => $used, 'limit' => 0, 'unavailable' => true];
+        }
+
         $limit = (int)($package['max_storage_bytes'] ?? 0);
 
         return ['used' => $used, 'limit' => $limit];
@@ -173,14 +253,15 @@ class HomeController {
         $footerPreviewActive = \App\Service\SiteContentService::previewIsActiveForPage('footer', $requestLocale);
 
         if (!Auth::check() || $homepagePreviewActive || $footerPreviewActive) {
-            $packages = array_filter(Package::getAll(), function($pkg) {
-                return $pkg['level_type'] !== 'admin';
-            });
-            View::render('home/landing.php', ['packages' => $packages]);
+            $packages = $this->publicPackagesForDisplay();
+            View::render('home/landing.php', array_merge([
+                'packages' => $packages,
+            ], $this->packageSchemaViewData()));
             return;
         }
 
         $userId = Auth::id() ?? 0;
+        $package = $this->currentOrGuestPackage((int)$userId);
         $folderId = $id ?: null;
 
         $currentFolder = $this->dashboardFolderForCurrentUser($folderId, $userId);
@@ -209,16 +290,17 @@ class HomeController {
             }
         }
 
-        View::render('home/index.php', [
+        View::render('home/index.php', array_merge([
             'files'   => $files,
             'folders' => $folders,
             'currentFolder'   => $currentFolder,
             'breadcrumbPath'  => $breadcrumbPath,
             'pageHeading' => $currentFolder ? $currentFolder['name'] : 'All Files',
             'pageTitle'   => $currentFolder ? ($currentFolder['name'] . " - " . $this->siteName()) : "Dashboard - " . $this->siteName(),
+            'package' => $package,
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
             'storageQuota' => $this->storageQuotaInfo(),
-        ]);
+        ], $this->packageSchemaViewData()));
     }
 
     public function guestUpload() {
@@ -232,13 +314,20 @@ class HomeController {
             exit;
         }
 
-        $guestPackage = Package::getGuestPackage();
+        $guestPackage = $this->currentOrGuestPackage();
         if (!$guestPackage) {
+            if ($this->packageSchemaUnavailable) {
+                View::render('home/landing.php', array_merge([
+                    'packages' => [],
+                ], $this->packageSchemaViewData()));
+                return;
+            }
+
             header('Location: /');
             exit;
         }
 
-        View::render('home/index.php', [
+        View::render('home/index.php', array_merge([
             'files' => [],
             'folders' => [],
             'currentFolder' => null,
@@ -246,7 +335,8 @@ class HomeController {
             'guestMode' => true,
             'pageHeading' => 'Guest Upload',
             'pageTitle' => 'Guest Upload - ' . $this->siteName(),
-        ]);
+            'package' => $guestPackage,
+        ], $this->packageSchemaViewData()));
     }
 
     public function trash() {
@@ -267,7 +357,7 @@ class HomeController {
         }
         $fileDeletionHistory = FileDeletionLog::getByUploaderPage((int)$userId, $deletionPage, $deletionPerPage, $deletionScope);
 
-        View::render('home/index.php', [
+        View::render('home/index.php', array_merge([
             'files'   => $files,
             'folders' => $folders,
             'currentFolder' => null,
@@ -280,9 +370,10 @@ class HomeController {
             'deletionHistoryPerPage' => $deletionPerPage,
             'deletionHistoryTotal' => $deletionHistoryTotal,
             'deletionHistoryPages' => $deletionHistoryPages,
+            'package' => $this->currentOrGuestPackage((int)$userId),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
             'storageQuota' => $this->storageQuotaInfo(),
-        ]);
+        ], $this->packageSchemaViewData()));
     }
 
     public function recent() {
@@ -302,16 +393,17 @@ class HomeController {
         $stmt->execute([$userId]);
         $files = $this->decryptFileRows($stmt->fetchAll());
 
-        View::render('home/index.php', [
+        View::render('home/index.php', array_merge([
             'files'   => $files,
             'folders' => [],
             'currentFolder' => null,
             'pageHeading' => 'Recent Files',
             'isRecent' => true,
             'pageTitle'   => "Recent Files - " . $this->siteName(),
+            'package' => $this->currentOrGuestPackage((int)$userId),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
             'storageQuota' => $this->storageQuotaInfo(),
-        ]);
+        ], $this->packageSchemaViewData()));
     }
 
     public function shared() {
@@ -330,23 +422,24 @@ class HomeController {
         $stmt->execute([$userId]);
         $files = $this->decryptFileRows($stmt->fetchAll());
 
-        View::render('home/index.php', [
+        View::render('home/index.php', array_merge([
             'files'   => $files,
             'folders' => [],
             'currentFolder' => null,
             'pageHeading' => 'Shared Files',
             'pageTitle'   => "Shared Files - " . $this->siteName(),
             'isShared' => true,
+            'package' => $this->currentOrGuestPackage((int)$userId),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
             'storageQuota' => $this->storageQuotaInfo(),
-        ]);
+        ], $this->packageSchemaViewData()));
     }
 
     public function faq() {
-        $packages = array_filter(Package::getAll(), function($pkg) {
-            return $pkg['level_type'] !== 'admin';
-        });
-        View::render('home/faq.php', ['packages' => $packages]);
+        $packages = $this->publicPackagesForDisplay();
+        View::render('home/faq.php', array_merge([
+            'packages' => $packages,
+        ], $this->packageSchemaViewData()));
     }
 
     public function api() {
@@ -419,7 +512,7 @@ class HomeController {
             }
         }
 
-        View::render('home/link_checker.php', [
+        View::render('home/link_checker.php', array_merge([
             'error' => $error,
             'success' => $success,
             'results' => $results,
@@ -429,7 +522,7 @@ class HomeController {
             'maxLinks' => $maxLinks,
             'captchaEnabled' => $captchaActive,
             'captchaSiteKey' => $captchaSiteKey,
-        ]);
+        ], $this->packageSchemaViewData()));
     }
 
 
@@ -441,11 +534,12 @@ class HomeController {
         $userId = Auth::id();
         $notifications = \App\Service\NotificationService::getRecent((int)($userId ?? 0), 50);
 
-        View::render('home/notifications.php', [
+        View::render('home/notifications.php', array_merge([
             'notifications' => $notifications,
+            'package' => $this->currentOrGuestPackage((int)($userId ?? 0)),
             'dailyDownloadLimitSummary' => $this->dailyDownloadLimitSummary(),
             'storageQuota' => $this->storageQuotaInfo(),
-        ]);
+        ], $this->packageSchemaViewData()));
     }
 
     public function markNotificationsRead() {
@@ -835,7 +929,11 @@ class HomeController {
             return ['', 'You must be logged in to copy files into your account.'];
         }
 
-        $package = Package::getUserPackage((int)(Auth::id() ?? 0));
+        $package = $this->currentOrGuestPackage((int)(Auth::id() ?? 0));
+        if ($this->packageSchemaUnavailable) {
+            return ['', 'Copy to account is temporarily unavailable while database maintenance is completed.'];
+        }
+
         if (!$this->canCurrentUserUseLinkCheckerCopy($package)) {
             return ['', 'Copy to account from Link Checker is disabled for your account level or by site configuration.'];
         }

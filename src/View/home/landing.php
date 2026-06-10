@@ -20,6 +20,8 @@ $affiliateEnabled = \App\Service\FeatureService::affiliateEnabled();
 $supportsRemoteUpload = false;
 $hasPaidPlan = false;
 $packageCount = count($packages);
+$packageSchemaUnavailable = !empty($packageSchemaUnavailable);
+$packageSchemaRecoveryMessage = trim((string)($packageSchemaRecoveryMessage ?? 'Package plans are temporarily unavailable while database maintenance is completed.'));
 
 $formatBytes = static function (int $bytes): string {
     if ($bytes <= 0) {
@@ -212,7 +214,7 @@ $liveSetupCards = [
         <div class="hero-panel-grid">
             <div class="hero-stat">
                 <span class="hero-stat-label"><?= htmlspecialchars((string)($panelContent['account_levels_label'] ?? 'Account Levels')) ?></span>
-                <strong><?= (int) $packageCount ?> plan<?= $packageCount === 1 ? '' : 's' ?></strong>
+                <strong><?= $packageSchemaUnavailable ? 'Plan maintenance' : ((int) $packageCount . ' plan' . ($packageCount === 1 ? '' : 's')) ?></strong>
                 <small><?= strip_tags(SiteContentService::renderMarkdown($hasPaidPlan ? (string)($panelContent['account_levels_summary_paid'] ?? 'Starts simple and scales into premium access') : (string)($panelContent['account_levels_summary_free'] ?? 'Built around the current access levels on this site'), $siteContentTokens)) ?></small>
             </div>
             <div class="hero-stat">
@@ -266,7 +268,7 @@ $liveSetupCards = [
                         <span class="preview-label">Dashboard</span>
                         <h3>Uploads, folders, and account tools</h3>
                     </div>
-                    <span class="preview-chip"><?= (int)$packageCount ?> live plan<?= $packageCount === 1 ? '' : 's' ?></span>
+                    <span class="preview-chip"><?= $packageSchemaUnavailable ? 'Plan maintenance' : ((int)$packageCount . ' live plan' . ($packageCount === 1 ? '' : 's')) ?></span>
                 </div>
                 <div class="preview-feature-grid">
                     <?php foreach ($workspaceHighlights as $item): ?>
@@ -335,6 +337,27 @@ $liveSetupCards = [
         <div class="section-rich-copy"><?= SiteContentService::renderMarkdown((string)($pricingSectionContent['intro'] ?? ''), $siteContentTokens) ?></div>
     </div>
     <div class="pricing">
+        <?php if ($packageSchemaUnavailable): ?>
+            <div class="price-card price-card-maintenance">
+                <span class="price-card-badge">Maintenance</span>
+                <div class="plan-label">Plans temporarily unavailable</div>
+                <div class="price-tag">DATABASE HEALTH</div>
+                <p class="price-copy"><?= htmlspecialchars($packageSchemaRecoveryMessage) ?></p>
+                <ul class="price-features">
+                    <li>Uploads and package-backed limits stay paused until repair finishes.</li>
+                    <li>Staff can sign in and run Schema Sync or Deep Repair from Database Health.</li>
+                    <li>No live request will rebuild package schema automatically.</li>
+                </ul>
+                <a href="<?= htmlspecialchars(SiteContentService::localizeUrl('/login', $pageLocale)) ?>" class="btn btn-outline">Staff Login</a>
+            </div>
+        <?php elseif (empty($packages)): ?>
+            <div class="price-card price-card-maintenance">
+                <span class="price-card-badge">Plans</span>
+                <div class="plan-label">No public plans are visible</div>
+                <div class="price-tag">CHECK BACK SOON</div>
+                <p class="price-copy">This site has not published a public account level yet.</p>
+            </div>
+        <?php endif; ?>
         <?php foreach ($packages as $pkg): ?>
             <?php
             $levelType = $pkg['level_type'] ?? 'free';
@@ -769,6 +792,13 @@ $liveSetupCards = [
         border: 1px solid var(--border-color);
         border-radius: 16px;
         text-align: left;
+    }
+    .price-card-maintenance {
+        grid-column: 1 / -1;
+        max-width: 720px;
+        justify-self: center;
+        border-color: #fed7aa;
+        background: linear-gradient(135deg, #fff7ed, #ffffff);
     }
     .price-card-badge {
         display: inline-flex;

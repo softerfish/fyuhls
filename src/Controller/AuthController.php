@@ -68,6 +68,19 @@ class AuthController {
         return in_array($privacy, ['public', 'private'], true) ? $privacy : 'public';
     }
 
+    private function postLoginRedirectForRole(string $role): string
+    {
+        if ($role === 'admin') {
+            if (Setting::get('db_drift_detected', '0') === '1') {
+                return '/admin/configuration?tab=security&sec_tab=health';
+            }
+
+            return '/admin';
+        }
+
+        return '/';
+    }
+
     private function normalizeEmailAddress(?string $email): string
     {
         $email = mb_strtolower(trim((string)$email));
@@ -333,11 +346,7 @@ class AuthController {
 
     public function login() {
         if (Auth::check()) {
-            if (Auth::isAdmin()) {
-                header('Location: /admin');
-            } else {
-                header('Location: /');
-            }
+            header('Location: ' . $this->postLoginRedirectForRole(Auth::role() ?? 'user'));
             exit;
         }
 
@@ -412,11 +421,7 @@ class AuthController {
                                 }
                                 Auth::logActivity('login', "User logged in via " . ($username === $user['email'] ? 'email' : 'username'));
                                 Logger::info('login success', ['user_id' => $user['id'], 'role' => $user['role'], 'ip' => $ip]);
-                                if ($user['role'] === 'admin') {
-                                    header('Location: /admin');
-                                } else {
-                                    header('Location: /');
-                                }
+                                header('Location: ' . $this->postLoginRedirectForRole((string)$user['role']));
                                 exit;
                             }
                         } else {

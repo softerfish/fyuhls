@@ -520,10 +520,7 @@ class UpdateService
                 'follow_location' => 1,
                 'max_redirects' => 5,
                 'ignore_errors' => false,
-                'header' => implode("\r\n", [
-                    'Accept: application/octet-stream',
-                    'User-Agent: Fyuhls-Updater',
-                ]),
+                'header' => implode("\r\n", $this->archiveRequestHeaders($url)),
             ],
         ]);
         $source = @fopen($url, 'rb', false, $context);
@@ -574,10 +571,7 @@ class UpdateService
             CURLOPT_TIMEOUT => 30,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_HTTPHEADER => [
-                'Accept: application/octet-stream',
-                'User-Agent: Fyuhls-Updater',
-            ],
+            CURLOPT_HTTPHEADER => $this->archiveRequestHeaders($url),
             CURLOPT_NOPROGRESS => false,
             CURLOPT_PROGRESSFUNCTION => static function ($curl, float $downloadTotal, float $downloaded, float $uploadTotal, float $uploaded): int {
                 return $downloaded > self::MAX_ARCHIVE_BYTES ? 1 : 0;
@@ -614,6 +608,22 @@ class UpdateService
             @unlink($destination);
             throw new \RuntimeException('The update archive download was empty or exceeded the maximum allowed size.');
         }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function archiveRequestHeaders(string $url): array
+    {
+        $host = strtolower((string)(parse_url($url, PHP_URL_HOST) ?: ''));
+        $accept = $host === 'api.github.com'
+            ? 'application/vnd.github+json'
+            : 'application/octet-stream';
+
+        return [
+            'Accept: ' . $accept,
+            'User-Agent: Fyuhls-Updater',
+        ];
     }
 
     private function sanitizeDiagnostic(string $message): string

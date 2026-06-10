@@ -3,7 +3,7 @@
 ## v1.0.1
 
 - Fixed an upgrade recovery lockout where `packages` schema drift could fatal public/package pages before staff could log in and run Database Health schema repair.
-- Added cURL fallbacks and admin diagnostics for GitHub release checks and update archive downloads when PHP stream URL access is unavailable or unreliable.
+- Added cURL fallbacks, GitHub API-compatible archive headers, and admin diagnostics for release checks and update downloads when PHP stream URL access is unavailable or unreliable.
 
 ## v1.0.0
 

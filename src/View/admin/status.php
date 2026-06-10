@@ -480,6 +480,9 @@ renderAdminPageHeader(
 
         <?php if (!empty($updateStatus['error'])): ?>
             <div class="alert alert-warning mt-3 mb-0"><?= htmlspecialchars((string)$updateStatus['error']) ?></div>
+            <?php if (!empty($updateStatus['error_detail'])): ?>
+                <div class="status-muted-copy mt-2">Diagnostic detail: <?= htmlspecialchars((string)$updateStatus['error_detail']) ?></div>
+            <?php endif; ?>
         <?php elseif (!empty($updateStatus['update_available'])): ?>
             <div class="status-note-card mt-3 mb-0">
                 <div class="status-note-label">Update Available</div>

@@ -23,18 +23,23 @@ class UpdateService
     /** @var array<string, callable> */
     private array $environmentChecks;
 
+    /** @var list<callable(string): string|null> */
+    private array $releaseTransports;
+
     private string $projectRoot;
 
     public function __construct(
         ?callable $latestReleaseFetcher = null,
         ?string $projectRoot = null,
         ?callable $archiveDownloader = null,
-        array $environmentChecks = []
+        array $environmentChecks = [],
+        array $releaseTransports = []
     )
     {
         $this->latestReleaseFetcher = $latestReleaseFetcher;
         $this->archiveDownloader = $archiveDownloader;
         $this->environmentChecks = array_filter($environmentChecks, 'is_callable');
+        $this->releaseTransports = array_values(array_filter($releaseTransports, 'is_callable'));
         $this->projectRoot = $projectRoot !== null
             ? rtrim($projectRoot, '/\\')
             : (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2));
@@ -82,6 +87,7 @@ class UpdateService
             $release = $this->fetchLatestRelease($repo, $refresh);
         } catch (\Throwable $e) {
             $status['error'] = 'Could not check the latest GitHub release. Try again later or use the manual upgrade path.';
+            $status['error_detail'] = $this->sanitizeDiagnostic($e->getMessage());
             return $status;
         }
 
@@ -301,6 +307,58 @@ class UpdateService
 
         $url = self::GITHUB_API_BASE . '/repos/' . rawurlencode(explode('/', $repo)[0])
             . '/' . rawurlencode(explode('/', $repo)[1]) . '/releases/latest';
+
+        $json = $this->fetchLatestReleaseJson($url);
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('GitHub latest release response was invalid JSON.');
+        }
+
+        if (isset($decoded['message']) && !isset($decoded['tag_name'])) {
+            throw new \RuntimeException('GitHub latest release lookup failed.');
+        }
+
+        return $decoded;
+    }
+
+    private function fetchLatestReleaseJson(string $url): string
+    {
+        $failures = [];
+        $transports = $this->releaseTransports;
+        if ($transports === []) {
+            $transports = [
+                fn (string $targetUrl): ?string => $this->fetchLatestReleaseJsonWithStreams($targetUrl),
+                fn (string $targetUrl): ?string => $this->fetchLatestReleaseJsonWithCurl($targetUrl),
+            ];
+        }
+
+        foreach ($transports as $transport) {
+            try {
+                $json = $transport($url);
+                if (is_string($json) && trim($json) !== '') {
+                    $decoded = json_decode($json, true);
+                    if (!is_array($decoded)) {
+                        $failures[] = 'transport returned invalid JSON';
+                        continue;
+                    }
+                    return $json;
+                }
+                $failures[] = 'transport returned an empty response';
+            } catch (\Throwable $e) {
+                $failures[] = $this->sanitizeDiagnostic($e->getMessage());
+            }
+        }
+
+        $suffix = $failures !== [] ? ' Details: ' . implode(' | ', array_unique($failures)) : '';
+        throw new \RuntimeException('GitHub latest release response was empty.' . $suffix);
+    }
+
+    private function fetchLatestReleaseJsonWithStreams(string $url): ?string
+    {
+        if (!filter_var(ini_get('allow_url_fopen'), FILTER_VALIDATE_BOOLEAN)) {
+            throw new \RuntimeException('PHP URL fopen wrappers are disabled.');
+        }
+
         $context = stream_context_create([
             'http' => [
                 'method' => 'GET',
@@ -318,16 +376,56 @@ class UpdateService
             throw new \RuntimeException('GitHub latest release response was empty.');
         }
 
-        $decoded = json_decode($json, true);
-        if (!is_array($decoded)) {
-            throw new \RuntimeException('GitHub latest release response was invalid JSON.');
+        return $json;
+    }
+
+    private function fetchLatestReleaseJsonWithCurl(string $url): ?string
+    {
+        if (!function_exists('curl_init')) {
+            throw new \RuntimeException('PHP cURL extension is unavailable.');
         }
 
-        if (isset($decoded['message']) && !isset($decoded['tag_name'])) {
-            throw new \RuntimeException('GitHub latest release lookup failed.');
+        $ch = curl_init($url);
+        if ($ch === false) {
+            throw new \RuntimeException('PHP cURL could not initialize the release request.');
         }
 
-        return $decoded;
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/vnd.github+json',
+                'User-Agent: Fyuhls-Updater',
+            ],
+        ]);
+
+        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+        }
+
+        $json = curl_exec($ch);
+        $error = curl_error($ch);
+        $errno = curl_errno($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+
+        if ($errno !== 0 || !is_string($json)) {
+            throw new \RuntimeException('GitHub latest release cURL request failed: ' . ($error !== '' ? $error : 'unknown error'));
+        }
+
+        if (trim($json) === '') {
+            throw new \RuntimeException('GitHub latest release cURL response was empty.');
+        }
+
+        if ($httpCode < 200 || $httpCode >= 400) {
+            throw new \RuntimeException('GitHub latest release cURL response returned HTTP ' . $httpCode . '.');
+        }
+
+        return $json;
     }
 
     private function validatedReleaseVersion(array $release): string
@@ -397,6 +495,24 @@ class UpdateService
             return;
         }
 
+        try {
+            $this->downloadArchiveWithStreams($url, $destination);
+            return;
+        } catch (\Throwable) {
+            if (is_file($destination)) {
+                @unlink($destination);
+            }
+        }
+
+        $this->downloadArchiveWithCurl($url, $destination);
+    }
+
+    private function downloadArchiveWithStreams(string $url, string $destination): void
+    {
+        if (!filter_var(ini_get('allow_url_fopen'), FILTER_VALIDATE_BOOLEAN)) {
+            throw new \RuntimeException('PHP URL fopen wrappers are disabled.');
+        }
+
         $context = stream_context_create([
             'http' => [
                 'method' => 'GET',
@@ -430,6 +546,84 @@ class UpdateService
             fclose($source);
             fclose($target);
         }
+    }
+
+    private function downloadArchiveWithCurl(string $url, string $destination): void
+    {
+        if (!function_exists('curl_init')) {
+            throw new \RuntimeException('PHP cURL extension is unavailable.');
+        }
+
+        $target = @fopen($destination, 'xb');
+        if ($target === false) {
+            throw new \RuntimeException('The update archive could not be staged safely.');
+        }
+
+        $ch = curl_init($url);
+        if ($ch === false) {
+            fclose($target);
+            @unlink($destination);
+            throw new \RuntimeException('PHP cURL could not initialize the archive download.');
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_FILE => $target,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/octet-stream',
+                'User-Agent: Fyuhls-Updater',
+            ],
+            CURLOPT_NOPROGRESS => false,
+            CURLOPT_PROGRESSFUNCTION => static function ($curl, float $downloadTotal, float $downloaded, float $uploadTotal, float $uploaded): int {
+                return $downloaded > self::MAX_ARCHIVE_BYTES ? 1 : 0;
+            },
+        ]);
+
+        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+        }
+        if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+        }
+
+        $success = curl_exec($ch);
+        $error = curl_error($ch);
+        $errno = curl_errno($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        fclose($target);
+
+        if ($success !== true || $errno !== 0) {
+            @unlink($destination);
+            throw new \RuntimeException('The update archive cURL download failed: ' . ($error !== '' ? $error : 'unknown error'));
+        }
+
+        if ($httpCode < 200 || $httpCode >= 400) {
+            @unlink($destination);
+            throw new \RuntimeException('The update archive cURL download returned HTTP ' . $httpCode . '.');
+        }
+
+        clearstatcache(true, $destination);
+        $size = filesize($destination);
+        if (!is_int($size) || $size <= 0 || $size > self::MAX_ARCHIVE_BYTES) {
+            @unlink($destination);
+            throw new \RuntimeException('The update archive download was empty or exceeded the maximum allowed size.');
+        }
+    }
+
+    private function sanitizeDiagnostic(string $message): string
+    {
+        $diagnostic = trim((string)preg_replace('/\s+/', ' ', $message));
+        if ($diagnostic === '') {
+            return 'No transport detail available.';
+        }
+
+        return strlen($diagnostic) > 300 ? substr($diagnostic, 0, 297) . '...' : $diagnostic;
     }
 
     /**
